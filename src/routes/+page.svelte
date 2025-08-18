@@ -31,6 +31,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>Login | i/Kalibro Admin Portal</title>
+</svelte:head>
+
 <!-- Main Layout -->
 <div class="min-h-screen flex">
   <!-- Left side - Login Form -->
@@ -141,67 +145,55 @@
           </button>
         </div>
       </form>
-
-      <div class="mt-6">
-        <div class="text-center text-xs text-gray-500">
-          Demo credentials: Use any username and password
-        </div>
-      </div>
     </div>
   </div>
 
-  <!-- Right side - Feature showcase with background image -->
-  <div
-    class="hidden lg:block lg:flex-1 relative bg-cover bg-center bg-no-repeat"
-    style="background-image: url('/static/pictures/login_bg.png');"
-  >
-    <!-- Dark overlay for better text readability -->
-    <div class="absolute inset-0 bg-black bg-opacity-40"></div>
-    
+  <!-- Right side - Feature showcase with solid background -->
+  <div class="hidden lg:block lg:flex-1 relative bg-slate-900">
     <!-- Content overlay -->
     <div class="relative flex flex-col justify-center items-center h-full p-12 text-white z-10">
       <div class="max-w-md text-center">
-        <h1 class="text-4xl font-bold mb-6 drop-shadow-lg">
+        <h1 class="text-4xl font-bold mb-6">
           Smart Library Management
         </h1>
-        <p class="text-xl mb-8 text-blue-100 drop-shadow-md">
+        <p class="text-xl mb-8 text-slate-200">
           Streamline your library operations with our comprehensive management system
         </p>
         <div class="space-y-6">
           <div class="flex items-center space-x-4">
-            <div class="bg-white bg-opacity-20 p-3 rounded-full backdrop-blur-sm">
-              <!-- Updated BookOpen SVG to match layout.svelte -->
-              <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+            <div class="bg-white bg-opacity-30 p-3 rounded-full">
+              <!-- Library/Database Icon -->
+              <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
               </svg>
             </div>
             <div class="text-left">
-              <h3 class="font-semibold drop-shadow-md">Book Management</h3>
-              <p class="text-sm text-blue-100 drop-shadow-sm">Organize and track your entire collection</p>
+              <h3 class="font-semibold">Book Management</h3>
+              <p class="text-sm text-slate-300">Organize and track your entire collection</p>
             </div>
           </div>
           <div class="flex items-center space-x-4">
-            <div class="bg-white bg-opacity-20 p-3 rounded-full backdrop-blur-sm">
-              <!-- Updated Users SVG to match layout.svelte -->
-              <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+            <div class="bg-white bg-opacity-30 p-3 rounded-full">
+              <!-- ID Card/Badge Icon -->
+              <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/>
               </svg>
             </div>
             <div class="text-left">
-              <h3 class="font-semibold drop-shadow-md">Member Management</h3>
-              <p class="text-sm text-blue-100 drop-shadow-sm">Manage students and faculty accounts</p>
+              <h3 class="font-semibold">Member Management</h3>
+              <p class="text-sm text-slate-300">Manage students and faculty accounts</p>
             </div>
           </div>
           <div class="flex items-center space-x-4">
-            <div class="bg-white bg-opacity-20 p-3 rounded-full backdrop-blur-sm">
-              <!-- Updated Reports SVG to match layout.svelte -->
-              <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            <div class="bg-white bg-opacity-30 p-3 rounded-full">
+              <!-- Chart/Analytics Icon -->
+              <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
               </svg>
             </div>
             <div class="text-left">
-              <h3 class="font-semibold drop-shadow-md">Analytics & Reports</h3>
-              <p class="text-sm text-blue-100 drop-shadow-sm">Insights to optimize library operations</p>
+              <h3 class="font-semibold">Analytics & Reports</h3>
+              <p class="text-sm text-slate-300">Insights to optimize library operations</p>
             </div>
           </div>
         </div>
