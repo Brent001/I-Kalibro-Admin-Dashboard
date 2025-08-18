@@ -58,6 +58,7 @@
 	],
 	"dependencies": {
 		"@neondatabase/serverless": "^0.10.4",
+		"@upstash/redis": "^1.35.3",
 		"bcrypt": "^6.0.0",
 		"drizzle-orm": "^0.40.0",
 		"jsonwebtoken": "^9.0.2",

@@ -37,12 +37,11 @@
   <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8">
     <div class="max-w-md w-full space-y-8">
       <div class="text-center">
-        <div class="mx-auto h-16 w-16 bg-blue-600 rounded-full flex items-center justify-center">
-          <!-- BookOpen SVG -->
+        <div class="mx-auto h-16 w-16 bg-slate-900 rounded-full flex items-center justify-center">
+          <!-- Updated BookOpen SVG to match layout.svelte -->
           <svg class="h-8 w-8 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M2 7V19a2 2 0 002 2h16a2 2 0 002-2V7" />
-            <path d="M2 7a2 2 0 012-2h16a2 2 0 012 2" />
-            <path d="M12 3v18" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+            <circle cx="12" cy="12" r="2"/>
           </svg>
         </div>
         <h2 class="mt-6 text-3xl font-bold text-gray-900">
@@ -68,7 +67,7 @@
               type="text"
               required
               bind:value={username}
-              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-slate-500 focus:border-slate-500"
               placeholder="Enter your username"
             />
           </div>
@@ -83,7 +82,7 @@
                 type={showPassword ? 'text' : 'password'}
                 required
                 bind:value={password}
-                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-slate-500 focus:border-slate-500"
                 placeholder="Enter your password"
               />
               <button
@@ -120,14 +119,14 @@
               id="remember-me"
               name="remember-me"
               type="checkbox"
-              class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              class="h-4 w-4 text-slate-600 focus:ring-slate-500 border-gray-300 rounded"
             />
             <label for="remember-me" class="ml-2 block text-sm text-gray-900">
               Remember me
             </label>
           </div>
           <div class="text-sm">
-            <a href="#" class="font-medium text-blue-600 hover:text-blue-500">
+            <a href="#" class="font-medium text-slate-600 hover:text-slate-500">
               Forgot password?
             </a>
           </div>
@@ -136,7 +135,7 @@
         <div>
           <button
             type="submit"
-            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out"
+            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition duration-150 ease-in-out"
           >
             Sign in to Dashboard
           </button>
@@ -171,11 +170,9 @@
         <div class="space-y-6">
           <div class="flex items-center space-x-4">
             <div class="bg-white bg-opacity-20 p-3 rounded-full backdrop-blur-sm">
-              <!-- BookOpen SVG -->
+              <!-- Updated BookOpen SVG to match layout.svelte -->
               <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M2 7V19a2 2 0 002 2h16a2 2 0 002-2V7" />
-                <path d="M2 7a2 2 0 012-2h16a2 2 0 012 2" />
-                <path d="M12 3v18" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
               </svg>
             </div>
             <div class="text-left">
@@ -185,11 +182,9 @@
           </div>
           <div class="flex items-center space-x-4">
             <div class="bg-white bg-opacity-20 p-3 rounded-full backdrop-blur-sm">
-              <!-- Users SVG -->
+              <!-- Updated Users SVG to match layout.svelte -->
               <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <circle cx="9" cy="7" r="4" />
-                <circle cx="17" cy="7" r="4" />
-                <path d="M2 21v-2a4 4 0 014-4h12a4 4 0 014 4v2" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
               </svg>
             </div>
             <div class="text-left">
@@ -199,11 +194,9 @@
           </div>
           <div class="flex items-center space-x-4">
             <div class="bg-white bg-opacity-20 p-3 rounded-full backdrop-blur-sm">
-              <!-- BarChart3 SVG -->
+              <!-- Updated Reports SVG to match layout.svelte -->
               <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <rect x="3" y="12" width="4" height="8" />
-                <rect x="9" y="8" width="4" height="12" />
-                <rect x="15" y="4" width="4" height="16" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
               </svg>
             </div>
             <div class="text-left">

@@ -3,23 +3,273 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { writable } from "svelte/store";
+  import { browser } from "$app/environment";
 
   export let onLogout: () => void = () => {};
   
   const sidebarOpen = writable(false);
+  let isLoggingOut = false;
+  let showLogoutOptions = false;
+  
+  // User session state
+  let user: {
+    id?: string;
+    name?: string;
+    username?: string;
+    email?: string;
+    role?: string;
+    isActive?: boolean;
+  } | null = null;
+  let isLoadingUser = true;
+  let sessionError = false;
 
   const navigation = [
-    { name: "Dashboard", href: "/dashboard", icon: "📊" },
-    { name: "Books", href: "/books", icon: "📚" },
-    { name: "Members", href: "/members", icon: "👥" },
-    { name: "Transactions", href: "/transactions", icon: "🔄" },
-    { name: "Reports", href: "/reports", icon: "📈" },
-    { name: "Settings", href: "/settings", icon: "⚙️" },
+    { 
+      name: "Dashboard", 
+      href: "/dashboard", 
+      icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2 2z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8 5a2 2 0 012-2h4a2 2 0 012 2v4H8V5z"/>
+      </svg>` 
+    },
+    { 
+      name: "Books", 
+      href: "/dashboard/books", 
+      icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+      </svg>` 
+    },
+    { 
+      name: "Members", 
+      href: "/members", 
+      icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+      </svg>` 
+    },
+    { 
+      name: "Transactions", 
+      href: "/transactions", 
+      icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+      </svg>` 
+    },
+    { 
+      name: "Reports", 
+      href: "/reports", 
+      icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>` 
+    },
+    { 
+      name: "Settings", 
+      href: "/settings", 
+      icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>` 
+    },
   ];
 
   let currentPath = "";
   $: currentPath = $page.url.pathname;
+
+  // Fetch user session data
+  async function fetchUserSession() {
+    if (!browser) return;
+    
+    try {
+      isLoadingUser = true;
+      sessionError = false;
+      
+      const response = await fetch('/api/auth/session', {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data?.user) {
+          user = result.data.user;
+        } else {
+          console.warn('Invalid session response:', result);
+          sessionError = true;
+        }
+      } else if (response.status === 401) {
+        // Not authenticated, redirect to login
+        user = null;
+        if (browser) {
+          window.location.href = '/';
+        }
+      } else {
+        console.error('Session fetch failed:', response.status);
+        sessionError = true;
+      }
+    } catch (error) {
+      console.error('Error fetching user session:', error);
+      sessionError = true;
+    } finally {
+      isLoadingUser = false;
+    }
+  }
+
+  // Advanced logout function
+  async function handleLogout(logoutAllDevices: boolean = false) {
+    if (isLoggingOut) return;
+    
+    isLoggingOut = true;
+    showLogoutOptions = false;
+
+    try {
+      const response = await fetch('/api/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          logoutAllDevices,
+          reason: 'user_logout'
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Show success message briefly
+        if (logoutAllDevices) {
+          showNotification('Logged out from all devices successfully', 'success');
+        } else {
+          showNotification('Logged out successfully', 'success');
+        }
+        
+        // Clear user data
+        user = null;
+        
+        // Call the parent logout handler
+        onLogout();
+        
+        // Small delay to show the message, then redirect
+        setTimeout(() => {
+          if (browser) {
+            window.location.href = '/';
+          }
+        }, 1000);
+      } else {
+        // Handle partial success or errors
+        console.error('Logout error:', result.message);
+        showNotification(result.message || 'Logout completed with some issues', 'warning');
+        
+        // Still redirect even if there were issues
+        setTimeout(() => {
+          if (browser) {
+            window.location.href = '/';
+          }
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Logout request failed:', error);
+      showNotification('Network error during logout. Redirecting...', 'error');
+      
+      // Force redirect even on network error
+      setTimeout(() => {
+        if (browser) {
+          window.location.href = '/';
+        }
+      }, 2000);
+    } finally {
+      isLoggingOut = false;
+    }
+  }
+
+  // Simple notification system
+  let notifications: Array<{id: number; message: string; type: 'success' | 'error' | 'warning'}> = [];
+  let notificationId = 0;
+
+  function showNotification(message: string, type: 'success' | 'error' | 'warning' = 'success') {
+    const id = ++notificationId;
+    notifications = [...notifications, { id, message, type }];
+    
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+      notifications = notifications.filter(n => n.id !== id);
+    }, 5000);
+  }
+
+  function removeNotification(id: number) {
+    notifications = notifications.filter(n => n.id !== id);
+  }
+
+  // Close logout options when clicking outside
+  function handleClickOutside(event: Event) {
+    if (showLogoutOptions) {
+      const target = event.target as Element;
+      if (!target.closest('.logout-menu')) {
+        showLogoutOptions = false;
+      }
+    }
+  }
+
+  onMount(() => {
+    if (browser) {
+      // Fetch user session on component mount
+      fetchUserSession();
+      
+      // Set up click outside handler
+      document.addEventListener('click', handleClickOutside);
+      
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  });
+
+  // Add a helper to capitalize the role
+  function capitalize(str: string) {
+    return str ? str.charAt(0).toUpperCase() + str.slice(1) : "";
+  }
 </script>
+
+<!-- Notifications -->
+{#if notifications.length > 0}
+  <div class="fixed top-4 right-4 z-[100] space-y-2">
+    {#each notifications as notification (notification.id)}
+      <div 
+        class="flex items-center justify-between px-4 py-3 rounded-lg shadow-lg transition-all duration-300 ease-in-out
+          {notification.type === 'success' ? 'bg-green-500 text-white' : 
+           notification.type === 'error' ? 'bg-red-500 text-white' : 
+           'bg-yellow-500 text-white'}"
+      >
+        <div class="flex items-center space-x-2">
+          {#if notification.type === 'success'}
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+            </svg>
+          {:else if notification.type === 'error'}
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          {:else}
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+            </svg>
+          {/if}
+          <span class="text-sm font-medium">{notification.message}</span>
+        </div>
+        <button 
+          on:click={() => removeNotification(notification.id)}
+          class="ml-4 text-white/80 hover:text-white"
+        >
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    {/each}
+  </div>
+{/if}
 
 <div class="flex h-screen bg-gray-50">
   <!-- Sidebar -->
@@ -32,7 +282,8 @@
       <div class="flex items-center space-x-3">
         <div class="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
           <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5V6.5A2.5 2.5 0 016.5 4H20v13M4 19.5V21h16"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+            <circle cx="12" cy="12" r="2"/>
           </svg>
         </div>
         <div>
@@ -60,7 +311,9 @@
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}"
               on:click|preventDefault={() => { goto(item.href); sidebarOpen.set(false); }}
             >
-              <span class="text-lg">{item.icon}</span>
+              <span class="flex-shrink-0">
+                {@html item.icon}
+              </span>
               <span>{item.name}</span>
             </a>
           </li>
@@ -72,24 +325,86 @@
     <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200">
       <div class="flex items-center space-x-3 mb-3">
         <div class="w-8 h-8 bg-slate-900 rounded-full flex items-center justify-center">
-          <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-          </svg>
+          {#if isLoadingUser}
+            <div class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+          {:else}
+            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          {/if}
         </div>
-        <div>
-          <p class="text-sm font-medium text-gray-900">Admin User</p>
-          <p class="text-xs text-gray-500">admin@kalibro.com</p>
+        <div class="flex-1 min-w-0">
+          {#if isLoadingUser}
+            <div class="animate-pulse">
+              <div class="h-3 bg-gray-200 rounded w-20 mb-1"></div>
+              <div class="h-2 bg-gray-200 rounded w-24"></div>
+            </div>
+          {:else if sessionError}
+            <p class="text-sm font-medium text-red-600">Session Error</p>
+            <p class="text-xs text-red-500">Unable to load user data</p>
+          {:else if user}
+            <p class="text-sm font-medium text-gray-900 truncate" title={user.name || user.username}>
+              {user.name || user.username}
+            </p>
+            <p class="text-xs text-gray-500 truncate" title={user.email}>
+              {user.email}
+            </p>
+          {:else}
+            <p class="text-sm font-medium text-gray-900">Guest User</p>
+            <p class="text-xs text-gray-500">Not authenticated</p>
+          {/if}
         </div>
       </div>
-      <button
-        on:click={onLogout}
-        class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-lg transition-colors duration-200"
-      >
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-        </svg>
-        <span>Sign out</span>
-      </button>
+      
+      <!-- Logout Button with Dropdown -->
+      <div class="relative logout-menu">
+        <button
+          on:click|stopPropagation={() => showLogoutOptions = !showLogoutOptions}
+          class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-lg transition-colors duration-200
+            {isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}"
+          disabled={isLoggingOut || isLoadingUser}
+        >
+          {#if isLoggingOut}
+            <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Signing out...</span>
+          {:else}
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17.502 14.82A19.941 19.941 0 0012 16c-1.922 0-3.781.27-5.502.82M12 2v14m0 0l4-4m-4 4l-4-4"/>
+            </svg>
+            <span>Sign out</span>
+            <svg class="h-3 w-3 ml-auto transition-transform {showLogoutOptions ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          {/if}
+        </button>
+
+        <!-- Logout Options Dropdown -->
+        {#if showLogoutOptions && !isLoggingOut && !isLoadingUser}
+          <div class="absolute bottom-full left-0 right-0 mb-2 bg-white border border-gray-200 rounded-lg shadow-lg py-1">
+            <button
+              on:click={() => handleLogout(false)}
+              class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17.502 14.82A19.941 19.941 0 0012 16c-1.922 0-3.781.27-5.502.82M12 2v14m0 0l4-4m-4 4l-4-4"/>
+              </svg>
+              <span>Sign out this device</span>
+            </button>
+            <button
+              on:click={() => handleLogout(true)}
+              class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <span>Sign out all devices</span>
+            </button>
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
 
@@ -105,7 +420,11 @@
             </svg>
           </button>
           <h1 class="text-2xl font-semibold text-gray-900">
-            {navigation.find(nav => nav.href === currentPath)?.name || "Dashboard"}
+            {#if currentPath === "/dashboard" && user?.role}
+              {capitalize(user.role)} Dashboard
+            {:else}
+              {navigation.find(nav => nav.href === currentPath)?.name || "Dashboard"}
+            {/if}
           </h1>
         </div>
         <div class="flex items-center space-x-4">
@@ -116,9 +435,13 @@
             <span class="absolute top-1 right-1 h-3 w-3 bg-red-500 rounded-full"></span>
           </button>
           <div class="w-8 h-8 bg-slate-900 rounded-full flex items-center justify-center">
-            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-            </svg>
+            {#if isLoadingUser}
+              <div class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+            {:else}
+              <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            {/if}
           </div>
         </div>
       </div>
@@ -133,7 +456,7 @@
   <!-- Overlay -->
   {#if $sidebarOpen}
     <div
-      class="fixed inset-0 z-40 bg-black bg-opacity-25 lg:hidden"
+      class="fixed inset-0 z-40 bg-white/30 backdrop-blur-sm lg:hidden"
       on:click={() => sidebarOpen.set(false)}
     ></div>
   {/if}
