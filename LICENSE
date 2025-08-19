@@ -1,47 +1,41 @@
-# PROPRIETARY SOFTWARE LICENSE
+SPDX-License-Identifier: LicenseRef-Brent001-Proprietary
 
-**I-Kalibro-Admin-Dashboard**  
-Copyright (c) 2025 Brent001. All rights reserved.
+PROPRIETARY SOFTWARE LICENSE AGREEMENT  
+I-Kalibro-Admin-Dashboard  
+Copyright © 2025 Brent001. All Rights Reserved.  
 
-## GRANT OF RIGHTS
+1. GRANT OF RIGHTS  
+This software and its associated files (the “Software”) are the exclusive intellectual property of Brent001 (“Owner”).  
+Access to this repository is provided strictly for portfolio review and evaluation of the Owner’s technical skills.  
 
-This software and associated documentation files (the "Software") are the exclusive intellectual property of Brent001 ("Owner"). By accessing this repository, you acknowledge and agree to the following terms:
+2. PERMITTED USES  
+- Viewing Only: The Software may be viewed solely for the purpose of evaluating the Owner’s work.  
+- Conceptual Reference: Limited reference to coding concepts is permitted for personal learning, provided no code is copied, reproduced, or implemented.  
 
-## PERMITTED USES
+3. PROHIBITED USES  
+Without prior written consent of the Owner, the following are strictly prohibited:  
+- Educational Use: No university, college, or educational institution may use, copy, reference, or distribute this Software for academic purposes.  
+- Academic Submissions: The Software may not be submitted, in whole or in part, as coursework, projects, or academic deliverables.  
+- Commercial Use: No use, sale, licensing, or monetization of this Software.  
+- Copying/Forking/Cloning: No duplication, forking, or reproduction of the Software.  
+- Modification/Derivatives: No creation of derivative works, adaptations, or modifications.  
+- Distribution: No sharing, re-uploading, or redistribution in any form.  
+- Reverse Engineering: No reverse engineering, decompilation, or disassembly.  
 
-- **Portfolio Review Only**: This Software may be viewed solely for the purpose of evaluating the Owner's technical skills and capabilities
-- **Reference Only**: Code may be referenced for learning concepts, but not copied, modified, or implemented
+4. CAPSTONE PROJECT PROTECTION  
+This Software was developed as an original capstone project.  
+Unauthorized academic use or submission of this Software constitutes academic dishonesty and copyright infringement.  
 
-## PROHIBITED USES
+5. ENFORCEMENT  
+- Violations will result in immediate DMCA takedown requests.  
+- The Owner reserves the right to pursue legal action for academic or commercial misuse.  
+- Educational violations will be reported to the relevant institution.  
 
-The following activities are strictly **FORBIDDEN** without express written permission:
+6. DISCLAIMER  
+THE SOFTWARE IS PROVIDED “AS IS” FOR VIEWING PURPOSES ONLY.  
+THE OWNER MAKES NO WARRANTIES, EXPRESS OR IMPLIED, AND ASSUMES NO LIABILITY FOR ANY USE OF THIS SOFTWARE.  
 
-- ❌ **Educational Institution Use**: No college, university, or educational organization may use, copy, modify, distribute, or reference this Software for any academic purpose
-- ❌ **Academic Submissions**: This Software may not be submitted as coursework, assignments, capstone projects, or any academic deliverable
-- ❌ **Commercial Use**: No commercial use, sale, or monetization of any kind
-- ❌ **Copying/Cloning**: No copying, cloning, forking, or reproducing the Software
-- ❌ **Modification**: No creating derivative works or modifications
-- ❌ **Distribution**: No sharing, uploading, or distributing the Software
-- ❌ **Reverse Engineering**: No reverse engineering, decompiling, or disassembling
+7. CONTACT  
+For licensing inquiries or permissions, contact the Owner via GitHub: @Brent001  
 
-## CAPSTONE PROJECT PROTECTION
-
-This Software was developed as an original capstone project. Any use of this Software or its concepts in academic settings constitutes academic dishonesty and copyright infringement.
-
-## ENFORCEMENT
-
-- Unauthorized use will result in immediate DMCA takedown requests
-- Legal action will be pursued for academic or commercial violations
-- All violations will be reported to relevant educational institutions
-
-## CONTACT
-
-For licensing inquiries or permissions, contact the Owner through GitHub: @Brent001
-
-## DISCLAIMER
-
-THE SOFTWARE IS PROVIDED "AS IS" FOR VIEWING PURPOSES ONLY. THE OWNER MAKES NO WARRANTIES AND ASSUMES NO LIABILITY FOR ANY USE OF THIS SOFTWARE.
-
----
-
-**⚠️ WARNING**: This repository is monitored. Unauthorized use will be prosecuted to the full extent of the law.
+⚠️ WARNING: This repository is actively monitored. Unauthorized use will be prosecuted to the fullest extent of the law.
