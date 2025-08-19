@@ -29,27 +29,45 @@ const setupSchema = z.object({
     confirmPassword: z.string()
 });
 
-export const load: PageServerLoad = async () => {
+// Helper function to check if setup is completed
+async function isSetupCompleted(): Promise<boolean> {
     try {
         const [{ count: userCount }] = await db.select({ count: count() }).from(account);
-
-        if (userCount > 0) {
-            throw redirect(302, '/login');
-        }
-
-        return {};
+        return userCount > 0;
     } catch (error) {
-        if (error instanceof Response) {
-            throw error;
-        }
-        console.error('Setup page load error:', error);
-        return {};
+        console.error('Error checking setup status:', error);
+        // If we can't check, assume setup is needed to avoid blocking access
+        return false;
     }
+}
+
+export const load: PageServerLoad = async () => {
+    // Check if setup is already completed
+    const setupCompleted = await isSetupCompleted();
+    
+    if (setupCompleted) {
+        // Force redirect to login if setup is already done
+        throw redirect(302, '/');
+    }
+
+    // Setup is needed, allow access to setup page
+    return {
+        setupRequired: true
+    };
 };
 
 export const actions: Actions = {
     default: async ({ request }) => {
         try {
+            // Double-check setup status before processing form
+            const setupCompleted = await isSetupCompleted();
+            
+            if (setupCompleted) {
+                return fail(403, { 
+                    errorMsg: 'System setup has already been completed. Please use the login page.' 
+                });
+            }
+
             const formData = await request.formData();
             
             // Extract form data
@@ -95,18 +113,15 @@ export const actions: Actions = {
 
             const { name, email, username, password } = validationResult.data;
 
-            // Check if setup is already completed
-            const [{ count: userCount }] = await db
-                .select({ count: count() })
-                .from(account);
-                
-            if (userCount > 0) {
+            // Final check before creating account (race condition protection)
+            const finalCheck = await isSetupCompleted();
+            if (finalCheck) {
                 return fail(403, { 
-                    errorMsg: 'System setup has already been completed.' 
+                    errorMsg: 'System setup has already been completed by another user.' 
                 });
             }
 
-            // Check for duplicate email
+            // Check for duplicate email (shouldn't happen in first setup, but good to have)
             const existingEmail = await db
                 .select()
                 .from(account)

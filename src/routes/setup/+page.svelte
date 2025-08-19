@@ -1,6 +1,8 @@
 <script lang="ts">
     import { enhance } from '$app/forms';
     import { page } from '$app/stores';
+    import { goto } from '$app/navigation';
+    import { onMount } from 'svelte';
     
     type SetupForm = {
         name?: string;
@@ -8,7 +10,9 @@
         username?: string;
         errorMsg?: string;
     };
+    
     export let form: SetupForm = {};
+    export let data: { setupRequired?: boolean } = {};
     
     const libraryName = 'Metro Dagupan Colleges Library';
     const libraryCode = 'MDC-LIB';
@@ -16,6 +20,13 @@
     let isSubmitting = false;
     let showPassword = false;
     let showConfirmPassword = false;
+    
+    // If setup is not required, redirect to login
+    onMount(() => {
+        if (data.setupRequired === false) {
+            goto('/login', { replaceState: true });
+        }
+    });
     
     // Password strength indicator
     function checkPasswordStrength(password: string) {
@@ -51,6 +62,8 @@
     $: setupSuccess = $page.url.searchParams.get('setup') === 'success';
 </script>
 
+<!-- Only show setup form if setup is required -->
+{#if data.setupRequired !== false}
 <div class="min-h-screen flex">
     <!-- Left Side - Form -->
     <div class="w-full lg:w-2/5 bg-white flex flex-col justify-center p-6 lg:p-12">
@@ -314,3 +327,16 @@
         </div>
     </div>
 </div>
+{:else}
+<!-- Loading state while redirecting -->
+<div class="min-h-screen flex items-center justify-center bg-slate-50">
+    <div class="text-center">
+        <div class="w-12 h-12 bg-slate-900 rounded-lg flex items-center justify-center mx-auto mb-4">
+            <svg class="h-6 w-6 text-white animate-spin" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0a8.003 8.003 0 0115.357 2m-7.478 11c-.392.027-.783.044-1.179.044-4.418 0-8-3.582-8-8 0-1.061.207-2.074.581-3m6.96 2.481a3 3 0 113.397 3.397 7.001 7.001 0 01-9.933 1.05"/>
+            </svg>
+        </div>
+        <p class="text-slate-600">Setup already completed. Redirecting to login...</p>
+    </div>
+</div>
+{/if}
