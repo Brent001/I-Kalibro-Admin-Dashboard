@@ -8,7 +8,8 @@ export const account = pgTable('account', {
     username: varchar('username', { length: 50 }).unique(),
     password: varchar('password', { length: 255 }), // hashed password
     role: varchar('role', { length: 20 }), // 'admin' or 'staff'
-    isActive: boolean('is_active').default(true)
+    isActive: boolean('is_active').default(true),
+    tokenVersion: integer('token_version').default(0) // Add this line
 });
 
 // User table with role (student or faculty)

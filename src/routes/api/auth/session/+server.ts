@@ -112,6 +112,18 @@ export const GET: RequestHandler = async ({ request, getClientAddress, cookies }
             );
         }
 
+        // After fetching user from DB
+        if (decoded.tokenVersion !== user.tokenVersion) {
+            return json(
+                {
+                    success: false,
+                    message: 'Session invalidated. Please log in again.',
+                    error: 'TOKEN_VERSION_MISMATCH'
+                },
+                { status: 401 }
+            );
+        }
+
         // Return user session information
         const sessionData = {
             success: true,

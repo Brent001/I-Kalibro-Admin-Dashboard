@@ -47,8 +47,15 @@
       </svg>` 
     },
     { 
+      name: "Staff", 
+      href: "/dashboard/staff", 
+      icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+      </svg>` 
+    },
+    { 
       name: "Transactions", 
-      href: "/transactions", 
+      href: "/dashboard/transactions", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
       </svg>` 
@@ -62,7 +69,7 @@
     },
     { 
       name: "Settings", 
-      href: "/settings", 
+      href: "/dashboard/settings", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -244,16 +251,19 @@
       >
         <div class="flex items-center space-x-2">
           {#if notification.type === 'success'}
+            <!-- Changed from checkmark to thumbs up -->
             <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
             </svg>
           {:else if notification.type === 'error'}
+            <!-- Changed from X to alert triangle -->
             <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M12 2L2 22h20L12 2z"/>
             </svg>
           {:else}
+            <!-- Changed from warning triangle to info circle -->
             <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
           {/if}
           <span class="text-sm font-medium">{notification.message}</span>
@@ -371,8 +381,10 @@
             </svg>
             <span>Signing out...</span>
           {:else}
+            <!-- Changed logout icon from arrow to power button -->
             <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M17.502 14.82A19.941 19.941 0 0012 16c-1.922 0-3.781.27-5.502.82M12 2v14m0 0l4-4m-4 4l-4-4"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 12v6a2 2 0 002 2h4a2 2 0 002-2v-6M12 2v10"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16 6a4 4 0 10-8 0"/>
             </svg>
             <span>Sign out</span>
             <svg class="h-3 w-3 ml-auto transition-transform {showLogoutOptions ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -388,8 +400,10 @@
               on:click={() => handleLogout(false)}
               class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
+              <!-- Changed from arrow to monitor icon -->
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M17.502 14.82A19.941 19.941 0 0012 16c-1.922 0-3.781.27-5.502.82M12 2v14m0 0l4-4m-4 4l-4-4"/>
+                <rect x="2" y="4" width="20" height="12" rx="2"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 20h8M12 16v4"/>
               </svg>
               <span>Sign out this device</span>
             </button>
@@ -397,8 +411,11 @@
               on:click={() => handleLogout(true)}
               class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
             >
+              <!-- Changed to multiple monitors icon -->
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                <rect x="8" y="2" width="12" height="8" rx="1"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16 12h4a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6a1 1 0 011-1h4"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 14v4M8 18h8"/>
               </svg>
               <span>Sign out all devices</span>
             </button>
@@ -419,7 +436,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
             </svg>
           </button>
-          <h1 class="text-2xl font-semibold text-gray-900">
+          <h1 class="text-lg sm:text-2xl font-semibold text-gray-900">
             {#if currentPath === "/dashboard" && user?.role}
               {capitalize(user.role)} Dashboard
             {:else}
@@ -428,9 +445,10 @@
           </h1>
         </div>
         <div class="flex items-center space-x-4">
+          <!-- Notification bell icon -->
           <button class="relative p-2 text-gray-400 hover:text-gray-600 transition-colors">
             <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-5 5-5-5h5V3h0z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7C18 6.279 15.464 4 12.25 4s-5.75 2.279-5.75 5.05v.7a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
             </svg>
             <span class="absolute top-1 right-1 h-3 w-3 bg-red-500 rounded-full"></span>
           </button>

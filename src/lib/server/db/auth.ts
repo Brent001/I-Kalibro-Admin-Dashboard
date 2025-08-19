@@ -70,12 +70,41 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
         const blacklistKey = tokenType === 'refresh' ? `blacklist:refresh:${token}` : `blacklist:${token}`;
         const isBlacklisted = await redisClient.get(blacklistKey);
         if (isBlacklisted) {
+            console.log(`Token ${decoded.sessionId || 'unknown'} is blacklisted`);
             return null;
         }
         
         // Verify token type matches
         if (decoded.tokenType !== tokenType) {
             return null;
+        }
+
+        // Check if session exists and is active
+        if (decoded.sessionId) {
+            const sessionData = await redisClient.get(`session:${decoded.sessionId}`);
+            if (!sessionData) {
+                console.log(`Session ${decoded.sessionId} not found in Redis`);
+                return null;
+            }
+
+            const session: UserSession = JSON.parse(sessionData);
+            if (!session.isActive) {
+                console.log(`Session ${decoded.sessionId} is inactive`);
+                return null;
+            }
+
+            // Check if session is explicitly revoked
+            const isSessionRevoked = await redisClient.get(`session:${decoded.sessionId}:revoked`);
+            if (isSessionRevoked) {
+                console.log(`Session ${decoded.sessionId} is explicitly revoked: ${isSessionRevoked}`);
+                return null;
+            }
+
+            // Check if session has expired
+            if (session.expiresAt && new Date(session.expiresAt) <= new Date()) {
+                console.log(`Session ${decoded.sessionId} has expired`);
+                return null;
+            }
         }
         
         // Fetch current user data from database
@@ -208,6 +237,12 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
             return null;
         }
 
+        // Check if session is explicitly revoked
+        const isSessionRevoked = await redisClient.get(`session:${decoded.sessionId}:revoked`);
+        if (isSessionRevoked) {
+            return null;
+        }
+
         // Get fresh user data
         const [user] = await db
             .select({
@@ -312,7 +347,11 @@ export async function getUserSessions(userId: number): Promise<UserSession[]> {
             if (sessionData) {
                 const session: UserSession = JSON.parse(sessionData);
                 if (session.isActive && session.expiresAt > new Date()) {
-                    sessions.push(session);
+                    // Check if session is explicitly revoked
+                    const isSessionRevoked = await redisClient.get(`session:${sessionId}:revoked`);
+                    if (!isSessionRevoked) {
+                        sessions.push(session);
+                    }
                 }
             }
         }
@@ -330,14 +369,34 @@ export async function getUserSessions(userId: number): Promise<UserSession[]> {
 export async function revokeAllUserSessions(userId: number): Promise<void> {
     try {
         const sessionIds = await redisClient.smembers(`user:${userId}:sessions`);
+        console.log(`[REVOKE_ALL] Found ${sessionIds.length} sessions for user ${userId}`);
         
         for (const sessionId of sessionIds) {
-            await redisClient.del(`session:${sessionId}`);
+            try {
+                // Mark session as revoked
+                await redisClient.setex(`session:${sessionId}:revoked`, 24 * 60 * 60, 'logout_all_devices');
+                
+                // Get session data to mark as inactive
+                const sessionData = await redisClient.get(`session:${sessionId}`);
+                if (sessionData) {
+                    const session: UserSession = JSON.parse(sessionData);
+                    session.isActive = false;
+                    await redisClient.setex(`session:${sessionId}`, 7 * 24 * 60 * 60, JSON.stringify(session));
+                }
+                
+                console.log(`[REVOKE_ALL] Revoked session ${sessionId}`);
+            } catch (sessionError) {
+                console.error(`[REVOKE_ALL] Failed to revoke session ${sessionId}:`, sessionError);
+            }
         }
         
+        // Clear the user's session list
         await redisClient.del(`user:${userId}:sessions`);
+        console.log(`[REVOKE_ALL] Cleared session list for user ${userId}`);
+        
     } catch (error) {
         console.error('Failed to revoke all user sessions:', error);
+        throw error; // Re-throw to handle in calling function
     }
 }
 
@@ -370,7 +429,8 @@ export async function logSecurityEvent(event: SecurityEvent): Promise<void> {
             userId: event.userId,
             ip: event.ip,
             userAgent: event.userAgent.substring(0, 100),
-            timestamp: event.timestamp
+            timestamp: event.timestamp,
+            ...(event.logoutAllDevices && { logoutAllDevices: true })
         });
         
     } catch (error) {
@@ -388,6 +448,9 @@ export async function cleanupExpiredSessions(): Promise<void> {
         const keys = await redisClient.keys(pattern);
         
         for (const key of keys) {
+            // Skip revoked session markers
+            if (key.endsWith(':revoked')) continue;
+            
             const sessionData = await redisClient.get(key);
             if (sessionData) {
                 const session: UserSession = JSON.parse(sessionData);
@@ -395,6 +458,7 @@ export async function cleanupExpiredSessions(): Promise<void> {
                     const sessionId = key.replace('session:', '');
                     await redisClient.del(key);
                     await redisClient.srem(`user:${session.userId}:sessions`, sessionId);
+                    console.log(`[CLEANUP] Removed expired session ${sessionId}`);
                 }
             }
         }
