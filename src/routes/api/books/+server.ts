@@ -5,7 +5,7 @@ import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
 import { eq, like, and, or, gt, count } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
-import { book, account } from '$lib/server/db/schema/schema.js';
+import { book, account, category } from '$lib/server/db/schema/schema.js'; // add category import
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -131,7 +131,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = Math.min(parseInt(searchParams.get('limit') || '10', 10), 100);
     const search = searchParams.get('search') || '';
-    const category = searchParams.get('category') || '';
+    const categoryId = searchParams.get('categoryId') || '';
     const author = searchParams.get('author') || '';
     const isbn = searchParams.get('isbn') || '';
     const available = searchParams.get('available');
@@ -153,8 +153,8 @@ export const GET: RequestHandler = async ({ request, url }) => {
       );
     }
 
-    if (category && category !== 'all') {
-      conditions.push(eq(book.category, category));
+    if (categoryId && categoryId !== 'all') {
+      conditions.push(eq(book.categoryId, parseInt(categoryId)));
     }
 
     if (author) {
@@ -178,6 +178,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 
     const totalCount = totalCountResult[0]?.count || 0;
 
+    // Join with category table to get category name
     const books = await db
       .select({
         id: book.id,
@@ -187,9 +188,11 @@ export const GET: RequestHandler = async ({ request, url }) => {
         qrCode: book.qrCode,
         publishedYear: book.publishedYear,
         copiesAvailable: book.copiesAvailable,
-        category: book.category
+        categoryId: book.categoryId,
+        category: category.name
       })
       .from(book)
+      .leftJoin(category, eq(book.categoryId, category.id))
       .where(whereClause)
       .limit(limit)
       .offset(offset)
@@ -216,11 +219,9 @@ export const GET: RequestHandler = async ({ request, url }) => {
 
   } catch (err) {
     console.error('Error fetching books:', err);
-    
     if (err.status) {
       throw err;
     }
-
     throw error(500, { message: 'Internal server error' });
   }
 };
@@ -233,21 +234,28 @@ export const POST: RequestHandler = async ({ request }) => {
       throw error(401, { message: 'Unauthorized' });
     }
 
-    // Check if user has permission to add books (admin or staff)
     if (user.role !== 'admin' && user.role !== 'staff') {
       throw error(403, { message: 'Insufficient permissions to add books' });
     }
 
-    const body: CreateBookRequest = await request.json();
-    
+    const body = await request.json();
+
     // Validate required fields
-    const requiredFields = ['title', 'author', 'isbn', 'publishedYear', 'copiesAvailable'];
+    const requiredFields = ['title', 'author', 'isbn', 'publishedYear', 'copiesAvailable', 'categoryId'];
     const missingFields = requiredFields.filter(field => !body[field]);
-    
     if (missingFields.length > 0) {
-      throw error(400, { 
-        message: `Missing required fields: ${missingFields.join(', ')}` 
-      });
+      throw error(400, { message: `Missing required fields: ${missingFields.join(', ')}` });
+    }
+
+    // Validate categoryId exists
+    const categoryExists = await db
+      .select({ id: category.id })
+      .from(category)
+      .where(eq(category.id, body.categoryId))
+      .limit(1);
+
+    if (categoryExists.length === 0) {
+      throw error(400, { message: 'Invalid categoryId' });
     }
 
     // Validate field values
@@ -317,7 +325,7 @@ export const POST: RequestHandler = async ({ request }) => {
       qrCode,
       publishedYear: body.publishedYear,
       copiesAvailable: body.copiesAvailable,
-      category: body.category || 'General'
+      categoryId: body.categoryId
     };
 
     // Insert the book
@@ -332,21 +340,16 @@ export const POST: RequestHandler = async ({ request }) => {
         qrCode: book.qrCode,
         publishedYear: book.publishedYear,
         copiesAvailable: book.copiesAvailable,
-        category: book.category
+        categoryId: book.categoryId
       });
 
-    // Log the action
-    console.log(`Book created by ${user.username} (ID: ${user.id}):`, {
-      bookId: newBook.id,
-      title: newBook.title,
-      isbn: newBook.isbn,
-      timestamp: new Date().toISOString()
-    });
+    // Get category name for response
+    const [cat] = await db.select({ name: category.name }).from(category).where(eq(category.id, newBook.categoryId)).limit(1);
 
     return json({
       success: true,
       data: { 
-        book: newBook,
+        book: { ...newBook, category: cat?.name },
         message: `Book "${newBook.title}" has been successfully added to the library.`,
         qrCode: newBook.qrCode
       },
@@ -355,11 +358,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
   } catch (err) {
     console.error('Error creating book:', err);
-    
     if (err.status) {
       throw err;
     }
-
     throw error(500, { message: 'Internal server error while creating book' });
   }
 };
@@ -382,6 +383,19 @@ export const PUT: RequestHandler = async ({ request, url }) => {
     }
 
     const body = await request.json();
+
+    // Validate categoryId if present
+    if (body.categoryId !== undefined) {
+      const categoryExists = await db
+        .select({ id: category.id })
+        .from(category)
+        .where(eq(category.id, body.categoryId))
+        .limit(1);
+
+      if (categoryExists.length === 0) {
+        throw error(400, { message: 'Invalid categoryId' });
+      }
+    }
 
     // Check if book exists
     const existingBook = await db
@@ -461,7 +475,7 @@ export const PUT: RequestHandler = async ({ request, url }) => {
     if (body.isbn !== undefined) updateData.isbn = body.isbn.trim();
     if (body.publishedYear !== undefined) updateData.publishedYear = body.publishedYear;
     if (body.copiesAvailable !== undefined) updateData.copiesAvailable = body.copiesAvailable;
-    if (body.category !== undefined) updateData.category = body.category || 'General';
+    if (body.categoryId !== undefined) updateData.categoryId = body.categoryId;
 
     const [updatedBook] = await db
       .update(book)
@@ -475,21 +489,16 @@ export const PUT: RequestHandler = async ({ request, url }) => {
         qrCode: book.qrCode,
         publishedYear: book.publishedYear,
         copiesAvailable: book.copiesAvailable,
-        category: book.category
+        categoryId: book.categoryId
       });
 
-    // Log the action
-    console.log(`Book updated by ${user.username} (ID: ${user.id}):`, {
-      bookId: updatedBook.id,
-      title: updatedBook.title,
-      changes: updateData,
-      timestamp: new Date().toISOString()
-    });
+    // Get category name for response
+    const [cat] = await db.select({ name: category.name }).from(category).where(eq(category.id, updatedBook.categoryId)).limit(1);
 
     return json({
       success: true,
       data: { 
-        book: updatedBook,
+        book: { ...updatedBook, category: cat?.name },
         message: `Book "${updatedBook.title}" has been successfully updated.`
       },
       message: 'Book updated successfully'
@@ -497,11 +506,9 @@ export const PUT: RequestHandler = async ({ request, url }) => {
 
   } catch (err) {
     console.error('Error updating book:', err);
-    
     if (err.status) {
       throw err;
     }
-
     throw error(500, { message: 'Internal server error while updating book' });
   }
 };

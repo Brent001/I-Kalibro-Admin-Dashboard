@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, varchar, boolean, date } from 'drizzle-orm/pg-core';
+import { pgTable, serial, integer, varchar, boolean, date, timestamp } from 'drizzle-orm/pg-core';
 
 // Account table for admin and staff
 export const account = pgTable('account', {
@@ -18,7 +18,9 @@ export const user = pgTable('user', {
     name: varchar('name', { length: 100 }),
     email: varchar('email', { length: 100 }).unique(),
     role: varchar('role', { length: 20 }), // 'student' or 'faculty'
-    age: integer('age')
+    age: integer('age'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow()
 });
 
 // Student details
@@ -26,7 +28,14 @@ export const student = pgTable('student', {
     id: serial('id').primaryKey(),
     userId: integer('user_id').references(() => user.id),
     enrollmentNo: varchar('enrollment_no', { length: 30 }).unique(),
-    course: varchar('course', { length: 50 })
+    course: varchar('course', { length: 50 }),
+    username: varchar('username', { length: 50 }).unique(),
+    password: varchar('password', { length: 255 }), // renamed for consistency
+    passwordSalt: varchar('password_salt', { length: 255 }),
+    lastPasswordChange: timestamp('last_password_change').defaultNow(),
+    isActive: boolean('is_active').default(true),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow()
 });
 
 // Faculty details
@@ -34,7 +43,14 @@ export const faculty = pgTable('faculty', {
     id: serial('id').primaryKey(),
     userId: integer('user_id').references(() => user.id),
     department: varchar('department', { length: 100 }),
-    designation: varchar('designation', { length: 50 })
+    designation: varchar('designation', { length: 50 }),
+    username: varchar('username', { length: 50 }).unique(),
+    password: varchar('password', { length: 255 }), // renamed for consistency
+    passwordSalt: varchar('password_salt', { length: 255 }),
+    lastPasswordChange: timestamp('last_password_change').defaultNow(),
+    isActive: boolean('is_active').default(true),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow()
 });
 
 // Book table with QR code and category
@@ -43,24 +59,42 @@ export const book = pgTable('book', {
     title: varchar('title', { length: 200 }),
     author: varchar('author', { length: 100 }),
     isbn: varchar('isbn', { length: 20 }).unique(),
-    qrCode: varchar('qr_code', { length: 255 }).unique(), // QR code string or URL
+    qrCode: varchar('qr_code', { length: 255 }).unique(),
     publishedYear: integer('published_year'),
     copiesAvailable: integer('copies_available'),
-    category: varchar('category', { length: 50 }).default('General') // Added category field
+    categoryId: integer('category_id').references(() => category.id), // Better normalization
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow()
 });
 
 // Category table for books
 export const category = pgTable('category', {
     id: serial('id').primaryKey(),
     name: varchar('name', { length: 50 }).unique(),
-    description: varchar('description', { length: 255 }).default('')
+    description: varchar('description', { length: 255 }).default(''),
+    createdAt: timestamp('created_at').defaultNow()
 });
 
-// Example: Issued books table (optional, for completeness)
+// Issued books table
 export const issuedBook = pgTable('issued_book', {
     id: serial('id').primaryKey(),
     userId: integer('user_id').references(() => user.id),
     bookId: integer('book_id').references(() => book.id),
     issueDate: date('issue_date'),
-    returnDate: date('return_date')
+    returnDate: date('return_date'),
+    actualReturnDate: date('actual_return_date'), // For tracking late returns
+    status: varchar('status', { length: 20 }).default('issued'), // 'issued', 'returned', 'overdue'
+    createdAt: timestamp('created_at').defaultNow()
+});
+
+// Optional: Separate credential audit table for security tracking
+export const credentialAudit = pgTable('credential_audit', {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id'),
+    userType: varchar('user_type', { length: 20 }), // 'account', 'student', 'faculty'
+    action: varchar('action', { length: 50 }), // 'password_change', 'login_attempt', 'failed_login'
+    ipAddress: varchar('ip_address', { length: 45 }), // IPv6 compatible
+    userAgent: varchar('user_agent', { length: 500 }),
+    success: boolean('success').default(false),
+    createdAt: timestamp('created_at').defaultNow()
 });
