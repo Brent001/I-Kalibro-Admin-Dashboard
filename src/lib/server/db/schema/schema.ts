@@ -9,7 +9,7 @@ export const account = pgTable('account', {
     password: varchar('password', { length: 255 }), // hashed password
     role: varchar('role', { length: 20 }), // 'admin' or 'staff'
     isActive: boolean('is_active').default(true),
-    tokenVersion: integer('token_version').default(0) // Add this line
+    tokenVersion: integer('token_version').default(0)
 });
 
 // User table with role (student or faculty)
@@ -37,7 +37,7 @@ export const faculty = pgTable('faculty', {
     designation: varchar('designation', { length: 50 })
 });
 
-// Book table with QR code
+// Book table with QR code and category
 export const book = pgTable('book', {
     id: serial('id').primaryKey(),
     title: varchar('title', { length: 200 }),
@@ -45,7 +45,15 @@ export const book = pgTable('book', {
     isbn: varchar('isbn', { length: 20 }).unique(),
     qrCode: varchar('qr_code', { length: 255 }).unique(), // QR code string or URL
     publishedYear: integer('published_year'),
-    copiesAvailable: integer('copies_available')
+    copiesAvailable: integer('copies_available'),
+    category: varchar('category', { length: 50 }).default('General') // Added category field
+});
+
+// Category table for books
+export const category = pgTable('category', {
+    id: serial('id').primaryKey(),
+    name: varchar('name', { length: 50 }).unique(),
+    description: varchar('description', { length: 255 }).default('')
 });
 
 // Example: Issued books table (optional, for completeness)

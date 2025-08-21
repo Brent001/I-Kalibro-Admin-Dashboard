@@ -31,9 +31,8 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         const token = cookies.get('token');
         const refreshToken = cookies.get('refresh_token');
         
-        let userId: number | null = null;
+        let userId: string | null = null;
         let sessionId: string | null = null;
-        let logoutErrors: string[] = [];
         
         // If token exists, extract user info and invalidate server-side
         if (token) {
@@ -41,77 +40,48 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 // Verify and decode token to get user info
                 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
                 const decoded = jwt.verify(token, JWT_SECRET) as any;
-                userId = parseInt(decoded.userId?.toString() || decoded.sub);
+                userId = decoded.userId?.toString() || decoded.sub;
                 sessionId = decoded.sessionId || decoded.jti;
                 
-                // Handle logout from all devices FIRST
-                if (logoutAllDevices && userId) {
+                // Server-side token revocation using your session system
+                if (sessionId) {
                     try {
-                        console.log(`[LOGOUT] Starting logout all devices for user ${userId}`);
-                        
-                        // Get all active sessions for the user
-                        const userSessions = await getUserSessions(userId);
-                        console.log(`[LOGOUT] Found ${userSessions.length} active sessions`);
-                        
-                        // Revoke all user sessions in Redis
-                        await revokeAllUserSessions(userId);
-                        
-                        // Add all session tokens to blacklist
-                        // Note: We can't blacklist the actual tokens since we only store hashes
-                        // Instead, we rely on the session revocation in Redis
-                        for (const session of userSessions) {
-                            try {
-                                // The session invalidation in revokeAllUserSessions should handle this
-                                // But we can also mark sessions as revoked
-                                await redisClient.setex(
-                                    `session:${session.id}:revoked`, 
-                                    24 * 60 * 60, // 24 hours
-                                    'logout_all_devices'
-                                );
-                            } catch (sessionError) {
-                                console.warn(`Failed to revoke session ${session.id}:`, sessionError);
-                                logoutErrors.push(`Session ${session.id} revocation failed`);
-                            }
-                        }
-                        
-                        console.log(`[LOGOUT] Successfully revoked ${userSessions.length} sessions for user ${userId}`);
-                        
+                        await revokeToken(sessionId);
                     } catch (error) {
-                        console.error('Multi-device logout failed:', error);
-                        logoutErrors.push('Failed to logout from all devices');
+                        console.warn('Session revocation failed:', error);
                     }
-                } else {
-                    // Single device logout - just revoke current session
-                    if (sessionId) {
-                        try {
-                            await revokeToken(sessionId);
-                            console.log(`[LOGOUT] Revoked session ${sessionId}`);
-                        } catch (error) {
-                            console.warn('Current session revocation failed:', error);
-                            logoutErrors.push('Current session revocation failed');
-                        }
-                    }
-                }
-                
-                // Blacklist the current token (additional security layer)
-                try {
+                    
+                    // Add token to blacklist in Redis (with expiration matching token TTL)
                     const tokenExp = decoded.exp ? (decoded.exp * 1000) - Date.now() : 3600000; // Default 1 hour
                     if (tokenExp > 0) {
                         await redisClient.setex(`blacklist:${token}`, Math.ceil(tokenExp / 1000), 'revoked');
                     }
-                } catch (error) {
-                    console.warn('Token blacklisting failed:', error);
-                    logoutErrors.push('Token blacklisting failed');
+                }
+                
+                // Handle logout from all devices
+                if (logoutAllDevices && userId) {
+                    try {
+                        const userSessions = await getUserSessions(parseInt(userId));
+                        await revokeAllUserSessions(parseInt(userId));
+                        
+                        // Blacklist all user's tokens
+                        for (const session of userSessions) {
+                            if (session.token && session.token !== token) {
+                                await redisClient.setex(`blacklist:${session.token}`, 3600, 'revoked');
+                            }
+                        }
+                    } catch (error) {
+                        console.warn('Multi-device logout failed:', error);
+                    }
                 }
                 
             } catch (tokenError) {
                 console.warn('Token verification failed during logout:', tokenError);
-                logoutErrors.push('Token verification failed');
                 // Continue with logout even if token is invalid
             }
         }
 
-        // Handle refresh token revocation
+        // Handle refresh token revocation (if you implement refresh tokens later)
         if (refreshToken) {
             try {
                 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production';
@@ -123,7 +93,6 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 }
             } catch (refreshError) {
                 console.warn('Refresh token verification failed during logout:', refreshError);
-                logoutErrors.push('Refresh token revocation failed');
             }
         }
 
@@ -144,7 +113,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         try {
             await logSecurityEvent({
                 type: 'logout',
-                userId: userId?.toString() || 'anonymous',
+                userId: userId || 'anonymous',
                 sessionId: sessionId || 'unknown',
                 ip: clientIP,
                 userAgent,
@@ -153,7 +122,6 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 timestamp: new Date(),
                 metadata: {
                     processingTime: Date.now() - startTime,
-                    errors: logoutErrors.length > 0 ? logoutErrors : undefined
                 }
             });
         } catch (error) {
@@ -165,13 +133,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             try {
                 await redisClient.del(`user:${userId}:profile`);
                 await redisClient.del(`user:${userId}:permissions`);
-                // Don't delete user sessions key here if we're doing single logout
-                if (logoutAllDevices) {
-                    await redisClient.del(`user:${userId}:sessions`);
-                }
+                await redisClient.del(`user:${userId}:sessions`);
             } catch (error) {
                 console.warn('Cache cleanup failed:', error);
-                logoutErrors.push('Cache cleanup failed');
             }
         }
 
@@ -185,25 +149,18 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             'X-Frame-Options': 'DENY'
         });
 
-        // Determine response based on errors
-        const hasErrors = logoutErrors.length > 0;
-        const status = hasErrors ? 207 : 200; // 207 Multi-Status for partial success
-        
         const response = {
             success: true,
-            message: hasErrors 
-                ? `Logout completed with ${logoutErrors.length} warning(s)` 
-                : 'Logged out successfully',
+            message: 'Logged out successfully',
             data: {
                 loggedOutAt: new Date().toISOString(),
                 allDevicesLoggedOut: logoutAllDevices,
-                processingTime: Date.now() - startTime,
-                ...(hasErrors && { errors: logoutErrors, partial: true })
+                processingTime: Date.now() - startTime
             }
         };
 
         return json(response, { 
-            status, 
+            status: 200, 
             headers: responseHeaders 
         });
 
