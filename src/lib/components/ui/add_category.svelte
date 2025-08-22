@@ -82,11 +82,95 @@
     }
   }
 
+  let editingCategoryId: number | null = null;
+  let editCategoryName = "";
+  let editCategoryDescription = "";
+  let editError = "";
+  let editLoading = false;
+  let deleteLoadingId: number | null = null;
+
+  // Edit category
+  function startEditCategory(cat: { id: number; name: string; description: string }) {
+    editingCategoryId = cat.id;
+    editCategoryName = cat.name;
+    editCategoryDescription = cat.description || "";
+    editError = "";
+  }
+
+  // Update category
+  async function saveEditCategory() {
+    if (!editCategoryName.trim()) {
+      editError = "Category name is required.";
+      return;
+    }
+    if (editCategoryName.length > 50) {
+      editError = "Category name must be at most 50 characters.";
+      return;
+    }
+    if (editCategoryDescription.length > 255) {
+      editError = "Description must be at most 255 characters.";
+      return;
+    }
+    editLoading = true;
+    editError = "";
+    try {
+      const response = await fetch('/api/books/categories', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingCategoryId,
+          name: editCategoryName.trim(),
+          description: editCategoryDescription.trim()
+        })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        editingCategoryId = null;
+        fetchCategories();
+      } else {
+        editError = data.message || "Failed to update category.";
+      }
+    } catch (err) {
+      editError = "Network error. Please try again.";
+    } finally {
+      editLoading = false;
+    }
+  }
+
+  // Delete category
+  async function deleteCategory(id: number) {
+    if (!confirm("Are you sure you want to delete this category?")) return;
+    deleteLoadingId = id;
+    try {
+      const response = await fetch('/api/books/categories', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        fetchCategories();
+      } else {
+        alert(data.message || "Failed to delete category.");
+      }
+    } catch (err) {
+      alert("Network error. Please try again.");
+    } finally {
+      deleteLoadingId = null;
+    }
+  }
+
   function handleClose() {
     newCategoryName = "";
     newCategoryDescription = "";
     categoryError = "";
     categoryLoading = false;
+    editingCategoryId = null;
+    editCategoryName = "";
+    editCategoryDescription = "";
+    editError = "";
     dispatch('close');
   }
 </script>
@@ -171,12 +255,56 @@
                 {:else if categories.length === 0}
                   <div class="text-slate-400 text-sm">No categories found.</div>
                 {:else}
-                  <ul class="space-y-1">
+                  <ul class="space-y-2">
                     {#each categories as cat}
-                      <li class="text-slate-700 text-sm">
-                        <span class="font-medium">{cat.name}</span>
-                        {#if cat.description}
-                          <span class="text-slate-400"> - {cat.description}</span>
+                      <li class="text-slate-700 text-sm flex flex-col gap-1 border-b border-slate-100 pb-2">
+                        {#if editingCategoryId === cat.id}
+                          <div class="flex flex-col gap-2">
+                            <input
+                              type="text"
+                              bind:value={editCategoryName}
+                              maxlength="50"
+                              class="w-full px-2 py-1 border rounded focus:ring-slate-500 focus:border-slate-500"
+                              placeholder="Category name"
+                              disabled={editLoading}
+                            />
+                            <textarea
+                              bind:value={editCategoryDescription}
+                              maxlength="255"
+                              class="w-full px-2 py-1 border rounded focus:ring-slate-500 focus:border-slate-500"
+                              rows="1"
+                              placeholder="Description"
+                              disabled={editLoading}
+                            ></textarea>
+                            {#if editError}
+                              <div class="text-red-600 text-xs">{editError}</div>
+                            {/if}
+                            <div class="flex gap-2 mt-1">
+                              <button type="button" class="px-3 py-1 rounded bg-slate-900 text-white text-xs hover:bg-slate-800 disabled:opacity-50" on:click={saveEditCategory} disabled={editLoading}>
+                                {editLoading ? 'Saving...' : 'Save'}
+                              </button>
+                              <button type="button" class="px-3 py-1 rounded bg-slate-100 text-slate-700 text-xs hover:bg-slate-200" on:click={cancelEditCategory} disabled={editLoading}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        {:else}
+                          <div class="flex items-center justify-between gap-2">
+                            <div>
+                              <span class="font-medium">{cat.name}</span>
+                              {#if cat.description}
+                                <span class="text-slate-400"> - {cat.description}</span>
+                              {/if}
+                            </div>
+                            <div class="flex gap-1">
+                              <button type="button" class="px-2 py-1 rounded text-xs bg-slate-100 text-slate-700 hover:bg-slate-200" on:click={() => startEditCategory(cat)} disabled={categoryLoading || deleteLoadingId === cat.id}>
+                                Edit
+                              </button>
+                              <button type="button" class="px-2 py-1 rounded text-xs bg-red-100 text-red-700 hover:bg-red-200" on:click={() => deleteCategory(cat.id)} disabled={categoryLoading || deleteLoadingId === cat.id}>
+                                {deleteLoadingId === cat.id ? 'Deleting...' : 'Delete'}
+                              </button>
+                            </div>
+                          </div>
                         {/if}
                       </li>
                     {/each}

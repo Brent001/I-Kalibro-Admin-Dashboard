@@ -30,6 +30,11 @@
   let categories: string[] = [];
   let categoriesLoading = false;
 
+  // Always fetch categories when modal opens
+  $: if (isOpen) {
+    fetchCategories();
+  }
+
   async function fetchCategories() {
     categoriesLoading = true;
     try {
@@ -50,7 +55,6 @@
   }
 
   onMount(() => {
-    fetchCategories();
     document.addEventListener('keydown', handleKeydown);
     return () => {
       document.removeEventListener('keydown', handleKeydown);

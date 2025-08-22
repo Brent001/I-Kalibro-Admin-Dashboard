@@ -17,6 +17,7 @@ export const user = pgTable('user', {
     id: serial('id').primaryKey(),
     name: varchar('name', { length: 100 }),
     email: varchar('email', { length: 100 }).unique(),
+    phone: varchar('phone', { length: 20 }), // Added phone field
     role: varchar('role', { length: 20 }), // 'student' or 'faculty'
     age: integer('age'),
     createdAt: timestamp('created_at').defaultNow(),
@@ -29,6 +30,7 @@ export const student = pgTable('student', {
     userId: integer('user_id').references(() => user.id),
     enrollmentNo: varchar('enrollment_no', { length: 30 }).unique(),
     course: varchar('course', { length: 50 }),
+    year: varchar('year', { length: 20 }), // Added year field for student year/semester
     username: varchar('username', { length: 50 }).unique(),
     password: varchar('password', { length: 255 }), // renamed for consistency
     passwordSalt: varchar('password_salt', { length: 255 }),

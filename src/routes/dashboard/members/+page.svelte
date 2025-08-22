@@ -1,104 +1,78 @@
 <script lang="ts">
   import Layout from "$lib/components/ui/layout.svelte";
-  import { onMount } from "svelte";
-  import { writable, derived } from "svelte/store";
+  import AddMemberModal from "$lib/components/ui/add_member.svelte"; // <-- Import here
+  import { onMount } from 'svelte';
 
-  // State
+  let members: any[] = [];
+  let loading = true;
+  let errorMsg = "";
+  let successMsg = "";
+
   let searchTerm = "";
   let selectedType = "all";
+  const memberTypes = ['all', 'Student', 'Faculty'];
 
-  const members = [
-    {
-      id: 1,
-      name: 'John Doe',
-      email: 'john.doe@student.mdc.edu.ph',
-      phone: '+63 912 345 6789',
-      type: 'Student',
-      studentId: 'MDC-2024-001',
-      course: 'Computer Science',
-      year: '3rd Year',
-      status: 'Active',
-      joined: '2023-08-15',
-      booksCount: 3
-    },
-    {
-      id: 2,
-      name: 'Dr. Sarah Johnson',
-      email: 'sarah.johnson@faculty.mdc.edu.ph',
-      phone: '+63 917 234 5678',
-      type: 'Faculty',
-      employeeId: 'MDC-FAC-045',
-      department: 'Mathematics',
-      position: 'Professor',
-      status: 'Active',
-      joined: '2020-06-10',
-      booksCount: 8
-    },
-    {
-      id: 3,
-      name: 'Jane Smith',
-      email: 'jane.smith@student.mdc.edu.ph',
-      phone: '+63 905 123 4567',
-      type: 'Student',
-      studentId: 'MDC-2024-156',
-      course: 'Engineering',
-      year: '2nd Year',
-      status: 'Suspended',
-      joined: '2023-09-01',
-      booksCount: 1
-    },
-    {
-      id: 4,
-      name: 'Michael Brown',
-      email: 'michael.brown@staff.mdc.edu.ph',
-      phone: '+63 918 765 4321',
-      type: 'Staff',
-      employeeId: 'MDC-STF-023',
-      department: 'Administration',
-      position: 'Librarian',
-      status: 'Active',
-      joined: '2021-03-15',
-      booksCount: 5
-    },
-    {
-      id: 5,
-      name: 'Emily Davis',
-      email: 'emily.davis@student.mdc.edu.ph',
-      phone: '+63 922 345 6789',
-      type: 'Student',
-      studentId: 'MDC-2024-298',
-      course: 'Business Administration',
-      year: '4th Year',
-      status: 'Active',
-      joined: '2023-08-20',
-      booksCount: 2
-    },
-  ];
+  // Modal states
+  let showAddModal = false;
+  let showEditModal = false;
+  let showViewModal = false;
+  let showDeleteModal = false;
+  let selectedMember: any = null;
 
-  const memberTypes = ['all', 'Student', 'Faculty', 'Staff'];
+  // Form data for add/edit
+  let formData = {
+    type: 'Student',
+    name: '',
+    email: '',
+    phone: '',
+    age: '',
+    enrollmentNo: '',
+    course: '',
+    year: '',
+    department: '',
+    designation: '',
+    username: '',
+    password: ''
+  };
+
+  // Fetch members from API on mount
+  onMount(async () => {
+    await loadMembers();
+  });
+
+  async function loadMembers() {
+    loading = true;
+    errorMsg = "";
+    try {
+      const res = await fetch('/api/user');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        members = data.data.members;
+      } else {
+        errorMsg = data.message || "Failed to load members.";
+      }
+    } catch (err) {
+      errorMsg = "Network error. Please try again.";
+    } finally {
+      loading = false;
+    }
+  }
 
   $: filteredMembers = members.filter(member => {
     const search = searchTerm.toLowerCase();
     const matchesSearch =
-      member.name.toLowerCase().includes(search) ||
-      member.email.toLowerCase().includes(search) ||
-      (member.studentId && member.studentId.toLowerCase().includes(search)) ||
-      (member.employeeId && member.employeeId.toLowerCase().includes(search));
+      member.name?.toLowerCase().includes(search) ||
+      member.email?.toLowerCase().includes(search) ||
+      (member.enrollmentNo && member.enrollmentNo.toLowerCase().includes(search)) ||
+      (member.department && member.department.toLowerCase().includes(search));
     const matchesType = selectedType === 'all' || member.type === selectedType;
     return matchesSearch && matchesType;
   });
 
-  function getStatusColor(status: string) {
-    switch (status) {
-      case 'Active':
-        return 'bg-green-100 text-green-800';
-      case 'Suspended':
-        return 'bg-red-100 text-red-800';
-      case 'Inactive':
-        return 'bg-slate-100 text-slate-800';
-      default:
-        return 'bg-slate-100 text-slate-800';
-    }
+  function getStatusColor(isActive: boolean) {
+    return isActive
+      ? 'bg-green-100 text-green-800'
+      : 'bg-red-100 text-red-800';
   }
 
   function getTypeColor(type: string) {
@@ -107,11 +81,171 @@
         return 'bg-slate-100 text-slate-800';
       case 'Faculty':
         return 'bg-slate-200 text-slate-900';
-      case 'Staff':
-        return 'bg-slate-300 text-slate-900';
       default:
         return 'bg-slate-100 text-slate-800';
     }
+  }
+
+  function resetForm() {
+    formData = {
+      type: 'Student',
+      name: '',
+      email: '',
+      phone: '',
+      age: '',
+      enrollmentNo: '',
+      course: '',
+      year: '',
+      department: '',
+      designation: '',
+      username: '',
+      password: ''
+    };
+  }
+
+  function openAddModal() {
+    resetForm();
+    showAddModal = true;
+  }
+
+  function closeAddModal() {
+    showAddModal = false;
+  }
+  async function handleMemberAdded(event) {
+    const member = event.detail;
+    try {
+      const res = await fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(member)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        await loadMembers();
+        showAddModal = false;
+        successMsg = "Member added successfully!";
+        setTimeout(() => successMsg = "", 3000);
+      } else {
+        errorMsg = data.message || "Failed to add member.";
+      }
+    } catch (err) {
+      errorMsg = "Network error. Please try again.";
+    }
+  }
+
+  function openEditModal(member: any) {
+    selectedMember = member;
+    formData = {
+      type: member.type,
+      name: member.name || '',
+      email: member.email || '',
+      phone: member.phone || '',
+      age: member.age || '',
+      enrollmentNo: member.enrollmentNo || '',
+      course: member.course || '',
+      year: member.year || '',
+      department: member.department || '',
+      designation: member.designation || '',
+      username: member.username || '',
+      password: ''
+    };
+    showEditModal = true;
+  }
+
+  async function openViewModal(memberId: number) {
+    loading = true;
+    try {
+      const res = await fetch(`/api/user/${memberId}`);
+      const data = await res.json();
+      if (res.ok && data.success) {
+        selectedMember = data.data;
+        showViewModal = true;
+      } else {
+        errorMsg = data.message || "Failed to load member details.";
+      }
+    } catch (err) {
+      errorMsg = "Network error. Please try again.";
+    } finally {
+      loading = false;
+    }
+  }
+
+  function openDeleteModal(member: any) {
+    selectedMember = member;
+    showDeleteModal = true;
+  }
+
+  async function handleSubmit() {
+    try {
+      const isEdit = showEditModal;
+      const url = '/api/user';
+      const method = isEdit ? 'PUT' : 'POST';
+      
+      const payload = {
+        ...formData,
+        age: formData.age ? parseInt(formData.age) : undefined,
+        ...(isEdit && { id: selectedMember.id })
+      };
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      
+      if (res.ok && data.success) {
+        successMsg = data.message;
+        showAddModal = false;
+        showEditModal = false;
+        await loadMembers();
+        setTimeout(() => successMsg = "", 3000);
+      } else {
+        errorMsg = data.message || "Operation failed.";
+      }
+    } catch (err) {
+      errorMsg = "Network error. Please try again.";
+    }
+  }
+
+  async function handleDelete(permanent = false) {
+    try {
+      const res = await fetch('/api/user', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          id: selectedMember.id,
+          permanent
+        })
+      });
+
+      const data = await res.json();
+      
+      if (res.ok && data.success) {
+        successMsg = data.message;
+        showDeleteModal = false;
+        await loadMembers();
+        setTimeout(() => successMsg = "", 3000);
+      } else {
+        errorMsg = data.message || "Delete operation failed.";
+      }
+    } catch (err) {
+      errorMsg = "Network error. Please try again.";
+    }
+  }
+
+  function closeModals() {
+    showAddModal = false;
+    showEditModal = false;
+    showViewModal = false;
+    showDeleteModal = false;
+    selectedMember = null;
+    errorMsg = "";
   }
 </script>
 
@@ -123,7 +257,7 @@
         <h2 class="text-xl lg:text-2xl font-bold text-gray-900">Member Management</h2>
         <p class="text-sm lg:text-base text-gray-600">Manage library members and their accounts</p>
       </div>
-      <button class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200">
+      <button on:click={openAddModal} class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200">
         <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
         </svg>
@@ -155,7 +289,7 @@
           </div>
           <div class="ml-2 lg:ml-4">
             <p class="text-xs lg:text-sm font-medium text-gray-600">Active</p>
-            <p class="text-lg lg:text-2xl font-semibold text-gray-900">{members.filter(m => m.status === 'Active').length}</p>
+            <p class="text-lg lg:text-2xl font-semibold text-gray-900">{members.filter(m => m.isActive).length}</p>
           </div>
         </div>
       </div>
@@ -164,8 +298,6 @@
           <div class="p-2 bg-slate-50 rounded-lg">
             <svg class="h-4 w-4 lg:h-6 lg:w-6 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 14l9-5-9-5-9 5 9 5z"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222"/>
             </svg>
           </div>
           <div class="ml-2 lg:ml-4">
@@ -253,19 +385,8 @@
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div>
                     <div class="text-sm font-medium text-gray-900">{member.name}</div>
-                    <div class="text-sm text-gray-500 flex items-center">
-                      <svg class="h-3 w-3 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <rect width="20" height="14" x="2" y="5" rx="2"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M22 5 12 13 2 5"/>
-                      </svg>
-                      {member.email}
-                    </div>
-                    <div class="text-sm text-gray-500 flex items-center">
-                      <svg class="h-3 w-3 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M22 16.92v3a2 2 0 0 1-2.18 2A19.72 19.72 0 0 1 3.08 5.18 2 2 0 0 1 5 3h3a2 2 0 0 1 2 1.72c.13 1.05.37 2.07.72 3.05a2 2 0 0 1-.45 2.11l-1.27 1.27a16 16 0 0 0 6.29 6.29l1.27-1.27a2 2 0 0 1 2.11-.45c.98.35 2 .59 3.05.72A2 2 0 0 1 22 16.92z"/>
-                      </svg>
-                      {member.phone}
-                    </div>
+                    <div class="text-sm text-gray-500">{member.email}</div>
+                    <div class="text-sm text-gray-500">{member.phone}</div>
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -274,59 +395,45 @@
                       {member.type}
                     </span>
                     <div class="text-sm text-gray-500 mt-1">
-                      {member.studentId || member.employeeId}
+                      {member.enrollmentNo || member.department || member.role || member.id}
                     </div>
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div class="text-sm text-gray-900">
-                    {#if member.course}
+                    {#if member.type === 'Student'}
                       <div>{member.course}</div>
                       <div class="text-gray-500">{member.year}</div>
-                    {/if}
-                    {#if member.department}
+                    {:else if member.type === 'Faculty'}
                       <div>{member.department}</div>
-                      <div class="text-gray-500">{member.position}</div>
+                      <div class="text-gray-500">{member.designation}</div>
+                    {:else if member.type === 'Staff'}
+                      <div>{member.role}</div>
                     {/if}
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div class="flex items-center">
-                    <svg class="h-4 w-4 mr-2 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-                    </svg>
-                    <div>
-                      <div class="text-sm font-medium text-gray-900">
-                        {member.booksCount} books
-                      </div>
-                      <div class="text-sm text-gray-500">
-                        Currently borrowed
-                      </div>
+                    <div class="text-sm font-medium text-gray-900">
+                      {member.booksCount} books
                     </div>
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(member.status)}`}>
-                    {member.status}
+                  <span class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(member.isActive)}`}>
+                    {member.isActive ? 'Active' : 'Inactive'}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <div class="flex space-x-2">
-                    <button class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                      </svg>
+                    <button on:click={() => openViewModal(member.id)} class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
+                      View
                     </button>
-                    <button class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Member">
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                      </svg>
+                    <button on:click={() => openEditModal(member)} class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Member">
+                      Edit
                     </button>
-                    <button class="text-red-600 hover:text-red-900 transition-colors duration-200" title="Remove Member">
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                      </svg>
+                    <button on:click={() => openDeleteModal(member)} class="text-red-600 hover:text-red-900 transition-colors duration-200" title="Remove Member">
+                      Remove
                     </button>
                   </div>
                 </td>
@@ -348,24 +455,24 @@
                 <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getTypeColor(member.type)}`}>
                   {member.type}
                 </span>
-                <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(member.status)}`}>
-                  {member.status}
+                <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(member.isActive)}`}>
+                  {member.isActive ? 'Active' : 'Inactive'}
                 </span>
               </div>
             </div>
             <div class="flex space-x-1 ml-2">
-              <button class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
+              <button on:click={() => openViewModal(member.id)} class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                   <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                 </svg>
               </button>
-              <button class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Member">
+              <button on:click={() => openEditModal(member)} class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Member">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                 </svg>
               </button>
-              <button class="p-1 text-red-600 hover:text-red-900 transition-colors duration-200" title="Remove Member">
+              <button on:click={() => openDeleteModal(member)} class="p-1 text-red-600 hover:text-red-900 transition-colors duration-200" title="Remove Member">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                 </svg>
@@ -391,7 +498,7 @@
               <svg class="h-3 w-3 mr-2 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
               </svg>
-              <span>{member.studentId || member.employeeId}</span>
+              <span>{member.enrollmentNo || member.department}</span>
             </div>
           </div>
 
@@ -444,4 +551,285 @@
       </nav>
     </div>
   </div>
+
+  <!-- Add Member Modal -->
+  {#if showAddModal}
+    <AddMemberModal
+      isOpen={showAddModal}
+      on:close={closeAddModal}
+      on:memberAdded={handleMemberAdded}
+    />
+  {/if}
+
+  <!-- Edit Member Modal -->
+  {#if showEditModal}
+    <div class="fixed inset-0 z-50 overflow-auto bg-smoke-800 flex items-center justify-center">
+      <div class="bg-white rounded-lg shadow-lg w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-semibold text-gray-900">Edit Member</h3>
+          <button on:click={closeModals} class="text-gray-500 hover:text-gray-700">
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        {#if errorMsg}
+          <div class="mb-4 text-red-500 text-sm">
+            {errorMsg}
+          </div>
+        {/if}
+        {#if successMsg}
+          <div class="mb-4 text-green-500 text-sm">
+            {successMsg}
+          </div>
+        {/if}
+
+        <form on:submit|preventDefault={handleSubmit}>
+          <div class="grid grid-cols-1 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Name</label>
+              <input
+                type="text"
+                bind:value={formData.name}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Email</label>
+              <input
+                type="email"
+                bind:value={formData.email}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Phone</label>
+              <input
+                type="text"
+                bind:value={formData.phone}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Age</label>
+              <input
+                type="number"
+                bind:value={formData.age}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Enrollment No</label>
+              <input
+                type="text"
+                bind:value={formData.enrollmentNo}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Course</label>
+              <input
+                type="text"
+                bind:value={formData.course}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Year</label>
+              <input
+                type="text"
+                bind:value={formData.year}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Department</label>
+              <input
+                type="text"
+                bind:value={formData.department}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Designation</label>
+              <input
+                type="text"
+                bind:value={formData.designation}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Username</label>
+              <input
+                type="text"
+                bind:value={formData.username}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700">Password</label>
+              <input
+                type="password"
+                bind:value={formData.password}
+                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-slate-500 focus:border-slate-500"
+                required
+              />
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <button
+              type="submit"
+              class="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+            >
+              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+              </svg>
+              Update Member
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {/if}
+
+  <!-- View Member Modal -->
+  {#if showViewModal}
+    <div class="fixed inset-0 z-50 overflow-auto bg-smoke-800 flex items-center justify-center">
+      <div class="bg-white rounded-lg shadow-lg w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-semibold text-gray-900">Member Details</h3>
+          <button on:click={closeModals} class="text-gray-500 hover:text-gray-700">
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        {#if selectedMember}
+          <div class="space-y-4">
+            <div>
+              <h4 class="text-sm font-medium text-gray-900">Personal Information</h4>
+              <div class="mt-2 text-sm text-gray-700">
+                <div><strong>Name:</strong> {selectedMember.name}</div>
+                <div><strong>Email:</strong> {selectedMember.email}</div>
+                <div><strong>Phone:</strong> {selectedMember.phone || 'N/A'}</div>
+                <div><strong>Age:</strong> {selectedMember.age || 'N/A'}</div>
+                <div><strong>Type:</strong> {selectedMember.type}</div>
+                <div><strong>Status:</strong>
+                  <span class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(selectedMember.isActive)}`}>
+                    {selectedMember.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <h4 class="text-sm font-medium text-gray-900">
+                {selectedMember.type === 'Student' ? 'Academic Information' : 'Professional Information'}
+              </h4>
+              <div class="mt-2 text-sm text-gray-700">
+                {#if selectedMember.type === 'Student'}
+                  <div><strong>Enrollment No:</strong> {selectedMember.enrollmentNo || 'N/A'}</div>
+                  <div><strong>Course:</strong> {selectedMember.course || 'N/A'}</div>
+                  <div><strong>Year:</strong> {selectedMember.year || 'N/A'}</div>
+                {:else if selectedMember.type === 'Faculty'}
+                  <div><strong>Department:</strong> {selectedMember.department || 'N/A'}</div>
+                  <div><strong>Designation:</strong> {selectedMember.designation || 'N/A'}</div>
+                {/if}
+              </div>
+            </div>
+            <div>
+              <h4 class="text-sm font-medium text-gray-900">Account Information</h4>
+              <div class="mt-2 text-sm text-gray-700">
+                <div><strong>Username:</strong> {selectedMember.username || 'N/A'}</div>
+                <div><strong>Member Since:</strong> {selectedMember.createdAt ? new Date(selectedMember.createdAt).toLocaleDateString() : 'N/A'}</div>
+              </div>
+            </div>
+            <div>
+              <h4 class="text-sm font-medium text-gray-900">Issued Books ({selectedMember.booksCount || 0})</h4>
+              {#if selectedMember.issuedBooks && selectedMember.issuedBooks.length > 0}
+                <div class="space-y-2">
+                  {#each selectedMember.issuedBooks as book}
+                    <div class="bg-gray-50 p-2 rounded">
+                      <div><strong>{book.bookTitle}</strong> by {book.bookAuthor}</div>
+                      <div class="text-xs text-gray-600">ISBN: {book.bookIsbn}</div>
+                      <div class="text-xs text-gray-600">Issued: {book.issueDate ? new Date(book.issueDate).toLocaleDateString() : 'N/A'}</div>
+                      <div class="text-xs text-gray-600">Due: {book.returnDate ? new Date(book.returnDate).toLocaleDateString() : 'N/A'}</div>
+                      <span class={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mt-1 ${
+                        book.status === 'returned' ? 'bg-green-100 text-green-800' :
+                        book.isOverdue ? 'bg-red-100 text-red-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {book.status === 'returned' ? 'Returned' : 
+                         book.isOverdue ? 'Overdue' : 'Active'}
+                      </span>
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <div class="text-xs text-gray-500">No books currently issued</div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Delete Member Modal -->
+  {#if showDeleteModal}
+    <div class="fixed inset-0 z-50 overflow-auto bg-smoke-800 flex items-center justify-center">
+      <div class="bg-white rounded-lg shadow-lg w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-semibold text-gray-900">Confirm Delete</h3>
+          <button on:click={closeModals} class="text-gray-500 hover:text-gray-700">
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="mb-4 text-gray-700">
+          Are you sure you want to delete the member <strong>{selectedMember.name}</strong>? This action cannot be undone.
+        </div>
+
+        <div class="flex justify-end space-x-2">
+          <button
+            on:click={() => handleDelete(false)}
+            class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-200"
+          >
+            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+            Delete Member
+          </button>
+          <button
+            on:click={closeModals}
+            class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if loading}
+    <div class="text-center py-8 text-slate-500">Loading members...</div>
+  {:else if errorMsg}
+    <div class="text-center py-8 text-red-500">{errorMsg}</div>
+  {:else}
+    <!-- ...existing member table and cards... -->
+  {/if}
 </Layout>
