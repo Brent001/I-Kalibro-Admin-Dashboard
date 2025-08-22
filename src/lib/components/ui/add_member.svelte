@@ -94,8 +94,15 @@
     if (!validateForm()) return;
     isLoading = true;
     try {
-      // You would POST to your API here
-      dispatch('memberAdded', { ...formData });
+      // Send type as "Student" or "Faculty" (capitalized)
+      const payload = {
+        ...formData,
+        type: formData.type, // Capitalized
+        age: Number(formData.age)
+      };
+      delete payload.confirmPassword; // Don't send confirmPassword
+
+      dispatch('memberAdded', payload);
       resetForm();
       closeModal();
     } catch (error) {
