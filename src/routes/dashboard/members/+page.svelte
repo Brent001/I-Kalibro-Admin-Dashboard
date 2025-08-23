@@ -1,6 +1,7 @@
 <script lang="ts">
   import Layout from "$lib/components/ui/layout.svelte";
   import AddMemberModal from "$lib/components/ui/add_member.svelte"; // <-- Import here
+  import DeleteMember from "$lib/components/ui/delete_member.svelte";
   import { onMount } from 'svelte';
 
   let members: any[] = [];
@@ -789,40 +790,13 @@
 
   <!-- Delete Member Modal -->
   {#if showDeleteModal}
-    <div class="fixed inset-0 z-50 overflow-auto bg-smoke-800 flex items-center justify-center">
-      <div class="bg-white rounded-lg shadow-lg w-full max-w-lg p-6">
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="text-lg font-semibold text-gray-900">Confirm Delete</h3>
-          <button on:click={closeModals} class="text-gray-500 hover:text-gray-700">
-            <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-          </button>
-        </div>
-
-        <div class="mb-4 text-gray-700">
-          Are you sure you want to delete the member <strong>{selectedMember.name}</strong>? This action cannot be undone.
-        </div>
-
-        <div class="flex justify-end space-x-2">
-          <button
-            on:click={() => handleDelete(false)}
-            class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-200"
-          >
-            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-            Delete Member
-          </button>
-          <button
-            on:click={closeModals}
-            class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
+    <DeleteMember
+      isOpen={showDeleteModal}
+      member={selectedMember}
+      isLoading={loading}
+      on:close={closeModals}
+      on:delete={() => handleDelete(false)}
+    />
   {/if}
 
   {#if loading}
