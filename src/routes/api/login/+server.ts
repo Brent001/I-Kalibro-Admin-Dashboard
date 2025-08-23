@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { user } from '$lib/server/db/schema/schema.js'; // changed from account to user
+import { account } from '$lib/server/db/schema/schema.js';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt, { type Secret } from 'jsonwebtoken';
@@ -95,33 +95,33 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         const { username, password } = validationResult.data;
 
         // Find user in database by username or email
-        const [foundUser] = await db
+        const [user] = await db
             .select()
-            .from(user)
-            .where(eq(user.username, username))
+            .from(account)
+            .where(eq(account.username, username))
             .limit(1);
 
         // If not found by username, try email
         let userByEmail = null;
-        if (!foundUser) {
+        if (!user) {
             [userByEmail] = await db
                 .select()
-                .from(user)
-                .where(eq(user.email, username))
+                .from(account)
+                .where(eq(account.email, username))
                 .limit(1);
         }
 
-        const actualUser = foundUser || userByEmail;
+        const foundUser = user || userByEmail;
 
         // Always hash the provided password to prevent timing attacks
         const dummyHash = '$2b$12$dummy.hash.to.prevent.timing.attacks';
-        const targetHash = actualUser?.password || dummyHash;
+        const targetHash = foundUser?.password || dummyHash;
 
         // Verify password
         const isValidPassword = await bcrypt.compare(password, targetHash);
 
         // Check if user exists and password is correct and account is active
-        if (!actualUser || !isValidPassword || !actualUser.isActive) {
+        if (!foundUser || !isValidPassword || !foundUser.isActive) {
             recordFailedAttempt(clientIP);
             
             // Generic error message to prevent user enumeration
@@ -139,14 +139,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
         // Create JWT token
         const tokenPayload = {
-            id: actualUser.id,
-            username: actualUser.username,
-            role: actualUser.role
+            id: foundUser.id,
+            username: foundUser.username,
+            role: foundUser.role
         };
         const token = jwt.sign(tokenPayload, JWT_SECRET, {
             expiresIn: JWT_EXPIRES_IN,
             issuer: 'kalibro-library',
-            subject: actualUser.id.toString()
+            subject: foundUser.id.toString()
         });
 
         // Set cookie for dashboard access
@@ -159,7 +159,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         });
 
         // Log successful login (don't log password or sensitive data)
-        console.log(`Successful login: ${actualUser.username} (${actualUser.role}) from ${clientIP}`);
+        console.log(`Successful login: ${foundUser.username} (${foundUser.role}) from ${clientIP}`);
 
         // Return success response with user data (excluding password)
         return new Response(
@@ -203,20 +203,20 @@ export const GET: RequestHandler = async ({ request }) => {
         const decoded = jwt.verify(token, JWT_SECRET) as any;
 
         // Optionally verify user still exists and is active
-        const [foundUser] = await db
+        const [user] = await db
             .select({
-                id: user.id,
-                name: user.name,
-                username: user.username,
-                email: user.email,
-                role: user.role,
-                isActive: user.isActive
+                id: account.id,
+                name: account.name,
+                username: account.username,
+                email: account.email,
+                role: account.role,
+                isActive: account.isActive
             })
-            .from(user)
-            .where(eq(user.id, decoded.id))
+            .from(account)
+            .where(eq(account.id, decoded.userId))
             .limit(1);
 
-        if (!foundUser || !foundUser.isActive) {
+        if (!user || !user.isActive) {
             return new Response(
                 JSON.stringify({ success: false, message: 'Invalid token' }),
                 { status: 401, headers: { 'Content-Type': 'application/json' } }
@@ -226,7 +226,7 @@ export const GET: RequestHandler = async ({ request }) => {
         return new Response(
             JSON.stringify({
                 success: true,
-                user: foundUser
+                user
             }),
             { status: 200, headers: { 'Content-Type': 'application/json' } }
         );

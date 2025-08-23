@@ -112,12 +112,20 @@ export const GET: RequestHandler = async () => {
 export const POST: RequestHandler = async ({ request }) => {
   try {
     const body = await request.json();
-    const { type, name, email, phone, age, ...typeSpecificData } = body;
 
-    // Validate required fields
-    if (!type || !name || !email) {
-      throw error(400, { message: 'Missing required fields: type, name, email' });
+    // Map 'role' to 'type' for backward compatibility if needed
+    if (!body.type && body.role) {
+      body.type = body.role;
     }
+
+    if (!body.type || !body.name || !body.email) {
+      return new Response(
+        JSON.stringify({ message: 'Missing required fields: type, name, email' }),
+        { status: 400 }
+      );
+    }
+
+    const { type, name, email, phone, age, ...typeSpecificData } = body;
 
     if (!['Student', 'Faculty'].includes(type)) {
       throw error(400, { message: 'Invalid member type. Must be Student or Faculty' });
@@ -134,62 +142,63 @@ export const POST: RequestHandler = async ({ request }) => {
       throw error(409, { message: 'Email already exists' });
     }
 
-    // Start transaction
-    const result = await db.transaction(async (tx) => {
-      // Create user record
-      const [newUser] = await tx
-        .insert(user)
+    // 1. Create user record
+    const [newUser] = await db
+      .insert(user)
+      .values({
+        name,
+        email,
+        phone,
+        role: type.toLowerCase(),
+        age: age || null,
+      })
+      .returning();
+
+    if (type === 'Student') {
+      const { enrollmentNo, course, year, username, password } = typeSpecificData;
+
+      if (!enrollmentNo || !course) {
+        throw error(400, { message: 'Missing required student fields: enrollmentNo, course' });
+      }
+
+      // Check if enrollment number already exists
+      const existingStudents = await db
+        .select({ id: student.id })
+        .from(student)
+        .where(eq(student.enrollmentNo, enrollmentNo))
+        .limit(1);
+
+      if (existingStudents.length > 0) {
+        throw error(409, { message: 'Enrollment number already exists' });
+      }
+
+      // Hash password if provided
+      let hashedPassword = null;
+      let passwordSalt = null;
+      if (password) {
+        passwordSalt = await bcrypt.genSalt(10);
+        hashedPassword = await bcrypt.hash(password, passwordSalt);
+      }
+
+      // 2. Create student record
+      const [newStudent] = await db
+        .insert(student)
         .values({
-          name,
-          email,
-          phone,
-          role: type.toLowerCase(),
-          age: age || null,
+          userId: newUser.id,
+          enrollmentNo,
+          course,
+          year: year || null,
+          username: username || null,
+          password: hashedPassword,
+          passwordSalt,
+          isActive: true,
         })
         .returning();
 
-      if (type === 'Student') {
-        const { enrollmentNo, course, year, username, password } = typeSpecificData;
-        
-        if (!enrollmentNo || !course) {
-          throw error(400, { message: 'Missing required student fields: enrollmentNo, course' });
-        }
-
-        // Check if enrollment number already exists
-        const existingStudents = await tx
-          .select({ id: student.id })
-          .from(student)
-          .where(eq(student.enrollmentNo, enrollmentNo))
-          .limit(1);
-
-        if (existingStudents.length > 0) {
-          throw error(409, { message: 'Enrollment number already exists' });
-        }
-
-        // Hash password if provided
-        let hashedPassword = null;
-        let passwordSalt = null;
-        if (password) {
-          passwordSalt = await bcrypt.genSalt(10);
-          hashedPassword = await bcrypt.hash(password, passwordSalt);
-        }
-
-        // Create student record
-        const [newStudent] = await tx
-          .insert(student)
-          .values({
-            userId: newUser.id,
-            enrollmentNo,
-            course,
-            year: year || null,
-            username: username || null,
-            password: hashedPassword,
-            passwordSalt,
-            isActive: true,
-          })
-          .returning();
-
-        return {
+      return json({
+        success: true,
+        message: 'Member added successfully',
+        data: {
           id: newUser.id,
           type: 'Student',
           name: newUser.name,
@@ -200,37 +209,42 @@ export const POST: RequestHandler = async ({ request }) => {
           year: newStudent.year,
           isActive: newStudent.isActive,
           booksCount: 0,
-        };
-      } else {
-        const { department, designation, username, password } = typeSpecificData;
-        
-        if (!department) {
-          throw error(400, { message: 'Missing required faculty field: department' });
         }
+      }, { status: 201 });
 
-        // Hash password if provided
-        let hashedPassword = null;
-        let passwordSalt = null;
-        if (password) {
-          passwordSalt = await bcrypt.genSalt(10);
-          hashedPassword = await bcrypt.hash(password, passwordSalt);
-        }
+    } else {
+      const { department, designation, username, password } = typeSpecificData;
 
-        // Create faculty record
-        const [newFaculty] = await tx
-          .insert(faculty)
-          .values({
-            userId: newUser.id,
-            department,
-            designation: designation || null,
-            username: username || null,
-            password: hashedPassword,
-            passwordSalt,
-            isActive: true,
-          })
-          .returning();
+      if (!department) {
+        throw error(400, { message: 'Missing required faculty field: department' });
+      }
 
-        return {
+      // Hash password if provided
+      let hashedPassword = null;
+      let passwordSalt = null;
+      if (password) {
+        passwordSalt = await bcrypt.genSalt(10);
+        hashedPassword = await bcrypt.hash(password, passwordSalt);
+      }
+
+      // 2. Create faculty record
+      const [newFaculty] = await db
+        .insert(faculty)
+        .values({
+          userId: newUser.id,
+          department,
+          designation: designation || null,
+          username: username || null,
+          password: hashedPassword,
+          passwordSalt,
+          isActive: true,
+        })
+        .returning();
+
+      return json({
+        success: true,
+        message: 'Member added successfully',
+        data: {
           id: newUser.id,
           type: 'Faculty',
           name: newUser.name,
@@ -240,15 +254,9 @@ export const POST: RequestHandler = async ({ request }) => {
           designation: newFaculty.designation,
           isActive: newFaculty.isActive,
           booksCount: 0,
-        };
-      }
-    });
-
-    return json({
-      success: true,
-      message: 'Member added successfully',
-      data: result
-    }, { status: 201 });
+        }
+      }, { status: 201 });
+    }
 
   } catch (err: any) {
     console.error('Error adding member:', err);
@@ -433,44 +441,37 @@ export const DELETE: RequestHandler = async ({ request }) => {
     }
 
     if (permanent) {
-      // Permanent deletion
-      await db.transaction(async (tx) => {
-        // Delete type-specific record first (foreign key constraint)
-        if (userRole === 'student') {
-          await tx.delete(student).where(eq(student.userId, id));
-        } else {
-          await tx.delete(faculty).where(eq(faculty.userId, id));
-        }
-        
-        // Delete user record
-        await tx.delete(user).where(eq(user.id, id));
-      });
+      // Permanent deletion (no transaction)
+      if (userRole === 'student') {
+        await db.delete(student).where(eq(student.userId, id));
+      } else {
+        await db.delete(faculty).where(eq(faculty.userId, id));
+      }
+      await db.delete(user).where(eq(user.id, id));
 
       return json({
         success: true,
         message: 'Member permanently deleted'
       });
     } else {
-      // Soft delete (deactivate)
-      await db.transaction(async (tx) => {
-        if (userRole === 'student') {
-          await tx
-            .update(student)
-            .set({ 
-              isActive: false, 
-              updatedAt: new Date() 
-            })
-            .where(eq(student.userId, id));
-        } else {
-          await tx
-            .update(faculty)
-            .set({ 
-              isActive: false, 
-              updatedAt: new Date() 
-            })
-            .where(eq(faculty.userId, id));
-        }
-      });
+      // Soft delete (deactivate, no transaction)
+      if (userRole === 'student') {
+        await db
+          .update(student)
+          .set({ 
+            isActive: false, 
+            updatedAt: new Date() 
+          })
+          .where(eq(student.userId, id));
+      } else {
+        await db
+          .update(faculty)
+          .set({ 
+            isActive: false, 
+            updatedAt: new Date() 
+          })
+          .where(eq(faculty.userId, id));
+      }
 
       return json({
         success: true,

@@ -9,7 +9,7 @@
     title: '',
     author: '',
     isbn: '',
-    category: '',
+    categoryId: '', // or 0
     publisher: '',
     publishedYear: '',
     edition: '',
@@ -27,7 +27,7 @@
   let isSubmitting = false;
 
   // Fetch categories from API
-  let categories: string[] = [];
+  let categories: { id: number, name: string }[] = [];
   let categoriesLoading = false;
 
   // Always fetch categories when modal opens
@@ -43,7 +43,7 @@
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        categories = data.data.categories.map((cat: { name: string }) => cat.name);
+        categories = data.data.categories; // [{ id, name }]
       } else {
         categories = [];
       }
@@ -83,7 +83,7 @@
       newErrors.isbn = 'Please enter a valid ISBN';
     }
     
-    if (!formData.category) newErrors.category = 'Category is required';
+    if (!formData.categoryId) newErrors.category = 'Category is required';
     if (!formData.publisher.trim()) newErrors.publisher = 'Publisher is required';
     
     if (!formData.publishedYear) {
@@ -118,7 +118,7 @@
         isbn: formData.isbn.trim(),
         publishedYear: parseInt(formData.publishedYear),
         copiesAvailable: parseInt(formData.copiesAvailable.toString()),
-        category: formData.category,
+        categoryId: parseInt(formData.categoryId),
         publisher: formData.publisher.trim(),
         edition: formData.edition.trim() || null,
         pages: formData.pages ? parseInt(formData.pages) : null,
@@ -173,7 +173,7 @@
       title: '',
       author: '',
       isbn: '',
-      category: '',
+      categoryId: '', // or 0
       publisher: '',
       publishedYear: '',
       edition: '',
@@ -315,7 +315,7 @@
                 <div>
                   <label class="block text-sm font-medium text-slate-700 mb-2">Category *</label>
                   <select 
-                    bind:value={formData.category} 
+                    bind:value={formData.categoryId} 
                     disabled={isSubmitting || categoriesLoading}
                     class="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 {errors.category ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white/50'}"
                   >
@@ -323,8 +323,8 @@
                     {#if categoriesLoading}
                       <option disabled>Loading categories...</option>
                     {:else}
-                      {#each categories as category}
-                        <option value={category}>{category}</option>
+                      {#each categories as cat}
+                        <option value={cat.id}>{cat.name}</option>
                       {/each}
                     {/if}
                   </select>
