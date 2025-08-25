@@ -2,7 +2,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { user, issuedBook, book } from '$lib/server/db/schema/schema.js';
+import { user, bookTransaction, book } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
 
 // GET: Return specific user details with issued books
@@ -34,29 +34,28 @@ export const GET: RequestHandler = async ({ params }) => {
     // Get issued books count
     const issuedBooksCount = await db
       .select({ count: count() })
-      .from(issuedBook)
-      .where(eq(issuedBook.userId, userId));
+      .from(bookTransaction)
+      .where(eq(bookTransaction.userId, userId));
 
     // Get detailed issued books information
     const issuedBooks = await db
       .select({
-        id: issuedBook.id,
+        id: bookTransaction.id,
         bookTitle: book.title,
         bookAuthor: book.author,
-        bookIsbn: book.isbn,
-        issueDate: issuedBook.issueDate,
-        returnDate: issuedBook.returnDate,
-        actualReturnDate: issuedBook.actualReturnDate,
-        status: issuedBook.status,
+        issueDate: bookTransaction.issueDate,
+        returnDate: bookTransaction.returnDate,
+        actualReturnDate: bookTransaction.actualReturnDate,
+        status: bookTransaction.status,
         isOverdue: db.raw(`CASE 
-          WHEN issued_book.actual_return_date IS NULL AND issued_book.return_date < CURRENT_DATE 
+          WHEN book_transaction.actual_return_date IS NULL AND book_transaction.return_date < CURRENT_DATE 
           THEN true 
           ELSE false 
         END`),
       })
-      .from(issuedBook)
-      .leftJoin(book, eq(issuedBook.bookId, book.id))
-      .where(eq(issuedBook.userId, userId));
+      .from(bookTransaction)
+      .leftJoin(book, eq(bookTransaction.bookId, book.id))
+      .where(eq(bookTransaction.userId, userId));
 
     memberDetails.booksCount = issuedBooksCount[0]?.count ?? 0;
     memberDetails.issuedBooks = issuedBooks;
