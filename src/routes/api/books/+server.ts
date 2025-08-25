@@ -3,9 +3,9 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
-import { eq, like, and, or, gt, count } from 'drizzle-orm';
+import { eq, like, and, or, gt, count, not } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
-import { book, account, category } from '$lib/server/db/schema/schema.js'; // add category import
+import { book, account, category, bookTransaction } from '$lib/server/db/schema/schema.js'; // add category import
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -19,18 +19,15 @@ interface AuthenticatedUser {
 interface CreateBookRequest {
   title: string;
   author: string;
-  isbn: string;
   category?: string;
   publisher?: string;
   publishedYear: number;
   edition?: string;
-  pages?: number;
   language?: string;
   copiesAvailable: number;
   location?: string;
   description?: string;
   tags?: string[];
-  price?: number;
   supplier?: string;
 }
 
@@ -92,20 +89,6 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
 }
 
 // Validation functions
-function validateISBN(isbn: string): boolean {
-  // Remove hyphens and spaces
-  const cleanISBN = isbn.replace(/[-\s]/g, '');
-  
-  // Check if it's ISBN-10 or ISBN-13
-  if (cleanISBN.length === 10) {
-    return /^[0-9]{9}[0-9X]$/i.test(cleanISBN);
-  } else if (cleanISBN.length === 13) {
-    return /^97[89][0-9]{10}$/.test(cleanISBN);
-  }
-  
-  return false;
-}
-
 function validateYear(year: number): boolean {
   const currentYear = new Date().getFullYear();
   return year >= 1000 && year <= currentYear;
@@ -133,8 +116,8 @@ export const GET: RequestHandler = async ({ request, url }) => {
     const search = searchParams.get('search') || '';
     const categoryId = searchParams.get('categoryId') || '';
     const author = searchParams.get('author') || '';
-    const isbn = searchParams.get('isbn') || '';
     const available = searchParams.get('available');
+    const bookId = searchParams.get('bookId') || '';
 
     if (page < 1 || limit < 1) {
       throw error(400, { message: 'Invalid pagination parameters. Page and limit must be >= 1' });
@@ -147,8 +130,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
       conditions.push(
         or(
           like(book.title, `%${search}%`),
-          like(book.author, `%${search}%`),
-          like(book.isbn, `%${search}%`)
+          like(book.author, `%${search}%`)
         )
       );
     }
@@ -161,12 +143,12 @@ export const GET: RequestHandler = async ({ request, url }) => {
       conditions.push(like(book.author, `%${author}%`));
     }
 
-    if (isbn) {
-      conditions.push(eq(book.isbn, isbn));
-    }
-
     if (available === 'true') {
       conditions.push(gt(book.copiesAvailable, 0));
+    }
+
+    if (bookId) {
+      conditions.push(like(book.bookId, `%${bookId}%`));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -182,9 +164,9 @@ export const GET: RequestHandler = async ({ request, url }) => {
     const books = await db
       .select({
         id: book.id,
+        bookId: book.bookId,
         title: book.title,
         author: book.author,
-        isbn: book.isbn,
         qrCode: book.qrCode,
         publishedYear: book.publishedYear,
         copiesAvailable: book.copiesAvailable,
@@ -241,91 +223,43 @@ export const POST: RequestHandler = async ({ request }) => {
     const body = await request.json();
 
     // Validate required fields
-    const requiredFields = ['title', 'author', 'isbn', 'publishedYear', 'copiesAvailable', 'categoryId'];
+    const requiredFields = ['bookId', 'title', 'author', 'publishedYear', 'copiesAvailable', 'categoryId'];
     const missingFields = requiredFields.filter(field => !body[field]);
     if (missingFields.length > 0) {
       throw error(400, { message: `Missing required fields: ${missingFields.join(', ')}` });
     }
 
-    // Validate categoryId exists
-    const categoryExists = await db
-      .select({ id: category.id })
-      .from(category)
-      .where(eq(category.id, body.categoryId))
-      .limit(1);
-
-    if (categoryExists.length === 0) {
-      throw error(400, { message: 'Invalid categoryId' });
+    // Validate bookId format (example: FIC-PBS-2002)
+    if (!/^[A-Z0-9\-]+$/i.test(body.bookId.trim())) {
+      throw error(400, { message: 'Book ID must be alphanumeric and may include dashes.' });
     }
 
-    // Validate field values
-    const validationErrors: string[] = [];
-
-    if (body.title.trim().length === 0) {
-      validationErrors.push('Title cannot be empty');
-    }
-
-    if (body.title.length > 200) {
-      validationErrors.push('Title must be less than 200 characters');
-    }
-
-    if (body.author.trim().length === 0) {
-      validationErrors.push('Author cannot be empty');
-    }
-
-    if (body.author.length > 100) {
-      validationErrors.push('Author must be less than 100 characters');
-    }
-
-    if (!validateISBN(body.isbn)) {
-      validationErrors.push('Please enter a valid ISBN (10 or 13 digits)');
-    }
-
-    if (!validateYear(body.publishedYear)) {
-      validationErrors.push(`Published year must be between 1000 and ${new Date().getFullYear()}`);
-    }
-
-    if (body.copiesAvailable < 0) {
-      validationErrors.push('Number of copies must be non-negative');
-    }
-
-    if (body.pages && body.pages < 1) {
-      validationErrors.push('Number of pages must be positive');
-    }
-
-    if (body.price && body.price < 0) {
-      validationErrors.push('Price cannot be negative');
-    }
-
-    if (validationErrors.length > 0) {
-      throw error(400, { message: validationErrors.join('; ') });
-    }
-
-    // Check if ISBN already exists
-    const existingBook = await db
-      .select({ id: book.id, title: book.title })
+    // Check if bookId already exists
+    const existingBookId = await db
+      .select({ id: book.id })
       .from(book)
-      .where(eq(book.isbn, body.isbn.trim()))
+      .where(eq(book.bookId, body.bookId.trim()))
       .limit(1);
-
-    if (existingBook.length > 0) {
-      throw error(409, { 
-        message: `A book with ISBN "${body.isbn}" already exists: "${existingBook[0].title}"` 
-      });
+    if (existingBookId.length > 0) {
+      throw error(409, { message: `A book with Book ID "${body.bookId}" already exists.` });
     }
 
-    // Generate QR code
-    const qrCode = generateQRCode(body.isbn, body.title);
-
-    // Prepare book data for insertion
+    // Prepare book data for insertion (only fields in schema)
     const bookData = {
+      bookId: body.bookId.trim(),
       title: body.title.trim(),
       author: body.author.trim(),
-      isbn: body.isbn.trim(),
-      qrCode,
+      language: body.language ? body.language.trim() : null,
+      qrCode: generateQRCode(body.bookId, body.title),
       publishedYear: body.publishedYear,
       copiesAvailable: body.copiesAvailable,
-      categoryId: body.categoryId
+      categoryId: body.categoryId,
+      publisher: body.publisher ? body.publisher.trim() : null,
+      edition: body.edition ? body.edition.trim() : null,
+      location: body.location ? body.location.trim() : null,
+      description: body.description ? body.description.trim() : null,
+      tags: Array.isArray(body.tags) ? body.tags.join(',') : (body.tags ? body.tags : null),
+      supplier: body.supplier ? body.supplier.trim() : null
     };
 
     // Insert the book
@@ -334,13 +268,20 @@ export const POST: RequestHandler = async ({ request }) => {
       .values(bookData)
       .returning({
         id: book.id,
+        bookId: book.bookId,
         title: book.title,
         author: book.author,
-        isbn: book.isbn,
+        language: book.language,
         qrCode: book.qrCode,
         publishedYear: book.publishedYear,
         copiesAvailable: book.copiesAvailable,
-        categoryId: book.categoryId
+        categoryId: book.categoryId,
+        publisher: book.publisher,
+        edition: book.edition,
+        location: book.location,
+        description: book.description,
+        tags: book.tags,
+        supplier: book.supplier
       });
 
     // Get category name for response
@@ -384,6 +325,23 @@ export const PUT: RequestHandler = async ({ request, url }) => {
 
     const body = await request.json();
 
+    // Validate bookId if present
+    if (body.bookId !== undefined) {
+      if (!/^[A-Z0-9\-]+$/i.test(body.bookId.trim())) {
+        throw error(400, { message: 'Book ID must be alphanumeric and may include dashes.' });
+      }
+      // Check uniqueness
+      const conflict = await db
+        .select({ id: book.id })
+        .from(book)
+        .where(eq(book.bookId, body.bookId.trim()))
+        .where(not(eq(book.id, parseInt(bookId))))
+        .limit(1);
+      if (conflict.length > 0) {
+        throw error(409, { message: `A book with Book ID "${body.bookId}" already exists.` });
+      }
+    }
+
     // Validate categoryId if present
     if (body.categoryId !== undefined) {
       const categoryExists = await db
@@ -401,8 +359,7 @@ export const PUT: RequestHandler = async ({ request, url }) => {
     const existingBook = await db
       .select({ 
         id: book.id, 
-        title: book.title,
-        isbn: book.isbn 
+        title: book.title
       })
       .from(book)
       .where(eq(book.id, parseInt(bookId)))
@@ -431,23 +388,6 @@ export const PUT: RequestHandler = async ({ request, url }) => {
       }
     }
 
-    if (body.isbn !== undefined) {
-      if (!validateISBN(body.isbn)) {
-        validationErrors.push('Please enter a valid ISBN');
-      } else if (body.isbn !== existingBook[0].isbn) {
-        // Check if new ISBN conflicts with existing books
-        const isbnConflict = await db
-          .select({ id: book.id })
-          .from(book)
-          .where(eq(book.isbn, body.isbn))
-          .limit(1);
-
-        if (isbnConflict.length > 0) {
-          validationErrors.push('A book with this ISBN already exists');
-        }
-      }
-    }
-
     if (body.publishedYear !== undefined && !validateYear(body.publishedYear)) {
       validationErrors.push(`Published year must be between 1000 and ${new Date().getFullYear()}`);
     }
@@ -472,10 +412,10 @@ export const PUT: RequestHandler = async ({ request, url }) => {
     const updateData: any = {};
     if (body.title !== undefined) updateData.title = body.title.trim();
     if (body.author !== undefined) updateData.author = body.author.trim();
-    if (body.isbn !== undefined) updateData.isbn = body.isbn.trim();
     if (body.publishedYear !== undefined) updateData.publishedYear = body.publishedYear;
     if (body.copiesAvailable !== undefined) updateData.copiesAvailable = body.copiesAvailable;
     if (body.categoryId !== undefined) updateData.categoryId = body.categoryId;
+    if (body.bookId !== undefined) updateData.bookId = body.bookId.trim();
 
     const [updatedBook] = await db
       .update(book)
@@ -485,7 +425,6 @@ export const PUT: RequestHandler = async ({ request, url }) => {
         id: book.id,
         title: book.title,
         author: book.author,
-        isbn: book.isbn,
         qrCode: book.qrCode,
         publishedYear: book.publishedYear,
         copiesAvailable: book.copiesAvailable,
@@ -542,9 +481,16 @@ export const DELETE: RequestHandler = async ({ request, url }) => {
       throw error(404, { message: 'Book not found' });
     }
 
-    // TODO: Check if book is currently issued to anyone
-    // You might want to prevent deletion if the book is currently borrowed
-    // const issuedCount = await db.select({ count: count() }).from(issuedBook).where(eq(issuedBook.bookId, parseInt(bookId)));
+    // Prevent deletion if book is currently borrowed
+    const issuedCount = await db
+      .select({ count: count() })
+      .from(bookTransaction)
+      .where(eq(bookTransaction.bookId, parseInt(bookId)))
+      .where(eq(bookTransaction.transactionType, 'borrow'))
+      .where(eq(bookTransaction.status, 'active'));
+    if (issuedCount[0]?.count > 0) {
+      throw error(400, { message: 'Cannot delete book: It is currently borrowed.' });
+    }
 
     await db
       .delete(book)

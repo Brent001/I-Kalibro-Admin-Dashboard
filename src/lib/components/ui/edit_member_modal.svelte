@@ -1,7 +1,22 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
+
   export let isOpen = false;
-  export let member = null;
+  export let member: {
+    type?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    age?: string | number;
+    enrollmentNo?: string;
+    course?: string;
+    year?: string;
+    department?: string;
+    designation?: string;
+    username?: string;
+    password?: string;
+    isActive?: boolean;
+  } | null = null;
   export let isLoading = false;
 
   const dispatch = createEventDispatcher();
@@ -18,42 +33,45 @@
     department: '',
     designation: '',
     username: '',
-    password: ''
+    password: '',
+    isActive: true
   };
 
   onMount(() => {
     if (member) {
       formData = {
-        type: member.type,
-        name: member.name || '',
-        email: member.email || '',
-        phone: member.phone || '',
-        age: member.age || '',
-        enrollmentNo: member.enrollmentNo || '',
-        course: member.course || '',
-        year: member.year || '',
-        department: member.department || '',
-        designation: member.designation || '',
-        username: member.username || '',
-        password: ''
+        type: member.type ?? 'Student',
+        name: member.name ?? '',
+        email: member.email ?? '',
+        phone: member.phone ?? '',
+        age: member.age ?? '',
+        enrollmentNo: member.enrollmentNo ?? '',
+        course: member.course ?? '',
+        year: member.year ?? '',
+        department: member.department ?? '',
+        designation: member.designation ?? '',
+        username: member.username ?? '',
+        password: '',
+        isActive: member.isActive ?? true
       };
     }
   });
 
   $: if (member) {
     formData = {
-      type: member.type,
-      name: member.name || '',
-      email: member.email || '',
-      phone: member.phone || '',
-      age: member.age || '',
-      enrollmentNo: member.enrollmentNo || '',
-      course: member.course || '',
-      year: member.year || '',
-      department: member.department || '',
-      designation: member.designation || '',
-      username: member.username || '',
-      password: ''
+      type: member.type ?? 'Student',
+      name: member.name ?? '',
+      email: member.email ?? '',
+      phone: member.phone ?? '',
+      age: member.age ?? '',
+      enrollmentNo: member.enrollmentNo ?? '',
+      course: member.course ?? '',
+      year: member.year ?? '',
+      department: member.department ?? '',
+      designation: member.designation ?? '',
+      username: member.username ?? '',
+      password: '',
+      isActive: member.isActive ?? true
     };
   }
 

@@ -8,19 +8,17 @@
   let formData = {
     title: '',
     author: '',
-    isbn: '',
-    categoryId: '', // or 0
+    categoryId: '',
     publisher: '',
     publishedYear: '',
     edition: '',
-    pages: '',
     language: 'English',
     copiesAvailable: 1,
     location: '',
     description: '',
     tags: '',
-    price: '',
-    supplier: ''
+    supplier: '',
+    bookId: ''
   };
 
   let errors: {[key: string]: string} = {};
@@ -77,12 +75,6 @@
     
     if (!formData.title.trim()) newErrors.title = 'Title is required';
     if (!formData.author.trim()) newErrors.author = 'Author is required';
-    if (!formData.isbn.trim()) {
-      newErrors.isbn = 'ISBN is required';
-    } else if (!/^(?:ISBN(?:-1[03])?:? )?(?=[0-9X]{10}$|(?=(?:[0-9]+[- ]){3})[- 0-9X]{13}$|97[89][0-9]{10}$|(?=(?:[0-9]+[- ]){4})[- 0-9]{17}$)(?:97[89][- ]?)?[0-9]{1,5}[- ]?[0-9]+[- ]?[0-9]+[- ]?[0-9X]$/.test(formData.isbn.replace(/[- ]/g, ''))) {
-      newErrors.isbn = 'Please enter a valid ISBN';
-    }
-    
     if (!formData.categoryId) newErrors.category = 'Category is required';
     if (!formData.publisher.trim()) newErrors.publisher = 'Publisher is required';
     
@@ -97,8 +89,12 @@
     }
     
     if (formData.copiesAvailable < 1) newErrors.copiesAvailable = 'Number of copies must be at least 1';
-    if (formData.pages && parseInt(formData.pages) < 1) newErrors.pages = 'Number of pages must be positive';
-    if (formData.price && parseFloat(formData.price) < 0) newErrors.price = 'Price cannot be negative';
+    
+    if (!formData.bookId.trim()) {
+      newErrors.bookId = 'Book ID is required';
+    } else if (!/^[A-Z0-9\-]+$/i.test(formData.bookId.trim())) {
+      newErrors.bookId = 'Book ID must be alphanumeric and may include dashes';
+    }
     
     errors = newErrors;
     return Object.keys(newErrors).length === 0;
@@ -113,20 +109,18 @@
     try {
       // Transform data to match your API expectations
       const bookData = {
+        bookId: formData.bookId.trim(),
         title: formData.title.trim(),
         author: formData.author.trim(),
-        isbn: formData.isbn.trim(),
         publishedYear: parseInt(formData.publishedYear),
         copiesAvailable: parseInt(formData.copiesAvailable.toString()),
         categoryId: parseInt(formData.categoryId),
         publisher: formData.publisher.trim(),
         edition: formData.edition.trim() || null,
-        pages: formData.pages ? parseInt(formData.pages) : null,
         language: formData.language,
         location: formData.location.trim() || null,
         description: formData.description.trim() || null,
         tags: formData.tags ? formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag) : [],
-        price: formData.price ? parseFloat(formData.price) : null,
         supplier: formData.supplier.trim() || null,
         dateAdded: new Date().toISOString(),
       };
@@ -154,7 +148,7 @@
         } else if (response.status === 403) {
           dispatch('error', { message: 'You do not have permission to add books.' });
         } else if (response.status === 409) {
-          errors.isbn = data.message || 'A book with this ISBN already exists';
+          errors.bookId = data.message || 'A book with this Book ID already exists';
         } else {
           dispatch('error', { message: data.message || 'Failed to add book' });
         }
@@ -172,19 +166,17 @@
     formData = {
       title: '',
       author: '',
-      isbn: '',
-      categoryId: '', // or 0
+      categoryId: '',
       publisher: '',
       publishedYear: '',
       edition: '',
-      pages: '',
       language: 'English',
       copiesAvailable: 1,
       location: '',
       description: '',
       tags: '',
-      price: '',
-      supplier: ''
+      supplier: '',
+      bookId: ''
     };
     errors = {};
     isSubmitting = false;
@@ -248,7 +240,8 @@
           
           <!-- Form Content with Scroll -->
           <div class="px-6 py-6 max-h-[60vh] overflow-y-auto">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Two Column Layout for Main Fields -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
               <!-- Basic Information -->
               <div class="space-y-6">
                 <div class="flex items-center space-x-2 mb-4">
@@ -282,33 +275,17 @@
                   {#if errors.author}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.author}</p>{/if}
                 </div>
                 
-                <!-- ISBN -->
+                <!-- Book ID -->
                 <div>
-                  <label class="block text-sm font-medium text-slate-700 mb-2">ISBN *</label>
-                  <div class="flex">
-                    <input 
-                      type="text" 
-                      bind:value={formData.isbn} 
-                      disabled={isSubmitting}
-                      class="flex-1 px-4 py-3 border rounded-l-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 {errors.isbn ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white/50'}" 
-                      placeholder="978-0-123456-78-9" 
-                    />
-                    <button 
-                      type="button" 
-                      on:click={handleISBNScan} 
-                      disabled={isSubmitting}
-                      class="px-4 py-3 border border-l-0 border-slate-300 rounded-r-xl hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50"
-                      title="Scan ISBN"
-                    >
-                      <svg class="h-5 w-5 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-                        <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-                        <rect x="14" y="14" width="7" height="7" rx="1.5"/>
-                        <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-                      </svg>
-                    </button>
-                  </div>
-                  {#if errors.isbn}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.isbn}</p>{/if}
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Book ID *</label>
+                  <input 
+                    type="text" 
+                    bind:value={formData.bookId} 
+                    disabled={isSubmitting}
+                    class="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 {errors.bookId ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white/50'}" 
+                    placeholder="e.g., FIC-PBS-2002" 
+                  />
+                  {#if errors.bookId}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.bookId}</p>{/if}
                 </div>
                 
                 <!-- Category -->
@@ -343,6 +320,14 @@
                   />
                   {#if errors.publisher}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.publisher}</p>{/if}
                 </div>
+              </div> <!-- Closing div for Basic Information -->
+
+              <!-- Additional Details -->
+              <div class="space-y-6">
+                <div class="flex items-center space-x-2 mb-4">
+                  <div class="h-1 w-8 bg-slate-600 rounded-full"></div>
+                  <h4 class="text-lg font-semibold text-slate-900">Additional Details</h4>
+                </div>
                 
                 <!-- Published Year and Edition -->
                 <div class="grid grid-cols-2 gap-4">
@@ -370,16 +355,8 @@
                     />
                   </div>
                 </div>
-              </div>
-              
-              <!-- Additional Details -->
-              <div class="space-y-6">
-                <div class="flex items-center space-x-2 mb-4">
-                  <div class="h-1 w-8 bg-slate-600 rounded-full"></div>
-                  <h4 class="text-lg font-semibold text-slate-900">Additional Details</h4>
-                </div>
-                
-                <!-- Language and Pages -->
+
+                <!-- Language & Tags side by side -->
                 <div class="grid grid-cols-2 gap-4">
                   <div>
                     <label class="block text-sm font-medium text-slate-700 mb-2">Language</label>
@@ -394,16 +371,14 @@
                     </select>
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-2">Pages</label>
+                    <label class="block text-sm font-medium text-slate-700 mb-2">Tags</label>
                     <input 
-                      type="number" 
-                      bind:value={formData.pages} 
+                      type="text" 
+                      bind:value={formData.tags} 
                       disabled={isSubmitting}
-                      class="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 {errors.pages ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white/50'}" 
-                      placeholder="Number of pages" 
-                      min="1" 
+                      class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50" 
+                      placeholder="programming, computer science, beginner (comma separated)" 
                     />
-                    {#if errors.pages}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.pages}</p>{/if}
                   </div>
                 </div>
                 
@@ -433,57 +408,38 @@
                   />
                 </div>
                 
-                <!-- Price and Supplier -->
-                <div class="grid grid-cols-2 gap-4">
-                  <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-2">Price (₱)</label>
-                    <input 
-                      type="number" 
-                      step="0.01" 
-                      bind:value={formData.price} 
-                      disabled={isSubmitting}
-                      class="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 {errors.price ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white/50'}" 
-                      placeholder="0.00" 
-                      min="0" 
-                    />
-                    {#if errors.price}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.price}</p>{/if}
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-2">Supplier</label>
-                    <input 
-                      type="text" 
-                      bind:value={formData.supplier} 
-                      disabled={isSubmitting}
-                      class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50" 
-                      placeholder="Book supplier" 
-                    />
-                  </div>
-                </div>
-                
-                <!-- Tags -->
+                <!-- Supplier -->
                 <div>
-                  <label class="block text-sm font-medium text-slate-700 mb-2">Tags</label>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Supplier</label>
                   <input 
                     type="text" 
-                    bind:value={formData.tags} 
+                    bind:value={formData.supplier} 
                     disabled={isSubmitting}
                     class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50" 
-                    placeholder="programming, computer science, beginner (comma separated)" 
+                    placeholder="Book supplier" 
                   />
-                  <p class="text-xs text-slate-500 mt-1">Separate tags with commas</p>
                 </div>
-                
-                <!-- Description -->
-                <div>
-                  <label class="block text-sm font-medium text-slate-700 mb-2">Description</label>
-                  <textarea 
-                    bind:value={formData.description} 
-                    rows="4" 
-                    disabled={isSubmitting}
-                    class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50 resize-none" 
-                    placeholder="Brief description of the book content..."
-                  ></textarea>
-                </div>
+              </div>
+            </div>
+            
+            <!-- Full Width Description Section -->
+            <div class="border-t border-slate-200/50 pt-8">
+              <div class="flex items-center space-x-2 mb-6">
+                <div class="h-1 w-8 bg-slate-700 rounded-full"></div>
+                <h4 class="text-lg font-semibold text-slate-900">Description & Summary</h4>
+              </div>
+              
+              <!-- Description -->
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Description</label>
+                <textarea 
+                  bind:value={formData.description} 
+                  rows="4" 
+                  disabled={isSubmitting}
+                  class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50 resize-none" 
+                  placeholder="Brief description of the book content, plot summary, key topics covered, or any other relevant information about the book..."
+                ></textarea>
+                <p class="text-xs text-slate-500 mt-1">Provide a comprehensive description to help users understand what this book is about</p>
               </div>
             </div>
           </div>

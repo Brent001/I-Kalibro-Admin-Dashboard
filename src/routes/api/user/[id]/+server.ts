@@ -2,7 +2,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { user, student, faculty, issuedBook, book } from '$lib/server/db/schema/schema.js';
+import { user, issuedBook, book } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
 
 // GET: Return specific user details with issued books
@@ -16,16 +16,7 @@ export const GET: RequestHandler = async ({ params }) => {
 
     // Get user basic info
     const userInfo = await db
-      .select({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        age: user.age,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      })
+      .select()
       .from(user)
       .where(eq(user.id, userId))
       .limit(1);
@@ -34,47 +25,11 @@ export const GET: RequestHandler = async ({ params }) => {
       throw error(404, { message: 'User not found' });
     }
 
-    const userRecord = userInfo[0];
+    const u = userInfo[0];
     let memberDetails: any = {
-      ...userRecord,
-      type: userRecord.role === 'student' ? 'Student' : 'Faculty'
+      ...u,
+      type: u.role === 'student' ? 'Student' : 'Faculty'
     };
-
-    // Get type-specific details
-    if (userRecord.role === 'student') {
-      const studentInfo = await db
-        .select({
-          enrollmentNo: student.enrollmentNo,
-          course: student.course,
-          year: student.year,
-          username: student.username,
-          isActive: student.isActive,
-          createdAt: student.createdAt,
-        })
-        .from(student)
-        .where(eq(student.userId, userId))
-        .limit(1);
-
-      if (studentInfo.length > 0) {
-        memberDetails = { ...memberDetails, ...studentInfo[0] };
-      }
-    } else {
-      const facultyInfo = await db
-        .select({
-          department: faculty.department,
-          designation: faculty.designation,
-          username: faculty.username,
-          isActive: faculty.isActive,
-          createdAt: faculty.createdAt,
-        })
-        .from(faculty)
-        .where(eq(faculty.userId, userId))
-        .limit(1);
-
-      if (facultyInfo.length > 0) {
-        memberDetails = { ...memberDetails, ...facultyInfo[0] };
-      }
-    }
 
     // Get issued books count
     const issuedBooksCount = await db

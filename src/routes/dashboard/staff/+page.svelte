@@ -1,81 +1,49 @@
 <script lang="ts">
   import Layout from "$lib/components/ui/layout.svelte";
-  import AddStaff from "$lib/components/ui/add_staff.svelte"; // 1. Import
+  import AddStaff from "$lib/components/ui/add_staff.svelte";
+  import { onMount } from "svelte";
 
-  // State
   let searchTerm = "";
   let selectedRole = "all";
   let selectedStatus = "all";
-  let isAddStaffOpen = false; // 2. Modal state
-
-  // Use only fields from the account schema
-  let staff = [
-    {
-      id: 1,
-      name: 'Dr. Sarah Johnson',
-      email: 'sarah.johnson@faculty.mdc.edu.ph',
-      username: 'sarah.johnson',
-      role: 'admin',
-      isActive: true,
-      tokenVersion: 1,
-      createdAt: '2020-01-15T09:00:00',
-      updatedAt: '2024-01-20T14:30:00'
-    },
-    {
-      id: 2,
-      name: 'Michael Brown',
-      email: 'michael.brown@staff.mdc.edu.ph',
-      username: 'michael.brown',
-      role: 'staff',
-      isActive: true,
-      tokenVersion: 2,
-      createdAt: '2021-03-15T09:00:00',
-      updatedAt: '2024-01-21T09:15:00'
-    },
-    {
-      id: 3,
-      name: 'Emily Davis',
-      email: 'emily.davis@staff.mdc.edu.ph',
-      username: 'emily.davis',
-      role: 'staff',
-      isActive: true,
-      tokenVersion: 1,
-      createdAt: '2022-06-10T09:00:00',
-      updatedAt: '2024-01-21T10:45:00'
-    },
-    {
-      id: 4,
-      name: 'Robert Wilson',
-      email: 'robert.wilson@staff.mdc.edu.ph',
-      username: 'robert.wilson',
-      role: 'staff',
-      isActive: false,
-      tokenVersion: 3,
-      createdAt: '2021-09-20T09:00:00',
-      updatedAt: '2024-01-10T16:20:00'
-    },
-    {
-      id: 5,
-      name: 'Lisa Anderson',
-      email: 'lisa.anderson@staff.mdc.edu.ph',
-      username: 'lisa.anderson',
-      role: 'staff',
-      isActive: true,
-      tokenVersion: 1,
-      createdAt: '2023-02-01T09:00:00',
-      updatedAt: '2024-01-21T08:30:00'
-    },
-  ];
+  let isAddStaffOpen = false;
+  let isEditStaffOpen = false;
+  let isDeleteStaffOpen = false;
+  let staff: any[] = [];
+  let selectedStaff: any = null;
+  let loading = false;
+  let errorMsg = "";
 
   const roleTypes = ['all', 'admin', 'staff'];
   const statusTypes = ['all', 'active', 'inactive'];
 
+  // Fetch staff from API
+  async function fetchStaff() {
+    loading = true;
+    try {
+      const res = await fetch('/api/staff');
+      const data = await res.json();
+      staff = data.data.staff.map(s => ({
+        ...s,
+        tokenVersion: s.tokenVersion ?? 0,
+        createdAt: s.joined ?? s.createdAt,
+        updatedAt: s.updatedAt ?? s.createdAt
+      }));
+    } catch (err) {
+      errorMsg = "Failed to load staff.";
+    } finally {
+      loading = false;
+    }
+  }
+
+  onMount(fetchStaff);
+
   $: filteredStaff = staff.filter(member => {
     const search = searchTerm.toLowerCase();
     const matchesSearch =
-      member.name.toLowerCase().includes(search) ||
-      member.email.toLowerCase().includes(search) ||
-      member.username.toLowerCase().includes(search);
+      member.name?.toLowerCase().includes(search) ||
+      member.email?.toLowerCase().includes(search) ||
+      member.username?.toLowerCase().includes(search);
 
     const matchesRole = selectedRole === 'all' || member.role === selectedRole;
     const matchesStatus = selectedStatus === 'all' ||
@@ -120,8 +88,64 @@
     });
   }
 
-  function handleStaffAdded(event) {
-    staff = [...staff, event.detail];
+  // Add Staff Handler
+  async function handleStaffAdded(event) {
+    await fetchStaff();
+    isAddStaffOpen = false;
+  }
+
+  // Edit Staff Handler
+  async function handleEditStaff(staffMember) {
+    selectedStaff = staffMember;
+    isEditStaffOpen = true;
+  }
+
+  async function handleStaffUpdated(event) {
+    await fetchStaff();
+    isEditStaffOpen = false;
+    selectedStaff = null;
+  }
+
+  // Delete Staff Handler
+  async function handleDeleteStaff(staffMember) {
+    selectedStaff = staffMember;
+    isDeleteStaffOpen = true;
+  }
+
+  async function confirmDeleteStaff() {
+    if (!selectedStaff) return;
+    loading = true;
+    try {
+      await fetch('/api/staff', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedStaff.id })
+      });
+      await fetchStaff();
+      isDeleteStaffOpen = false;
+      selectedStaff = null;
+    } catch (err) {
+      errorMsg = "Failed to delete staff.";
+    } finally {
+      loading = false;
+    }
+  }
+
+  // Toggle Active/Inactive
+  async function toggleStaffStatus(staffMember) {
+    loading = true;
+    try {
+      await fetch('/api/staff', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: staffMember.id, isActive: !staffMember.isActive })
+      });
+      await fetchStaff();
+    } catch (err) {
+      errorMsg = "Failed to update status.";
+    } finally {
+      loading = false;
+    }
   }
 </script>
 
@@ -305,7 +329,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                       </svg>
                     </button>
-                    <button class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Staff">
+                    <button class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Staff" on:click={() => handleEditStaff(member)}>
                       <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                       </svg>
@@ -315,9 +339,18 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 12H9v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.586l4.707-4.707A6.006 6.006 0 0118 9z"/>
                       </svg>
                     </button>
-                    <button class="text-red-600 hover:text-red-900 transition-colors duration-200" title="Deactivate Staff">
+                    <button class="text-red-600 hover:text-red-900 transition-colors duration-200" title="Delete Staff" on:click={() => handleDeleteStaff(member)}>
                       <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728"/>
+                      </svg>
+                    </button>
+                    <button
+                      class={member.isActive ? "text-yellow-600 hover:text-yellow-900" : "text-green-600 hover:text-green-900"}
+                      title={member.isActive ? "Deactivate" : "Activate"}
+                      on:click={() => toggleStaffStatus(member)}
+                    >
+                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                       </svg>
                     </button>
                   </div>
@@ -352,7 +385,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                 </svg>
               </button>
-              <button class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Staff">
+              <button class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Staff" on:click={() => handleEditStaff(member)}>
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                 </svg>
@@ -362,7 +395,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 12H9v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.586l4.707-4.707A6.006 6.006 0 0118 9z"/>
                 </svg>
               </button>
-              <button class="p-1 text-red-600 hover:text-red-900 transition-colors duration-200" title="Deactivate Staff">
+              <button class="p-1 text-red-600 hover:text-red-900 transition-colors duration-200" title="Delete Staff" on:click={() => handleDeleteStaff(member)}>
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728"/>
                 </svg>
@@ -433,4 +466,21 @@
     on:close={() => isAddStaffOpen = false}
     on:staffAdded={handleStaffAdded}
   />
+
+  <!-- EditStaff Modal (implement similar to AddStaff, pass selectedStaff) -->
+  <!-- Delete Confirmation Modal -->
+  {#if isDeleteStaffOpen}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div class="bg-white rounded-xl shadow-xl p-8 max-w-md w-full">
+        <h3 class="text-lg font-bold mb-2">Delete Staff</h3>
+        <p class="mb-4">Are you sure you want to permanently delete <span class="font-semibold">{selectedStaff?.name}</span>?</p>
+        <div class="flex justify-end space-x-2">
+          <button class="px-4 py-2 rounded bg-gray-200" on:click={() => isDeleteStaffOpen = false}>Cancel</button>
+          <button class="px-4 py-2 rounded bg-red-600 text-white" on:click={confirmDeleteStaff} disabled={loading}>
+            {loading ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </Layout>

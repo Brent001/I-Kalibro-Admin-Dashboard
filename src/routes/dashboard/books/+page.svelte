@@ -111,12 +111,13 @@
         // Transform API data to match your frontend expectations
         books = data.data.books.map(book => ({
           ...book,
-          copies: book.copiesAvailable, // Map for compatibility
+          copies: book.copiesAvailable,
           available: book.copiesAvailable,
           published: book.publishedYear?.toString() || 'Unknown',
           status: book.copiesAvailable > 5 ? 'Available' : 
                   book.copiesAvailable > 0 ? 'Limited' : 'Unavailable',
-          category: 'General' // You'll need to add category to your schema
+          // Use the actual category name from API, fallback to 'General' if missing
+          category: book.category || 'General'
         }));
         pagination = data.data.pagination;
       } else {

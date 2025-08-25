@@ -15,7 +15,7 @@
     age: number | '';
     username: string;
     password: string;
-    confirmPassword: string;
+    confirmPassword?: string; // <-- Make this optional
     // Student fields
     enrollmentNo?: string;
     course?: string;
@@ -146,20 +146,26 @@
     resetForm();
   }
 
-  function handleBackdropClick(event) {
+  function handleBackdropClick(event: MouseEvent) {
     if (event.target === event.currentTarget) {
       closeModal();
     }
   }
 
-  function handleAgeInput(event) {
-    const value = event.target.value;
+  function handleAgeInput(event: Event) {
+    const target = event.target as HTMLInputElement;
+    const value = target.value;
     formData.age = value === '' ? '' : parseInt(value);
   }
 </script>
 
 {#if isOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4" on:click={handleBackdropClick} role="dialog" aria-modal="true">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4"
+     on:click={handleBackdropClick}
+     on:keydown={(e) => { if (e.key === 'Escape') closeModal(); }}
+     role="dialog"
+     aria-modal="true"
+     tabindex="0">
     <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
     <div class="relative w-full max-w-2xl">
       <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
@@ -178,7 +184,11 @@
                   <p class="text-sm text-slate-600 mt-1">Create a new {formData.type.toLowerCase()} account</p>
                 </div>
               </div>
-              <button type="button" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors" on:click={closeModal} disabled={isLoading}>
+              <button type="button"
+        class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
+        on:click={closeModal}
+        disabled={isLoading}
+        aria-label="Close">
                 <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -210,12 +220,13 @@
               <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <!-- Name -->
                 <div>
-                  <label class="block text-sm font-medium text-slate-700 mb-2">Full Name</label>
+                  <label for="fullName" class="block text-sm font-medium text-slate-700 mb-2">Full Name</label>
                   <div class="relative">
-                    <input 
-                      type="text" 
-                      bind:value={formData.name} 
-                      class="w-full pl-12 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all {errors.name ? 'border-red-500 focus:ring-red-500' : ''}" 
+                    <input
+                      id="fullName"
+                      type="text"
+                      bind:value={formData.name}
+                      class="w-full pl-12 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all {errors.name ? 'border-red-500 focus:ring-red-500' : ''}"
                       placeholder="Enter full name"
                       required
                     >

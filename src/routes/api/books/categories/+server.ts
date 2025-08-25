@@ -4,8 +4,8 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
 import { db } from '$lib/server/db/index.js';
-import { account, category } from '$lib/server/db/schema/schema.js';
-import { eq, and, not } from 'drizzle-orm';
+import { account, category, book } from '$lib/server/db/schema/schema.js';
+import { eq, not } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -118,7 +118,7 @@ export const GET: RequestHandler = async ({ request }) => {
     });
 
   } catch (err: any) {
-    console.error('Error fetching categories:', err instanceof Error ? err.message : err);
+    console.error('Error fetching categories:', err);
 
     if (err?.status) {
       throw err;
@@ -150,7 +150,7 @@ export const POST: RequestHandler = async ({ request }) => {
       throw error(400, { message: 'Description must be at most 255 characters.' });
     }
 
-    // Check for duplicate category name (case-insensitive with normalization)
+    // Check for duplicate category name (case-insensitive)
     const normalizedName = normalizeCategoryName(name);
     const existing = await db
       .select({ id: category.id, name: category.name })
@@ -162,7 +162,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     if (duplicate) {
       throw error(409, { 
-        message: `A category with the name "${duplicate.name || 'Unknown'}" already exists.` 
+        message: `A category with the name "${duplicate.name}" already exists.` 
       });
     }
 
@@ -186,7 +186,7 @@ export const POST: RequestHandler = async ({ request }) => {
     });
 
   } catch (err: any) {
-    console.error('Error adding category:', err instanceof Error ? err.message : err);
+    console.error('Error adding category:', err);
 
     if (err?.status) {
       throw err;
@@ -248,7 +248,7 @@ export const PUT: RequestHandler = async ({ request }) => {
 
     if (duplicate) {
       throw error(409, { 
-        message: `A category with the name "${duplicate.name || 'Unknown'}" already exists.` 
+        message: `A category with the name "${duplicate.name}" already exists.` 
       });
     }
 
@@ -273,7 +273,7 @@ export const PUT: RequestHandler = async ({ request }) => {
     });
 
   } catch (err: any) {
-    console.error('Error updating category:', err instanceof Error ? err.message : err);
+    console.error('Error updating category:', err);
     
     if (err?.status) {
       throw err;
@@ -309,8 +309,11 @@ export const DELETE: RequestHandler = async ({ request }) => {
       throw error(404, { message: 'Category not found.' });
     }
 
-    // TODO: Check if category is being used by any books before deleting
-    // You might want to add this check if you have a books table that references categories
+    // Check if category is used by any books
+    const usedByBooks = await db.select({ count: count() }).from(book).where(eq(book.categoryId, id));
+    if (usedByBooks[0]?.count > 0) {
+      throw error(400, { message: 'Cannot delete category: It is assigned to one or more books.' });
+    }
 
     // Delete category
     const [deleted] = await db
@@ -329,7 +332,7 @@ export const DELETE: RequestHandler = async ({ request }) => {
     });
 
   } catch (err: any) {
-    console.error('Error deleting category:', err instanceof Error ? err.message : err);
+    console.error('Error deleting category:', err);
     
     if (err?.status) {
       throw err;
