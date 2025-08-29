@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
-export const load: PageServerLoad = async ({ cookies, url }) => {
+export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
     const token = cookies.get('token');
     
     if (!token) {
@@ -46,7 +46,10 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
             throw redirect(302, '/');
         }
 
-        // Return user data to the page component (optional)
+        // Fetch dashboard stats from API
+        const res = await fetch('/api/dashboard');
+        const dashboard = res.ok ? await res.json().then(r => r.data) : {};
+
         return {
             user: {
                 id: user.id,
@@ -54,7 +57,8 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
                 username: user.username,
                 email: user.email,
                 role: user.role
-            }
+            },
+            dashboard
         };
 
     } catch (error) {

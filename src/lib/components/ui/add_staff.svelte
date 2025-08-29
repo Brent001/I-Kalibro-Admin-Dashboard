@@ -2,7 +2,6 @@
   import { createEventDispatcher } from 'svelte';
 
   export let isOpen = false;
-
   const dispatch = createEventDispatcher();
 
   type StaffForm = {
@@ -76,23 +75,29 @@
     if (!validateForm()) return;
     isLoading = true;
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      const newStaff = {
-        id: Date.now(),
-        name: formData.name.trim(),
-        email: formData.email.trim().toLowerCase(),
-        username: formData.username.trim().toLowerCase(),
-        role: formData.role,
-        isActive: true,
-        tokenVersion: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      dispatch('staffAdded', newStaff);
+      // Send POST request to API
+      const res = await fetch('/api/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name.trim(),
+          email: formData.email.trim().toLowerCase(),
+          username: formData.username.trim().toLowerCase(),
+          password: formData.password,
+          role: formData.role
+        })
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        errors.email = result.message || 'Failed to add staff';
+        isLoading = false;
+        return;
+      }
+      dispatch('staffAdded', result.data);
       resetForm();
       closeModal();
     } catch (error) {
-      console.error('Error adding staff:', error);
+      errors.email = 'Network error';
     } finally {
       isLoading = false;
     }

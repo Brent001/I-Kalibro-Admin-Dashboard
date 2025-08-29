@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
+  export let dbError = false;
 
   let showPassword = false;
   let username = '';
@@ -145,6 +146,13 @@
           </button>
         </div>
       </form>
+
+      {#if dbError}
+        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 text-center">
+          Unable to connect to the database. Please check your internet connection and try again.
+          <button class="ml-2 underline text-blue-700" on:click={() => location.reload()}>Reconnect</button>
+        </div>
+      {/if}
     </div>
   </div>
 

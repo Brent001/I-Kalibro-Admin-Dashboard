@@ -1,18 +1,18 @@
 <script lang="ts">
   import Layout from "$lib/components/ui/layout.svelte";
+  export let data;
 
-  const recentActivity = [
-    { id: 1, action: "Book borrowed", book: "Introduction to Computer Science", member: "John Doe", time: "2 hours ago" },
-    { id: 2, action: "Book returned", book: "Calculus and Analytic Geometry", member: "Jane Smith", time: "3 hours ago" },
-    { id: 3, action: "New member registered", book: "", member: "Michael Johnson", time: "5 hours ago" },
-    { id: 4, action: "Book reserved", book: "Physics Principles", member: "Sarah Wilson", time: "1 day ago" },
-  ];
+  // Destructure stats and activity from the API response
+  const {
+    totalBooks = 0,
+    activeMembers = 0,
+    booksBorrowed = 0,
+    overdueBooks = 0,
+    recentActivity = []
+  } = data?.dashboard ?? {};
 
-  const overdueBooks = [
-    { id: 1, book: "Advanced Mathematics", member: "Tom Brown", dueDate: "2024-01-10", daysOverdue: 5 },
-    { id: 2, book: "Chemistry Fundamentals", member: "Lisa Garcia", dueDate: "2024-01-12", daysOverdue: 3 },
-    { id: 3, book: "World History", member: "David Lee", dueDate: "2024-01-13", daysOverdue: 2 },
-  ];
+  // Transform overdueBooks for display (if you want a list)
+  const overdueBooksList = data?.dashboard?.overdueBooksList ?? [];
 </script>
 
 <Layout>
@@ -23,8 +23,8 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
           <div class="flex-1">
             <p class="text-xs sm:text-sm font-medium text-gray-600 mb-1">Total Books</p>
-            <p class="text-xl sm:text-3xl font-bold text-gray-900 mb-1">12,847</p>
-            <p class="text-xs sm:text-sm text-slate-600">+125 this month</p>
+            <p class="text-xl sm:text-3xl font-bold text-gray-900 mb-1">{totalBooks}</p>
+            <p class="text-xs sm:text-sm text-slate-600">Library total</p>
           </div>
           <div class="hidden sm:block p-3 bg-slate-50 rounded-lg mt-2 sm:mt-0">
             <svg class="h-6 w-6 sm:h-8 sm:w-8 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -38,8 +38,8 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
           <div class="flex-1">
             <p class="text-xs sm:text-sm font-medium text-gray-600 mb-1">Active Members</p>
-            <p class="text-xl sm:text-3xl font-bold text-gray-900 mb-1">2,456</p>
-            <p class="text-xs sm:text-sm text-slate-600">+48 this month</p>
+            <p class="text-xl sm:text-3xl font-bold text-gray-900 mb-1">{activeMembers}</p>
+            <p class="text-xs sm:text-sm text-slate-600">Current</p>
           </div>
           <div class="hidden sm:block p-3 bg-slate-50 rounded-lg mt-2 sm:mt-0">
             <svg class="h-6 w-6 sm:h-8 sm:w-8 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -53,8 +53,8 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
           <div class="flex-1">
             <p class="text-xs sm:text-sm font-medium text-gray-600 mb-1">Books Borrowed</p>
-            <p class="text-xl sm:text-3xl font-bold text-gray-900 mb-1">1,247</p>
-            <p class="text-xs sm:text-sm text-slate-600">This month</p>
+            <p class="text-xl sm:text-3xl font-bold text-gray-900 mb-1">{booksBorrowed}</p>
+            <p class="text-xs sm:text-sm text-slate-600">Currently</p>
           </div>
           <div class="hidden sm:block p-3 bg-slate-50 rounded-lg mt-2 sm:mt-0">
             <svg class="h-6 w-6 sm:h-8 sm:w-8 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -68,7 +68,7 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
           <div class="flex-1">
             <p class="text-xs sm:text-sm font-medium text-gray-600 mb-1">Overdue Books</p>
-            <p class="text-xl sm:text-3xl font-bold text-red-600 mb-1">23</p>
+            <p class="text-xl sm:text-3xl font-bold text-red-600 mb-1">{overdueBooks}</p>
             <p class="text-xs sm:text-sm text-red-600">Needs attention</p>
           </div>
           <div class="hidden sm:block p-3 bg-red-50 rounded-lg mt-2 sm:mt-0">
@@ -96,12 +96,10 @@
               <div class="flex items-start space-x-3">
                 <div class="w-2 h-2 bg-slate-900 rounded-full mt-2 flex-shrink-0"></div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-gray-900 truncate sm:whitespace-normal">{activity.action}</p>
-                  {#if activity.book}
-                    <p class="text-xs sm:text-sm text-gray-600 mt-1 truncate sm:whitespace-normal">{activity.book}</p>
-                  {/if}
+                  <p class="text-sm font-medium text-gray-900 truncate sm:whitespace-normal">{activity.type}</p>
+                  <p class="text-xs sm:text-sm text-gray-600 mt-1 truncate sm:whitespace-normal">{activity.bookTitle}</p>
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-2 space-y-1 sm:space-y-0">
-                    <span class="text-xs sm:text-sm text-slate-700 font-medium truncate">{activity.member}</span>
+                    <span class="text-xs sm:text-sm text-slate-700 font-medium truncate">{activity.memberName}</span>
                     <span class="text-xs text-gray-500 flex-shrink-0">{activity.time}</span>
                   </div>
                 </div>
@@ -111,7 +109,7 @@
         </div>
       </div>
 
-      <!-- Overdue Books -->
+      <!-- Overdue Books List (optional) -->
       <div class="bg-white rounded-lg shadow-sm border border-gray-200">
         <div class="p-4 sm:p-6 border-b border-gray-200 flex items-center justify-between">
           <h3 class="text-base sm:text-lg font-semibold text-gray-900">Overdue Books</h3>
@@ -120,13 +118,13 @@
           </svg>
         </div>
         <div class="divide-y divide-gray-100">
-          {#each overdueBooks as book}
+          {#each overdueBooksList as book}
             <div class="p-3 sm:p-4 hover:bg-gray-50 transition-colors duration-150">
               <div class="flex items-start space-x-3">
                 <div class="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-gray-900 truncate sm:whitespace-normal">{book.book}</p>
-                  <p class="text-xs sm:text-sm text-gray-600 mt-1 truncate">{book.member}</p>
+                  <p class="text-sm font-medium text-gray-900 truncate sm:whitespace-normal">{book.bookTitle}</p>
+                  <p class="text-xs sm:text-sm text-gray-600 mt-1 truncate">{book.memberName}</p>
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-2 space-y-2 sm:space-y-0">
                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 w-fit">
                       {book.daysOverdue} days overdue

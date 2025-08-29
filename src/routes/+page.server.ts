@@ -18,13 +18,16 @@ export const load: PageServerLoad = async ({ cookies }) => {
         throw redirect(302, '/dashboard');
     }
 
-    const userCount = await getUserCount();
-
-    if (userCount === 0) {
-        // No users: redirect to setup page
-        throw redirect(302, '/setup');
+    try {
+        const userCount = await getUserCount();
+        if (userCount === 0) {
+            // No users: redirect to setup page
+            throw redirect(302, '/setup');
+        }
+        // Otherwise, allow access to login page
+        return { dbError: false };
+    } catch (err) {
+        // Database connection error
+        return { dbError: true };
     }
-
-    // Otherwise, allow access to login page
-    return {};
 };

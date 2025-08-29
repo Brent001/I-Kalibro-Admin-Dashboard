@@ -1,100 +1,24 @@
 <script lang="ts">
   import Layout from "$lib/components/ui/layout.svelte";
+  export let data;
 
   let searchTerm = "";
   let selectedStatus = "all";
   let selectedType = "all";
   let showFilters = false;
 
-  const transactions = [
-    {
-      id: 1,
-      type: 'Borrow',
-      bookTitle: 'Introduction to Computer Science',
-      bookId: 'CS-001',
-      memberName: 'John Doe',
-      memberId: 'MDC-2024-001',
-      borrowDate: '2024-01-10',
-      dueDate: '2024-01-24',
-      returnDate: null,
-      status: 'Active',
-      fine: 0
-    },
-    {
-      id: 2,
-      type: 'Return',
-      bookTitle: 'Calculus and Analytic Geometry',
-      bookId: 'MATH-045',
-      memberName: 'Jane Smith',
-      memberId: 'MDC-2024-156',
-      borrowDate: '2024-01-05',
-      dueDate: '2024-01-19',
-      returnDate: '2024-01-18',
-      status: 'Returned',
-      fine: 0
-    },
-    {
-      id: 3,
-      type: 'Borrow',
-      bookTitle: 'Physics Principles and Problems',
-      bookId: 'PHY-023',
-      memberName: 'Michael Brown',
-      memberId: 'MDC-STF-023',
-      borrowDate: '2024-01-08',
-      dueDate: '2024-01-22',
-      returnDate: null,
-      status: 'Overdue',
-      fine: 150
-    },
-    {
-      id: 4,
-      type: 'Reserve',
-      bookTitle: 'World History: Ancient Civilizations',
-      bookId: 'HIST-089',
-      memberName: 'Emily Davis',
-      memberId: 'MDC-2024-298',
-      borrowDate: '2024-01-12',
-      dueDate: '2024-01-26',
-      returnDate: null,
-      status: 'Reserved',
-      fine: 0
-    },
-    {
-      id: 5,
-      type: 'Return',
-      bookTitle: 'English Literature Anthology',
-      bookId: 'ENG-067',
-      memberName: 'Dr. Sarah Johnson',
-      memberId: 'MDC-FAC-045',
-      borrowDate: '2024-01-03',
-      dueDate: '2024-01-17',
-      returnDate: '2024-01-16',
-      status: 'Returned',
-      fine: 0
-    },
-    {
-      id: 6,
-      type: 'Borrow',
-      bookTitle: 'Business Management Fundamentals',
-      bookId: 'BUS-134',
-      memberName: 'Alex Wilson',
-      memberId: 'MDC-2024-445',
-      borrowDate: '2024-01-11',
-      dueDate: '2024-01-25',
-      returnDate: null,
-      status: 'Active',
-      fine: 0
-    },
-  ];
+  // Use transactions from server data
+  const transactions = data.transactions ?? [];
 
   const transactionTypes = ['all', 'Borrow', 'Return', 'Reserve'];
   const transactionStatuses = ['all', 'Active', 'Returned', 'Overdue', 'Reserved'];
 
   $: filteredTransactions = transactions.filter(transaction => {
-    const matchesSearch = transaction.bookTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.memberName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.bookId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.memberId.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch =
+      (transaction.bookTitle?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
+      (transaction.memberName?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
+      (transaction.bookId?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
+      (transaction.memberId?.toLowerCase() ?? '').includes(searchTerm.toLowerCase());
     const matchesStatus = selectedStatus === 'all' || transaction.status === selectedStatus;
     const matchesType = selectedType === 'all' || transaction.type === selectedType;
     return matchesSearch && matchesStatus && matchesType;
@@ -144,6 +68,7 @@
   }
 
   function formatDate(dateString: string) {
+    if (!dateString) return '';
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
