@@ -244,3 +244,9 @@ export const credentialAudit = pgTable('credential_audit', {
     success: boolean('success').default(false),
     createdAt: timestamp('created_at').defaultNow()
 });
+
+// QR Code token table
+export const qrCodeToken = pgTable('qr_code_token', {
+    id: serial('id').primaryKey(),
+    token: varchar('token', { length: 255 }).unique().notNull()
+});
