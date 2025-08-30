@@ -163,15 +163,14 @@ export const staffAttendance = pgTable('staff_attendance', {
 export const libraryVisit = pgTable('library_visit', {
     id: serial('id').primaryKey(),
     userId: integer('user_id').references(() => user.id), // Null for external visitors
-    visitorName: varchar('visitor_name', { length: 100 }), // For external visitors without user account
+    username: varchar('username', { length: 50 }), // Username of the login user
+    fullName: varchar('full_name', { length: 100 }), // Full name of the login user
     visitorType: varchar('visitor_type', { length: 20 }), // 'student', 'faculty', 'external', 'guest'
     idNumber: varchar('id_number', { length: 50 }), // Student ID, Faculty ID, or external ID
     purpose: varchar('purpose', { length: 100 }), // 'study', 'research', 'book_issue', 'meeting', etc.
     timeIn: timestamp('time_in').notNull(),
     timeOut: timestamp('time_out'),
-    duration: varchar('duration', { length: 10 }), // Auto-calculated duration in "HH:MM" format
     status: varchar('status', { length: 20 }).default('checked_in'), // 'checked_in', 'checked_out'
-    notes: varchar('notes', { length: 255 }), // Additional notes
     createdAt: timestamp('created_at').defaultNow()
 });
 
