@@ -36,9 +36,8 @@
   }
 
   async function loadExistingQRCodes() {
-    // Fetch all QR code tokens from your backend
     try {
-      const res = await fetch("/api/qrcode/visit_qrcode"); // <-- updated endpoint
+      const res = await fetch("/api/qrcode/visit_qrcode");
       const data = await res.json();
       if (res.ok && data.success) {
         existingQRCodes = data.qrCodes;
@@ -48,16 +47,13 @@
     }
   }
 
-  // Generate a unique QR code token (not based on date)
   async function generateQrCode() {
-    // Request backend to generate and store a unique token (e.g., UUID or nanoid)
-    const res = await fetch("/api/qrcode/visit_qrcode", { // <-- updated endpoint
+    const res = await fetch("/api/qrcode/visit_qrcode", {
       method: "POST"
     });
     const data = await res.json();
     if (res.ok && data.success) {
       generatedToken = data.token;
-      // Generate QR code image
       const QRCode = await import("qrcode");
       qrCodeDataUrl = await QRCode.toDataURL(generatedToken, { width: 256 });
       showQrModal = true;
@@ -74,7 +70,29 @@
     link.click();
   }
 
-  // View an existing QR code
+  async function deleteQrCode(qrId: number) {
+    if (!confirm("Are you sure you want to delete this QR code?")) return;
+    try {
+      const res = await fetch(`/api/qrcode/visit_qrcode`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: qrId })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        await loadExistingQRCodes();
+        if (selectedQr && selectedQr.id === qrId) {
+          selectedQr = null;
+          selectedQrDataUrl = "";
+        }
+      } else {
+        errorMsg = data.message || "Failed to delete QR code.";
+      }
+    } catch (err) {
+      errorMsg = "Network error. Please try again.";
+    }
+  }
+
   async function viewQrCode(qr: { id: number; token: string }) {
     selectedQr = qr;
     const QRCode = await import("qrcode");
@@ -145,12 +163,20 @@
           {#each existingQRCodes as qr}
             <div class="border rounded-lg p-4 flex flex-col items-center">
               <div class="font-mono text-xs mb-2 break-all">{qr.token}</div>
-              <button
-                class="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 mb-2"
-                on:click={() => viewQrCode(qr)}
-              >
-                View QR Code
-              </button>
+              <div class="flex space-x-2 mb-2">
+                <button
+                  class="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                  on:click={() => viewQrCode(qr)}
+                >
+                  View QR Code
+                </button>
+                <button
+                  class="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+                  on:click={() => deleteQrCode(qr.id)}
+                >
+                  Delete
+                </button>
+              </div>
               {#if selectedQr && selectedQr.id === qr.id && selectedQrDataUrl}
                 <img src={selectedQrDataUrl} alt="QR Code" class="mb-2 w-32 h-32" />
                 <button class="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700"
