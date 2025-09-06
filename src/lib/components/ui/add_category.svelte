@@ -38,6 +38,7 @@
   // Fetch categories when modal opens
   $: if (isOpen) {
     fetchCategories();
+    resetEdit();
   }
 
   async function addCategory() {
@@ -97,6 +98,18 @@
     editError = "";
   }
 
+  function cancelEditCategory() {
+    resetEdit();
+  }
+
+  function resetEdit() {
+    editingCategoryId = null;
+    editCategoryName = "";
+    editCategoryDescription = "";
+    editError = "";
+    editLoading = false;
+  }
+
   // Update category
   async function saveEditCategory() {
     if (!editCategoryName.trim()) {
@@ -126,7 +139,7 @@
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        editingCategoryId = null;
+        resetEdit();
         fetchCategories();
       } else {
         editError = data.message || "Failed to update category.";
@@ -152,6 +165,8 @@
       const data = await response.json();
       if (response.ok && data.success) {
         fetchCategories();
+        // If editing deleted category, reset edit
+        if (editingCategoryId === id) resetEdit();
       } else {
         alert(data.message || "Failed to delete category.");
       }
@@ -167,10 +182,7 @@
     newCategoryDescription = "";
     categoryError = "";
     categoryLoading = false;
-    editingCategoryId = null;
-    editCategoryName = "";
-    editCategoryDescription = "";
-    editError = "";
+    resetEdit();
     dispatch('close');
   }
 </script>

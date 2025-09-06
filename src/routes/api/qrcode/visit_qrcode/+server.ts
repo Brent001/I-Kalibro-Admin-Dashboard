@@ -46,3 +46,21 @@ export const POST: RequestHandler = async () => {
     throw error(500, { message: 'Internal server error' });
   }
 };
+
+// DELETE: Remove a QR code by id
+export const DELETE: RequestHandler = async ({ request }) => {
+  try {
+    const { id } = await request.json();
+    if (!id) {
+      return json({ success: false, message: "QR code id is required." }, { status: 400 });
+    }
+    const deleted = await db.delete(qrCodeToken).where(eq(qrCodeToken.id, id)).returning();
+    if (deleted.length === 0) {
+      return json({ success: false, message: "QR code not found." }, { status: 404 });
+    }
+    return json({ success: true });
+  } catch (err) {
+    console.error('Error deleting QR code:', err);
+    throw error(500, { message: 'Internal server error' });
+  }
+};

@@ -237,6 +237,14 @@
   function capitalize(str: string) {
     return str ? str.charAt(0).toUpperCase() + str.slice(1) : "";
   }
+
+  function isNavActive(href: string) {
+    // Find the deepest matching nav item
+    const matching = navigation
+      .filter(nav => currentPath === nav.href || currentPath.startsWith(nav.href + "/"))
+      .sort((a, b) => b.href.length - a.href.length);
+    return matching.length > 0 && matching[0].href === href;
+  }
 </script>
 
 <!-- Notifications -->
@@ -316,7 +324,7 @@
             <a
               href={item.href}
               class="flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200
-                {currentPath === item.href
+                {isNavActive(item.href)
                   ? 'bg-slate-900 text-white shadow-sm'
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}"
               on:click|preventDefault={() => { goto(item.href); sidebarOpen.set(false); }}

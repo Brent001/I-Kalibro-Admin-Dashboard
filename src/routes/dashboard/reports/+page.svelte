@@ -1,777 +1,823 @@
 <script lang="ts">
   import Layout from "$lib/components/ui/layout.svelte";
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation'; // Add this line
+  import Chart from 'chart.js/auto';
 
-  // --- Add these interfaces ---
-  interface PopularBook {
-    title: string;
-    author: string;
-    borrowCount: number;
-  }
-  interface RecentActivity {
-    type: string;
-    description: string;
-    timestamp: string;
-  }
-  interface VisitorType {
-    type: string;
-    count: number;
-  }
-  interface OverdueBook {
-    bookTitle: string;
-    bookAuthor: string;
-    borrowerName: string;
-    borrowerType: string;
-    dueDate: string;
-    daysOverdue: number;
-    fine: number;
-  }
-  interface Penalty {
-    memberName: string;
-    memberType: string;
-    type: string;
-    amount: number;
-    date: string;
-    status: string;
-  }
-  interface TopBorrower {
-    name: string;
-    type: string;
-    bookCount: number;
-  }
-  interface CategoryStat {
-    name: string;
-    count: number;
-    percentage: number;
-  }
-  interface PopularAuthor {
-    name: string;
-    bookCount: number;
-    borrowCount: number;
-    popularity: number;
-  }
-  // --- End interfaces ---
-
-  let loading = true;
-  let errorMsg = "";
-  let selectedPeriod = "month";
-  let selectedReport = "overview";
-  
-  const periodOptions = [
-    { value: "week", label: "This Week" },
-    { value: "month", label: "This Month" },
-    { value: "quarter", label: "This Quarter" },
-    { value: "year", label: "This Year" },
-    { value: "custom", label: "Custom Range" }
-  ];
-
-  const reportTypes = [
-    { value: "overview", label: "Overview" },
-    { value: "visits", label: "Library Visits" },
-    { value: "transactions", label: "Book Transactions" },
-    { value: "penalties", label: "Penalties & Fines" },
-    { value: "members", label: "Member Activity" },
-    { value: "books", label: "Book Analytics" }
-  ];
-
-  // --- Add types to dashboardData ---
-  let dashboardData: {
+  interface DashboardData {
     overview: {
       totalVisits: number;
       totalTransactions: number;
       activeBorrowings: number;
       overdueBooks: number;
       totalPenalties: number;
-      newMembers: number;
-      popularBooks: PopularBook[];
-      recentActivity: RecentActivity[];
-    };
-    visits: {
-      totalVisits: number;
-      dailyVisits: any[];
-      visitorTypes: VisitorType[];
-      peakHours: any[];
-      averageDuration: string;
-    };
-    transactions: {
-      totalTransactions: number;
-      byType: any[];
-      dailyTransactions: any[];
-      topBooks: any[];
-      overdueList: OverdueBook[];
-    };
-    penalties: {
-      totalAmount: number;
-      paidAmount: number;
-      unpaidAmount: number;
-      byType: any[];
-      recentPenalties: Penalty[];
-    };
-    members: {
-      activeMembers: number;
-      newThisMonth: number;
-      topBorrowers: TopBorrower[];
-      memberActivity: any[];
-    };
-    books: {
-      totalBooks: number;
       availableBooks: number;
-      issuedBooks: number;
-      reservedBooks: number;
-      categoryStats: CategoryStat[];
-      popularAuthors: PopularAuthor[];
     };
-  } = {
+    charts: {
+      dailyVisits: Array<{date: string; count: number}>;
+      transactionTypes: Array<{type: string; count: number}>;
+      categoryDistribution: Array<{category: string; count: number; percentage: number}>;
+      penaltyTrends: Array<{date: string; amount: number}>;
+      memberActivity: Array<{type: string; active: number; new: number}>;
+    };
+    tables: {
+      topBooks: Array<{title: string; author: string; borrowCount: number}>;
+      overdueList: Array<{bookTitle: string; borrowerName: string; daysOverdue: number; fine: number}>;
+    };
+  }
+
+  let loading = true;
+  let errorMsg = "";
+  let selectedPeriod = "month";
+  
+  const periodOptions = [
+    { value: "week", label: "Last 7 Days" },
+    { value: "month", label: "Last 30 Days" },
+    { value: "quarter", label: "Last 3 Months" },
+    { value: "year", label: "Last 12 Months" }
+  ];
+
+  let dashboardData: DashboardData = {
     overview: {
       totalVisits: 0,
       totalTransactions: 0,
       activeBorrowings: 0,
       overdueBooks: 0,
       totalPenalties: 0,
-      newMembers: 0,
-      popularBooks: [],
-      recentActivity: []
+      availableBooks: 0
     },
-    visits: {
-      totalVisits: 0,
+    charts: {
       dailyVisits: [],
-      visitorTypes: [],
-      peakHours: [],
-      averageDuration: "0:00"
-    },
-    transactions: {
-      totalTransactions: 0,
-      byType: [],
-      dailyTransactions: [],
-      topBooks: [],
-      overdueList: []
-    },
-    penalties: {
-      totalAmount: 0,
-      paidAmount: 0,
-      unpaidAmount: 0,
-      byType: [],
-      recentPenalties: []
-    },
-    members: {
-      activeMembers: 0,
-      newThisMonth: 0,
-      topBorrowers: [],
+      transactionTypes: [],
+      categoryDistribution: [],
+      penaltyTrends: [],
       memberActivity: []
     },
-    books: {
-      totalBooks: 0,
-      availableBooks: 0,
-      issuedBooks: 0,
-      reservedBooks: 0,
-      categoryStats: [],
-      popularAuthors: []
+    tables: {
+      topBooks: [],
+      overdueList: []
     }
   };
-  // --- End dashboardData typing ---
+
+  // Chart instances
+  let visitsChart: any = null;
+  let transactionsChart: any = null;
+  let categoriesChart: any = null;
+  let penaltiesChart: any = null;
+
+  // Store full category names for hover
+  let fullCategoryNames: string[] = [];
 
   onMount(async () => {
     await loadReports();
+    if (typeof window !== 'undefined' && window.Chart) {
+      initializeCharts();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js';
+      script.onload = () => {
+        initializeCharts();
+      };
+      document.head.appendChild(script);
+    }
   });
 
   async function loadReports() {
     loading = true;
     errorMsg = "";
     try {
-      const res = await fetch(`/api/reports?period=${selectedPeriod}&type=${selectedReport}`);
+      const res = await fetch(`/api/reports?period=${selectedPeriod}`);
       const data = await res.json();
       if (res.ok && data.success) {
-        // Fix: Map recentActivity to show real data from the database
-        if (data.data?.overview?.recentActivity && Array.isArray(data.data.overview.recentActivity)) {
-          // If your backend now returns real activity, you can use it directly
-          dashboardData = { ...dashboardData, ...data.data };
-        } else {
-          // fallback for old dummy data
-          dashboardData = { ...dashboardData, ...data.data };
-        }
+        dashboardData = data.data;
       } else {
         errorMsg = data.message || "Failed to load reports.";
       }
     } catch (err) {
       errorMsg = "Network error. Please try again.";
+      // Sample data for demonstration
+      dashboardData = {
+        overview: {
+          totalVisits: 1247,
+          totalTransactions: 856,
+          activeBorrowings: 342,
+          overdueBooks: 28,
+          totalPenalties: 485000,
+          availableBooks: 8734
+        },
+        charts: {
+          dailyVisits: [
+            {date: '2024-01-01', count: 45}, {date: '2024-01-02', count: 52},
+            {date: '2024-01-03', count: 38}, {date: '2024-01-04', count: 61},
+            {date: '2024-01-05', count: 48}, {date: '2024-01-06', count: 73},
+            {date: '2024-01-07', count: 67}, {date: '2024-01-08', count: 82},
+            {date: '2024-01-09', count: 59}, {date: '2024-01-10', count: 71},
+            {date: '2024-01-11', count: 65}, {date: '2024-01-12', count: 88},
+            {date: '2024-01-13', count: 94}, {date: '2024-01-14', count: 76}
+          ],
+          transactionTypes: [
+            {type: 'Borrowed', count: 456},
+            {type: 'Returned', count: 389},
+            {type: 'Renewed', count: 67},
+            {type: 'Reserved', count: 23}
+          ],
+          categoryDistribution: [
+            {category: 'Fiction', count: 245, percentage: 28},
+            {category: 'Science', count: 189, percentage: 22},
+            {category: 'Technology', count: 156, percentage: 18},
+            {category: 'History', count: 134, percentage: 15},
+            {category: 'Arts', count: 98, percentage: 11},
+            {category: 'Others', count: 56, percentage: 6}
+          ],
+          penaltyTrends: [
+            {date: '2024-01-01', amount: 12500}, {date: '2024-01-08', amount: 15200},
+            {date: '2024-01-15', amount: 18700}, {date: '2024-01-22', amount: 14300},
+            {date: '2024-01-29', amount: 16800}, {date: '2024-02-05', amount: 19200},
+            {date: '2024-02-12', amount: 21500}, {date: '2024-02-19', amount: 17800}
+          ],
+          memberActivity: [
+            {type: 'Students', active: 245, new: 12},
+            {type: 'Faculty', active: 67, new: 3},
+            {type: 'Staff', active: 34, new: 2},
+            {type: 'Visitors', active: 18, new: 8}
+          ]
+        },
+        tables: {
+          topBooks: [
+            {title: 'Introduction to Algorithms', author: 'Thomas H. Cormen', borrowCount: 23},
+            {title: 'Clean Code', author: 'Robert C. Martin', borrowCount: 19},
+            {title: 'Design Patterns', author: 'Gang of Four', borrowCount: 17},
+            {title: 'The Pragmatic Programmer', author: 'Andrew Hunt', borrowCount: 15},
+            {title: 'Code Complete', author: 'Steve McConnell', borrowCount: 14},
+            {title: 'JavaScript: The Good Parts', author: 'Douglas Crockford', borrowCount: 13},
+            {title: 'Effective Java', author: 'Joshua Bloch', borrowCount: 12}
+          ],
+          overdueList: [
+            {bookTitle: 'Data Structures and Algorithms', borrowerName: 'John Smith', daysOverdue: 5, fine: 2500},
+            {bookTitle: 'Machine Learning Basics', borrowerName: 'Sarah Johnson', daysOverdue: 3, fine: 1500},
+            {bookTitle: 'Web Development Guide', borrowerName: 'Mike Wilson', daysOverdue: 8, fine: 4000},
+            {bookTitle: 'Database Systems', borrowerName: 'Emily Davis', daysOverdue: 2, fine: 1000},
+            {bookTitle: 'Software Engineering', borrowerName: 'Alex Brown', daysOverdue: 12, fine: 6000}
+          ]
+        }
+      };
     } finally {
       loading = false;
     }
   }
 
   async function handlePeriodChange() {
+    loading = true;
     await loadReports();
+    updateCharts();
+    loading = false;
   }
 
-  async function handleReportChange() {
-    await loadReports();
+  function truncateCategory(category: string, max: number = 12) {
+    return category.length > max ? category.slice(0, max) + '...' : category;
+  }
+
+  // Truncate category if needed, else show full
+  function getCategoryLabels(): string[] {
+    const isMobile = window.innerWidth < 640;
+    const maxLen = isMobile ? 8 : 12;
+    fullCategoryNames = dashboardData.charts.categoryDistribution.map(d => d.category);
+    return dashboardData.charts.categoryDistribution.map(d => {
+      return d.category.length > maxLen ? d.category.slice(0, maxLen) + '...' : d.category;
+    });
+  }
+
+  function initializeCharts() {
+    // Daily Visits Chart - Enhanced with gradient
+    const visitsCtx = document.getElementById('visitsChart') as HTMLCanvasElement;
+    if (visitsCtx) {
+      const gradient = visitsCtx.getContext('2d')!.createLinearGradient(0, 0, 0, 400);
+      gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+      gradient.addColorStop(1, 'rgba(59, 130, 246, 0.05)');
+
+      visitsChart = new Chart(visitsCtx, {
+        type: 'line',
+        data: {
+          labels: dashboardData.charts.dailyVisits.map(d => {
+            const date = new Date(d.date);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          }),
+          datasets: [{
+            label: 'Daily Visits',
+            data: dashboardData.charts.dailyVisits.map(d => d.count),
+            borderColor: '#3B82F6',
+            backgroundColor: gradient,
+            borderWidth: 3,
+            pointBackgroundColor: '#3B82F6',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 2,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            intersect: false,
+            mode: 'index'
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              titleColor: '#ffffff',
+              bodyColor: '#ffffff',
+              borderColor: '#3B82F6',
+              borderWidth: 1
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: '#6B7280' }
+            },
+            y: { 
+              beginAtZero: true,
+              grid: { color: '#F3F4F6' },
+              ticks: { color: '#6B7280' }
+            }
+          }
+        }
+      });
+    }
+
+    // Transaction Types Chart
+    const transactionsCtx = document.getElementById('transactionsChart') as HTMLCanvasElement;
+    if (transactionsCtx) {
+      transactionsChart = new Chart(transactionsCtx, {
+        type: 'doughnut',
+        data: {
+          labels: dashboardData.charts.transactionTypes.map(d => d.type),
+          datasets: [{
+            data: dashboardData.charts.transactionTypes.map(d => d.count),
+            backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444'],
+            borderWidth: 0,
+            hoverBorderWidth: 2,
+            hoverBorderColor: '#ffffff'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '65%',
+          plugins: {
+            legend: { 
+              position: 'bottom',
+              labels: {
+                padding: 20,
+                usePointStyle: true,
+                pointStyle: 'circle'
+              }
+            },
+            tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              callbacks: {
+                label: (context) => {
+                  const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0);
+                  const percentage = ((context.parsed / total) * 100).toFixed(1);
+                  return `${context.label}: ${context.parsed} (${percentage}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Category Distribution Chart - Horizontal Bar
+    const categoriesCtx = document.getElementById('categoriesChart') as HTMLCanvasElement;
+    if (categoriesCtx) {
+      categoriesChart = new Chart(categoriesCtx, {
+        type: 'bar',
+        data: {
+          labels: getCategoryLabels(),
+          datasets: [{
+            label: 'Books by Category',
+            data: dashboardData.charts.categoryDistribution.map(d => d.count),
+            backgroundColor: '#6366F1',
+            borderRadius: 6,
+            borderSkipped: false
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              callbacks: {
+                // Show full category name on hover
+                title: (context) => {
+                  const idx = context[0].dataIndex;
+                  return fullCategoryNames[idx];
+                },
+                label: (context) => {
+                  const item = dashboardData.charts.categoryDistribution[context.dataIndex];
+                  return `${item.category}: ${context.parsed.x} books (${item.percentage}%)`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: { 
+              beginAtZero: true,
+              grid: { color: '#F3F4F6' },
+              ticks: { color: '#6B7280' }
+            },
+            y: {
+              grid: { display: false },
+              ticks: { color: '#6B7280' }
+            }
+          }
+        }
+      });
+    }
+
+    // Penalties Trend Chart - Area Chart
+    const penaltiesCtx = document.getElementById('penaltiesChart') as HTMLCanvasElement;
+    if (penaltiesCtx) {
+      const gradient = penaltiesCtx.getContext('2d')!.createLinearGradient(0, 0, 0, 400);
+      gradient.addColorStop(0, 'rgba(239, 68, 68, 0.3)');
+      gradient.addColorStop(1, 'rgba(239, 68, 68, 0.05)');
+
+      penaltiesChart = new Chart(penaltiesCtx, {
+        type: 'line',
+        data: {
+          labels: dashboardData.charts.penaltyTrends.map(d => {
+            const date = new Date(d.date);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          }),
+          datasets: [{
+            label: 'Penalty Amount (₱)',
+            data: dashboardData.charts.penaltyTrends.map(d => d.amount / 100),
+            borderColor: '#EF4444',
+            backgroundColor: gradient,
+            borderWidth: 3,
+            pointBackgroundColor: '#EF4444',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 2,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            intersect: false,
+            mode: 'index'
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              callbacks: {
+                label: (context) => `Penalties: ₱${context.parsed.y.toFixed(2)}`
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: '#6B7280' }
+            },
+            y: { 
+              beginAtZero: true,
+              grid: { color: '#F3F4F6' },
+              ticks: {
+                color: '#6B7280',
+                callback: function(value: any) {
+                  return '₱' + value;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+  }
+
+  function updateCharts() {
+    if (visitsChart) {
+      visitsChart.data.labels = dashboardData.charts.dailyVisits.map(d => {
+        const date = new Date(d.date);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      });
+      visitsChart.data.datasets[0].data = dashboardData.charts.dailyVisits.map(d => d.count);
+      visitsChart.update();
+    }
+
+    if (transactionsChart) {
+      transactionsChart.data.labels = dashboardData.charts.transactionTypes.map(d => d.type);
+      transactionsChart.data.datasets[0].data = dashboardData.charts.transactionTypes.map(d => d.count);
+      transactionsChart.update();
+    }
+
+    if (categoriesChart) {
+      categoriesChart.data.labels = getCategoryLabels();
+      categoriesChart.data.datasets[0].data = dashboardData.charts.categoryDistribution.map(d => d.count);
+      categoriesChart.update();
+    }
+
+    if (penaltiesChart) {
+      penaltiesChart.data.labels = dashboardData.charts.penaltyTrends.map(d => {
+        const date = new Date(d.date);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      });
+      penaltiesChart.data.datasets[0].data = dashboardData.charts.penaltyTrends.map(d => d.amount / 100);
+      penaltiesChart.update();
+    }
   }
 
   function formatCurrency(amount: number) {
     return `₱${(amount / 100).toFixed(2)}`;
   }
 
-  function formatDuration(duration: string) {
-    return duration || "0:00";
-  }
-
-  function getStatusColor(status: string) {
-    switch (status) {
-      case 'active':
-      case 'returned':
-      case 'paid':
-        return 'bg-green-100 text-green-800';
-      case 'overdue':
-      case 'unpaid':
-        return 'bg-red-100 text-red-800';
-      case 'partial':
-      case 'renewed':
-        return 'bg-yellow-100 text-yellow-800';
-      default:
-        return 'bg-slate-100 text-slate-800';
-    }
-  }
-
   function exportReport() {
-    // Implementation for exporting reports
-    console.log("Exporting report for:", selectedReport, selectedPeriod);
-  }
-
-  function goToVisitLogs() {
-    goto('/dashboard/reports/visits');
+    console.log("Exporting report for period:", selectedPeriod);
   }
 </script>
 
 <Layout>
-  <div class="space-y-4 lg:space-y-6">
-    <!-- Error Messages -->
-    {#if errorMsg}
-      <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
-        {errorMsg}
-      </div>
-    {/if}
-
+  <div class="space-y-8 px-0 lg:px-6">
     <!-- Header -->
-    <div class="flex flex-col space-y-3 lg:flex-row lg:items-center lg:justify-between lg:space-y-0">
-      <div>
-        <h2 class="text-xl lg:text-2xl font-bold text-gray-900">Reports & Analytics</h2>
-        <p class="text-sm lg:text-base text-gray-600">Library performance and activity insights</p>
-      </div>
-      <div class="flex flex-col space-y-2 lg:flex-row lg:space-y-0 lg:space-x-3">
-        <button on:click={exportReport} class="inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200">
+    <div class="flex flex-col space-y-4 lg:flex-row lg:items-center lg:justify-between lg:space-y-0">
+      <!-- Removed dashboard title and subtitle -->
+      <div></div>
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-3">
+        <select
+          bind:value={selectedPeriod}
+          on:change={handlePeriodChange}
+          class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm font-medium"
+        >
+          {#each periodOptions as period}
+            <option value={period.value}>{period.label}</option>
+          {/each}
+        </select>
+        <button 
+          on:click={exportReport}
+          class="inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+        >
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
           </svg>
           Export Report
         </button>
-        <!-- Visit Logs Button -->
-        <button class="inline-flex items-center justify-center px-4 py-2 border border-indigo-300 text-sm font-medium rounded-md text-indigo-700 bg-white hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-200" on:click={goToVisitLogs}>
+        <button
+          on:click={() => window.location.href = '/dashboard/reports/visits'}
+          class="inline-flex items-center justify-center px-4 py-2 border border-indigo-300 text-sm font-medium rounded-lg text-indigo-700 bg-white hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+        >
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 4v16c0 .552.448 1 1 1h12a1 1 0 001-1V4M9 2h6a2 2 0 012 2v0a2 2 0 01-2 2H9A2 2 0 017 4v0a2 2 0 012-2z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
           </svg>
           Visit Logs
         </button>
       </div>
     </div>
 
-    <!-- Filters -->
-    <div class="bg-white p-4 lg:p-6 rounded-lg shadow-sm border">
-      <div class="flex flex-col space-y-3 lg:flex-row lg:space-y-0 lg:gap-4">
-        <div class="flex-1">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Report Type</label>
-          <select
-            bind:value={selectedReport}
-            on:change={handleReportChange}
-            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-slate-500 focus:border-slate-500 text-sm lg:text-base"
-          >
-            {#each reportTypes as type}
-              <option value={type.value}>{type.label}</option>
-            {/each}
-          </select>
-        </div>
-        <div class="flex-1">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Time Period</label>
-          <select
-            bind:value={selectedPeriod}
-            on:change={handlePeriodChange}
-            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-slate-500 focus:border-slate-500 text-sm lg:text-base"
-          >
-            {#each periodOptions as period}
-              <option value={period.value}>{period.label}</option>
-            {/each}
-          </select>
-        </div>
+    {#if errorMsg}
+      <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        {errorMsg}
       </div>
-    </div>
-
-    {#if loading}
-      <div class="text-center py-8 text-slate-500">Loading reports...</div>
-    {:else}
-      <!-- Overview Report -->
-      {#if selectedReport === "overview"}
-        {#if dashboardData.overview.totalVisits === 0 && dashboardData.overview.totalTransactions === 0}
-          <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-md text-center my-6">
-            No overview data available for the selected period.
-          </div>
-        {/if}
-
-        <!-- Key Metrics Cards -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-          <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-            <div class="flex items-center">
-              <div class="p-2 bg-blue-100 rounded-lg">
-                <svg class="h-4 w-4 lg:h-6 lg:w-6 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
-                </svg>
-              </div>
-              <div class="ml-2 lg:ml-4">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Library Visits</p>
-                <p class="text-lg lg:text-2xl font-semibold text-gray-900">{dashboardData.overview.totalVisits.toLocaleString()}</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-            <div class="flex items-center">
-              <div class="p-2 bg-green-100 rounded-lg">
-                <svg class="h-4 w-4 lg:h-6 lg:w-6 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-                </svg>
-              </div>
-              <div class="ml-2 lg:ml-4">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Transactions</p>
-                <p class="text-lg lg:text-2xl font-semibold text-gray-900">{dashboardData.overview.totalTransactions.toLocaleString()}</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-            <div class="flex items-center">
-              <div class="p-2 bg-yellow-100 rounded-lg">
-                <svg class="h-4 w-4 lg:h-6 lg:w-6 text-yellow-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-              </div>
-              <div class="ml-2 lg:ml-4">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Overdue Books</p>
-                <p class="text-lg lg:text-2xl font-semibold text-gray-900">{dashboardData.overview.overdueBooks}</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-            <div class="flex items-center">
-              <div class="p-2 bg-red-100 rounded-lg">
-                <svg class="h-4 w-4 lg:h-6 lg:w-6 text-red-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/>
-                </svg>
-              </div>
-              <div class="ml-2 lg:ml-4">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Total Penalties</p>
-                <p class="text-lg lg:text-2xl font-semibold text-gray-900">{formatCurrency(dashboardData.overview.totalPenalties)}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Popular Books and Recent Activity -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-          <!-- Popular Books -->
-          <div class="bg-white rounded-lg shadow-sm border">
-            <div class="p-4 lg:p-6 border-b border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900">Most Popular Books</h3>
-            </div>
-            <div class="p-4 lg:p-6">
-              {#if dashboardData.overview.popularBooks.length === 0}
-                <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-md text-center">
-                  No popular books data available for the selected period.
-                </div>
-              {:else}
-                <div class="space-y-4">
-                  {#each dashboardData.overview.popularBooks.slice(0, 5) as book}
-                    <div class="flex items-center justify-between">
-                      <div class="flex-1">
-                        <div class="font-medium text-gray-900 text-sm">{book.title}</div>
-                        <div class="text-xs text-gray-500">{book.author}</div>
-                      </div>
-                      <div class="text-right">
-                        <div class="font-medium text-slate-900">{book.borrowCount}</div>
-                        <div class="text-xs text-gray-500">borrows</div>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          </div>
-
-          <!-- Recent Activity -->
-          <div class="bg-white rounded-lg shadow-sm border">
-            <div class="p-4 lg:p-6 border-b border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900">Recent Activity</h3>
-            </div>
-            <div class="p-4 lg:p-6">
-              {#if dashboardData.overview.recentActivity.length === 0}
-                <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-md text-center">
-                  No recent activity data available for the selected period.
-                </div>
-              {:else}
-                <div class="space-y-4">
-                  {#each dashboardData.overview.recentActivity.slice(0, 5) as activity}
-                    <div class="flex items-center space-x-3">
-                      <div class="flex-shrink-0">
-                        <div class={`w-2 h-2 rounded-full ${activity.type === 'borrow' ? 'bg-green-500' : activity.type === 'return' ? 'bg-blue-500' : 'bg-gray-500'}`}></div>
-                      </div>
-                      <div class="flex-1 min-w-0">
-                        <div class="text-sm text-gray-900">{activity.description}</div>
-                        <div class="text-xs text-gray-500">
-                          {new Date(activity.timestamp).toLocaleString()}
-                        </div>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Library Visits Report -->
-      {#if selectedReport === "visits"}
-        {#if dashboardData.visits.totalVisits === 0}
-          <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-md text-center my-6">
-            No visit logs found for the selected period.
-          </div>
-        {/if}
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
-          <!-- Visit Statistics -->
-          <div class="lg:col-span-1 space-y-4">
-            <div class="bg-white p-4 lg:p-6 rounded-lg shadow-sm border">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4">Visit Statistics</h3>
-              <div class="space-y-3">
-                <div class="flex justify-between">
-                  <span class="text-sm text-gray-600">Total Visits</span>
-                  <span class="font-medium">{dashboardData.visits.totalVisits.toLocaleString()}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-sm text-gray-600">Avg. Duration</span>
-                  <span class="font-medium">{formatDuration(dashboardData.visits.averageDuration)}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-sm text-gray-600">Peak Hours</span>
-                  <span class="font-medium">2:00 PM - 4:00 PM</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Visitor Types -->
-            <div class="bg-white p-4 lg:p-6 rounded-lg shadow-sm border">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4">Visitor Types</h3>
-              <div class="space-y-3">
-                {#each dashboardData.visits.visitorTypes as type}
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center">
-                      <div class={`w-3 h-3 rounded-full mr-2 ${type.type === 'student' ? 'bg-blue-500' : type.type === 'faculty' ? 'bg-green-500' : 'bg-gray-500'}`}></div>
-                      <span class="text-sm capitalize">{type.type}</span>
-                    </div>
-                    <span class="font-medium">{type.count}</span>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          </div>
-
-          <!-- Daily Visits Chart Area -->
-          <div class="lg:col-span-2">
-            <div class="bg-white p-4 lg:p-6 rounded-lg shadow-sm border">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4">Daily Visits Trend</h3>
-              <div class="h-64 bg-gray-50 rounded-lg flex items-center justify-center">
-                <p class="text-gray-500">Chart visualization would be implemented here</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Book Transactions Report -->
-      {#if selectedReport === "transactions"}
-        {#if dashboardData.transactions.totalTransactions === 0}
-          <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-md text-center my-6">
-            No book transactions found for the selected period.
-          </div>
-        {/if}
-        <div class="space-y-4 lg:space-y-6">
-          <!-- Transaction Statistics -->
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Total Transactions</p>
-                <p class="text-lg lg:text-2xl font-semibold text-gray-900">{dashboardData.transactions.totalTransactions}</p>
-              </div>
-            </div>
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Books Borrowed</p>
-                <p class="text-lg lg:text-2xl font-semibold text-green-600">125</p>
-              </div>
-            </div>
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Books Returned</p>
-                <p class="text-lg lg:text-2xl font-semibold text-blue-600">98</p>
-              </div>
-            </div>
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Renewals</p>
-                <p class="text-lg lg:text-2xl font-semibold text-yellow-600">34</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Overdue Books List -->
-          <div class="bg-white rounded-lg shadow-sm border">
-            <div class="p-4 lg:p-6 border-b border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900">Overdue Books</h3>
-            </div>
-            <div class="overflow-x-auto">
-              <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-slate-50">
-                  <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Book</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Borrower</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Due Date</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Days Overdue</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Fine</th>
-                  </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                  {#each dashboardData.transactions.overdueList.slice(0, 10) as overdue}
-                    <tr class="hover:bg-slate-50">
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm font-medium text-gray-900">{overdue.bookTitle}</div>
-                        <div class="text-sm text-gray-500">{overdue.bookAuthor}</div>
-                      </td>
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm text-gray-900">{overdue.borrowerName}</div>
-                        <div class="text-sm text-gray-500">{overdue.borrowerType}</div>
-                      </td>
-                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {overdue.dueDate}
-                      </td>
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        <span class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(penalty.status)}`}>
-                          {penalty.status}
-                        </span>
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Member Activity Report -->
-      {#if selectedReport === "members"}
-        {#if dashboardData.members.activeMembers === 0}
-          <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-md text-center my-6">
-            No member activity found for the selected period.
-          </div>
-        {/if}
-        <div class="space-y-4 lg:space-y-6">
-          <!-- Member Statistics -->
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Active Members</p>
-                <p class="text-lg lg:text-2xl font-semibold text-gray-900">{dashboardData.members.activeMembers}</p>
-              </div>
-            </div>
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">New This Month</p>
-                <p class="text-lg lg:text-2xl font-semibold text-green-600">{dashboardData.members.newThisMonth}</p>
-              </div>
-            </div>
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Students</p>
-                <p class="text-lg lg:text-2xl font-semibold text-blue-600">245</p>
-              </div>
-            </div>
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Faculty</p>
-                <p class="text-lg lg:text-2xl font-semibold text-slate-600">68</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Top Borrowers -->
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-            <div class="bg-white rounded-lg shadow-sm border">
-              <div class="p-4 lg:p-6 border-b border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900">Top Borrowers This Month</h3>
-              </div>
-              <div class="p-4 lg:p-6">
-                <div class="space-y-4">
-                  {#each dashboardData.members.topBorrowers.slice(0, 5) as borrower}
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center">
-                        <div class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-sm font-medium text-slate-700">
-                          {borrower.name.charAt(0)}
-                        </div>
-                        <div class="ml-3">
-                          <div class="text-sm font-medium text-gray-900">{borrower.name}</div>
-                          <div class="text-xs text-gray-500">{borrower.type}</div>
-                        </div>
-                      </div>
-                      <div class="text-right">
-                        <div class="text-sm font-medium text-slate-900">{borrower.bookCount}</div>
-                        <div class="text-xs text-gray-500">books</div>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            </div>
-
-            <!-- Member Activity Chart -->
-            <div class="bg-white rounded-lg shadow-sm border">
-              <div class="p-4 lg:p-6 border-b border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900">Member Activity Trend</h3>
-              </div>
-              <div class="p-4 lg:p-6">
-                <div class="h-48 bg-gray-50 rounded-lg flex items-center justify-center">
-                  <p class="text-gray-500">Activity chart would be implemented here</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Book Analytics Report -->
-      {#if selectedReport === "books"}
-        {#if dashboardData.books.totalBooks === 0}
-          <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-md text-center my-6">
-            No book analytics data found for the selected period.
-          </div>
-        {/if}
-        <div class="space-y-4 lg:space-y-6">
-          <!-- Book Statistics -->
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Total Books</p>
-                <p class="text-lg lg:text-2xl font-semibold text-gray-900">{dashboardData.books.totalBooks}</p>
-              </div>
-            </div>
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Available</p>
-                <p class="text-lg lg:text-2xl font-semibold text-green-600">{dashboardData.books.availableBooks}</p>
-              </div>
-            </div>
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Issued</p>
-                <p class="text-lg lg:text-2xl font-semibold text-yellow-600">{dashboardData.books.issuedBooks}</p>
-              </div>
-            </div>
-            <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
-              <div class="text-center">
-                <p class="text-xs lg:text-sm font-medium text-gray-600">Reserved</p>
-                <p class="text-lg lg:text-2xl font-semibold text-blue-600">{dashboardData.books.reservedBooks}</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Category Statistics and Popular Authors -->
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-            <!-- Category Statistics -->
-            <div class="bg-white rounded-lg shadow-sm border">
-              <div class="p-4 lg:p-6 border-b border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900">Books by Category</h3>
-              </div>
-              <div class="p-4 lg:p-6">
-                <div class="space-y-4">
-                  {#each dashboardData.books.categoryStats.slice(0, 6) as category}
-                    <div class="flex items-center justify-between">
-                      <div class="flex-1">
-                        <div class="flex items-center justify-between">
-                          <span class="text-sm font-medium text-gray-900">{category.name}</span>
-                          <span class="text-sm text-gray-500">{category.count} books</span>
-                        </div>
-                        <div class="mt-1 w-full bg-gray-200 rounded-full h-2">
-                          <div class="bg-slate-600 h-2 rounded-full" style="width: {category.percentage}%"></div>
-                        </div>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            </div>
-
-            <!-- Popular Authors -->
-            <div class="bg-white rounded-lg shadow-sm border">
-              <div class="p-4 lg:p-6 border-b border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900">Popular Authors</h3>
-              </div>
-              <div class="p-4 lg:p-6">
-                <div class="space-y-4">
-                  {#each dashboardData.books.popularAuthors.slice(0, 6) as author}
-                    <div class="flex items-center justify-between">
-                      <div class="flex-1">
-                        <div class="text-sm font-medium text-gray-900">{author.name}</div>
-                        <div class="text-xs text-gray-500">{author.bookCount} books • {author.borrowCount} borrows</div>
-                      </div>
-                      <div class="text-right">
-                        <div class="text-sm font-medium text-slate-900">{author.popularity}%</div>
-                        <div class="text-xs text-gray-500">popularity</div>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      {/if}
     {/if}
 
-    <!-- Export and Print Options -->
-    <div class="bg-white p-4 lg:p-6 rounded-lg shadow-sm border">
-      <div class="flex flex-col space-y-3 lg:flex-row lg:space-y-0 lg:items-center lg:justify-between">
-        <div>
-          <h3 class="text-sm font-medium text-gray-900">Export Options</h3>
-          <p class="text-xs text-gray-500">Download reports in various formats</p>
-        </div>
-        <div class="flex flex-col space-y-2 lg:flex-row lg:space-y-0 lg:space-x-3">
-          <button class="inline-flex items-center justify-center px-3 py-2 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200">
-            <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a4 4 0 01-4-4V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-            PDF Report
-          </button>
-          <button class="inline-flex items-center justify-center px-3 py-2 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200">
-            <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a4 4 0 01-4-4V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-            Excel Export
-          </button>
-          <button class="inline-flex items-center justify-center px-3 py-2 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200">
-            <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
-            </svg>
-            Print
-          </button>
+    {#if loading}
+      <div class="text-center py-16">
+        <div class="inline-flex items-center">
+          <svg class="animate-spin -ml-1 mr-3 h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span class="text-lg font-medium text-gray-700">Loading analytics...</span>
         </div>
       </div>
-    </div>
+    {:else}
+      <!-- Key Metrics Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 lg:gap-3">
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 lg:p-3 bg-blue-100 rounded-xl">
+              <svg class="h-5 w-5 lg:h-6 lg:w-6 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs lg:text-sm font-medium text-gray-600">Total Visits</p>
+              <p class="text-xl lg:text-2xl font-bold text-gray-900">{dashboardData.overview.totalVisits.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 lg:p-3 bg-green-100 rounded-xl">
+              <svg class="h-5 w-5 lg:h-6 lg:w-6 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs lg:text-sm font-medium text-gray-600">Transactions</p>
+              <p class="text-xl lg:text-2xl font-bold text-gray-900">{dashboardData.overview.totalTransactions.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 lg:p-3 bg-yellow-100 rounded-xl">
+              <svg class="h-5 w-5 lg:h-6 lg:w-6 text-yellow-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs lg:text-sm font-medium text-gray-600">Active Borrowings</p>
+              <p class="text-xl lg:text-2xl font-bold text-gray-900">{dashboardData.overview.activeBorrowings}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 lg:p-3 bg-red-100 rounded-xl">
+              <svg class="h-5 w-5 lg:h-6 lg:w-6 text-red-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs lg:text-sm font-medium text-gray-600">Overdue Books</p>
+              <p class="text-xl lg:text-2xl font-bold text-gray-900">{dashboardData.overview.overdueBooks}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 lg:p-3 bg-purple-100 rounded-xl">
+              <svg class="h-5 w-5 lg:h-6 lg:w-6 text-purple-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs lg:text-sm font-medium text-gray-600">Total Penalties</p>
+              <p class="text-xl lg:text-2xl font-bold text-gray-900">{formatCurrency(dashboardData.overview.totalPenalties)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 lg:p-3 bg-indigo-100 rounded-xl">
+              <svg class="h-5 w-5 lg:h-6 lg:w-6 text-indigo-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 14v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs lg:text-sm font-medium text-gray-600">Available Books</p>
+              <p class="text-xl lg:text-2xl font-bold text-gray-900">{dashboardData.overview.availableBooks.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Chart - Full Width -->
+      <div class="bg-white p-6 lg:p-8 rounded-xl shadow-sm border border-gray-200">
+        <!-- Daily Visits Trend -->
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+          <div>
+            <h3 class="text-xl font-bold text-gray-900">Daily Visits Trend</h3>
+            <p class="text-sm text-gray-500 mt-1">Visitor activity over the selected period</p>
+          </div>
+          <div class="mt-2 sm:mt-0">
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
+              <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              Real-time Data
+            </span>
+          </div>
+        </div>
+        <div class="h-64 lg:h-72">
+          <canvas id="visitsChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Secondary Charts Row -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <!-- Transaction Types Chart -->
+        <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-200">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-gray-900">Transaction Types</h3>
+            <div class="text-sm text-gray-500">Distribution</div>
+          </div>
+          <div class="h-56 sm:h-64">
+            <canvas id="transactionsChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Category Distribution Chart -->
+        <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-200">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-gray-900">Book Categories</h3>
+            <div class="text-sm text-gray-500">By popularity</div>
+          </div>
+          <div class="h-56 sm:h-64">
+            <canvas id="categoriesChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Penalties Trend Chart - Area Chart -->
+      <div class="bg-white p-6 lg:p-8 rounded-xl shadow-sm border border-gray-200 mt-6">
+        <!-- Penalty Collections -->
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-xl font-bold text-gray-900">Penalty Collections</h3>
+          <div class="text-sm text-gray-500">Trend analysis</div>
+        </div>
+        <div class="h-64 lg:h-72">
+          <canvas id="penaltiesChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Member Activity Cards -->
+      <div class="bg-white p-6 lg:p-8 rounded-xl shadow-sm border border-gray-200">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-xl font-bold text-gray-900">Member Activity Summary</h3>
+          <div class="text-sm text-gray-500">Active vs New Members</div>
+        </div>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
+          {#each dashboardData.charts.memberActivity as activity}
+            <div class="bg-gradient-to-br from-gray-50 to-gray-100 p-4 lg:p-6 rounded-xl border border-gray-200">
+              <div class="flex flex-col space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-sm font-medium text-gray-900">{activity.type}</span>
+                  <div class="flex items-center space-x-1">
+                    <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span class="text-xs text-gray-500">Active</span>
+                  </div>
+                </div>
+                <div class="flex items-end justify-between">
+                  <div>
+                    <p class="text-2xl lg:text-3xl font-bold text-gray-900">{activity.active}</p>
+                    <p class="text-xs text-gray-600">Active members</p>
+                  </div>
+                  <div class="text-right">
+                    <p class="text-lg font-semibold text-green-600">+{activity.new}</p>
+                    <p class="text-xs text-gray-500">New this period</p>
+                  </div>
+                </div>
+                <div class="pt-2 border-t border-gray-200">
+                  <div class="flex justify-between items-center">
+                    <span class="text-xs text-gray-500">Growth</span>
+                    <span class="text-xs font-medium text-green-600">
+                      {((activity.new / activity.active) * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Data Tables Section -->
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-3 lg:gap-3">
+        <!-- Top Books Table -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+          <div class="p-6 border-b border-gray-200">
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-bold text-gray-900">Most Popular Books</h3>
+              <span class="text-sm text-gray-500">Top performers</span>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-full">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rank</th>
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book Details</th>
+                  <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Borrows</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                {#each dashboardData.tables.topBooks as book, index}
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4">
+                      <div class="flex items-center justify-center w-8 h-8 rounded-full {index < 3 ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600'} text-sm font-bold">
+                        {index + 1}
+                      </div>
+                    </td>
+                    <td class="px-6 py-4">
+                      <div>
+                        <div class="text-sm font-semibold text-gray-900">{book.title}</div>
+                        <div class="text-sm text-gray-500">by {book.author}</div>
+                      </div>
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {book.borrowCount} times
+                      </span>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Overdue Books Table -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+          <div class="p-6 border-b border-gray-200">
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-bold text-gray-900">Overdue Books</h3>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                {dashboardData.tables.overdueList.length} items
+              </span>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-full">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book & Borrower</th>
+                  <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Days Overdue</th>
+                  <th class="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Fine</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                {#each dashboardData.tables.overdueList as overdue}
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4">
+                      <div>
+                        <div class="text-sm font-semibold text-gray-900">{overdue.bookTitle}</div>
+                        <div class="text-sm text-gray-500">Borrowed by {overdue.borrowerName}</div>
+                      </div>
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {overdue.daysOverdue <= 3 ? 'bg-yellow-100 text-yellow-800' : overdue.daysOverdue <= 7 ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800'}">
+                        {overdue.daysOverdue} days
+                      </span>
+                    </td>
+                    <td class="px-6 py-4 text-right">
+                      <span class="text-sm font-semibold text-gray-900">{formatCurrency(overdue.fine)}</span>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          <div class="px-6 py-4 bg-gray-50 border-t border-gray-200">
+            <div class="flex justify-between items-center text-sm">
+              <span class="text-gray-600">Total Outstanding Fines:</span>
+              <span class="font-bold text-gray-900">
+                {formatCurrency(dashboardData.tables.overdueList.reduce((sum, item) => sum + item.fine, 0))}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions Footer -->
+      <div class="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl p-6">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
+          <div>
+            <h3 class="text-lg font-bold text-gray-900">Quick Actions</h3>
+            <p class="text-sm text-gray-600">Manage your library operations efficiently</p>
+          </div>
+          <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+            <button class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+              </svg>
+              Add New Book
+            </button>
+            <button class="inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+              </svg>
+              View All Transactions
+            </button>
+            <button class="inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+              </svg>
+              Generate Report
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 </Layout>

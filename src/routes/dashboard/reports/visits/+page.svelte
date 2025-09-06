@@ -12,6 +12,19 @@
   let selectedQr: { id: number; token: string } | null = null;
   let selectedQrDataUrl: string = "";
 
+  // Filter state
+  let selectedPeriod = "month";
+  let selectedDate = "";
+  let selectedTime = "";
+
+  const periodOptions = [
+    { value: "day", label: "Today" },
+    { value: "week", label: "Last 7 Days" },
+    { value: "month", label: "Last 30 Days" },
+    { value: "year", label: "Last 12 Months" },
+    { value: "all", label: "All Time" }
+  ];
+
   onMount(async () => {
     await loadVisits();
     await loadExistingQRCodes();
@@ -21,7 +34,10 @@
     loading = true;
     errorMsg = "";
     try {
-      const res = await fetch("/api/visits");
+      let url = `/api/reports/visits?period=${selectedPeriod}`;
+      if (selectedDate) url += `&date=${selectedDate}`;
+      if (selectedTime) url += `&time=${selectedTime}`;
+      const res = await fetch(url);
       const data = await res.json();
       if (res.ok && data.success) {
         visits = data.visits;
@@ -45,6 +61,18 @@
     } catch (err) {
       // ignore for now
     }
+  }
+
+  async function handlePeriodChange() {
+    await loadVisits();
+  }
+
+  async function handleDateChange() {
+    await loadVisits();
+  }
+
+  async function handleTimeChange() {
+    await loadVisits();
   }
 
   async function generateQrCode() {
@@ -132,6 +160,45 @@
       </div>
     </div>
 
+    <!-- Filter Section -->
+    <div class="bg-white p-4 rounded-lg shadow-sm border flex flex-col sm:flex-row items-center gap-3 mt-4">
+      <select
+        bind:value={selectedPeriod}
+        on:change={handlePeriodChange}
+        class="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium"
+      >
+        {#each periodOptions as period}
+          <option value={period.value}>{period.label}</option>
+        {/each}
+      </select>
+      <input
+        type="date"
+        bind:value={selectedDate}
+        on:change={handleDateChange}
+        class="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium"
+        placeholder="Filter by date"
+      />
+      <input
+        type="time"
+        bind:value={selectedTime}
+        on:change={handleTimeChange}
+        class="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium"
+        placeholder="Filter by time"
+      />
+      <button
+        class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+        on:click={loadVisits}
+      >
+        Apply Filters
+      </button>
+      <button
+        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300"
+        on:click={() => { selectedDate = ""; selectedTime = ""; selectedPeriod = "month"; loadVisits(); }}
+      >
+        Reset
+      </button>
+    </div>
+
     <!-- QR Code Modal -->
     {#if showQrModal}
       <div class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
@@ -215,7 +282,7 @@
             <tbody class="bg-white divide-y divide-gray-200">
               {#each visits as visit}
                 <tr>
-                  <td class="px-4 py-2">{visit.visitorName || visit.user?.name || "—"}</td>
+                  <td class="px-4 py-2">{visit.visitorName || visit.user?.name || visit.fullName || "—"}</td>
                   <td class="px-4 py-2">{visit.visitorType}</td>
                   <td class="px-4 py-2">{visit.idNumber}</td>
                   <td class="px-4 py-2">{visit.purpose}</td>

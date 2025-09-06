@@ -1,27 +1,39 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { libraryVisit, bookTransaction, penalty, user, book } from '$lib/server/db/schema/schema.js';
-import { and, eq, gte, lte, desc } from 'drizzle-orm';
+import { 
+  libraryVisit, 
+  bookTransaction, 
+  penalty, 
+  user, 
+  book, 
+  category,
+  bookReservation 
+} from '$lib/server/db/schema/schema.js';
+import { and, eq, gte, lte, desc, sql, count } from 'drizzle-orm';
 
 // Utility: get date range for period
 function getDateRange(period: string) {
   const now = new Date();
   let start: Date, end: Date;
   end = new Date(now);
+  
   switch (period) {
     case 'week':
       start = new Date(now);
       start.setDate(now.getDate() - 7);
       break;
     case 'month':
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      start = new Date(now);
+      start.setDate(now.getDate() - 30);
       break;
     case 'quarter':
-      start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      start = new Date(now);
+      start.setDate(now.getDate() - 90);
       break;
     case 'year':
-      start = new Date(now.getFullYear(), 0, 1);
+      start = new Date(now);
+      start.setDate(now.getDate() - 365);
       break;
     default:
       start = new Date(0); // all time
@@ -29,241 +41,237 @@ function getDateRange(period: string) {
   return { start, end };
 }
 
-// GET: Return reports based on query params
+// Utility: format date for charts
+function formatDate(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+// GET: Return comprehensive dashboard data
 export const GET: RequestHandler = async ({ url }) => {
   try {
     const period = url.searchParams.get('period') || 'month';
-    const type = url.searchParams.get('type') || 'overview';
     const { start, end } = getDateRange(period);
 
-    // Overview
-    if (type === 'overview') {
-      // Total Visits
-      const totalVisits = await db.select().from(libraryVisit).then(rows => rows.length);
+    // Overview Statistics
+    const totalVisits = await db
+      .select({ count: count() })
+      .from(libraryVisit)
+      .where(and(gte(libraryVisit.timeIn, start), lte(libraryVisit.timeIn, end)))
+      .then(result => result[0]?.count || 0);
 
-      // Total Transactions
-      const totalTransactions = await db.select().from(bookTransaction).then(rows => rows.length);
+    const totalTransactions = await db
+      .select({ count: count() })
+      .from(bookTransaction)
+      .where(and(gte(bookTransaction.createdAt, start), lte(bookTransaction.createdAt, end)))
+      .then(result => result[0]?.count || 0);
 
-      // Active Borrowings
-      const activeBorrowings = await db
-        .select()
-        .from(bookTransaction)
-        .where(eq(bookTransaction.status, 'active'))
-        .then(rows => rows.length);
+    const activeBorrowings = await db
+      .select({ count: count() })
+      .from(bookTransaction)
+      .where(eq(bookTransaction.status, 'active'))
+      .then(result => result[0]?.count || 0);
 
-      // Overdue Books
-      const overdueBooks = await db
-        .select()
-        .from(bookTransaction)
-        .where(eq(bookTransaction.status, 'overdue'))
-        .then(rows => rows.length);
+    const overdueBooks = await db
+      .select({ count: count() })
+      .from(bookTransaction)
+      .where(eq(bookTransaction.status, 'overdue'))
+      .then(result => result[0]?.count || 0);
 
-      // Total Penalties
-      const totalPenalties = await db
-        .select()
-        .from(penalty)
-        .then(rows => rows.reduce((sum, p) => sum + (p.amount || 0), 0));
+    const totalPenalties = await db
+      .select({ total: sql<number>`COALESCE(SUM(${penalty.amount}), 0)` })
+      .from(penalty)
+      .where(and(gte(penalty.createdAt, start), lte(penalty.createdAt, end)))
+      .then(result => result[0]?.total || 0);
 
-      // New Members
-      const newMembers = await db
-        .select()
-        .from(user)
-        .where(gte(user.createdAt, start))
-        .then(rows => rows.length);
+    const availableBooks = await db
+      .select({ count: count() })
+      .from(book)
+      .where(gte(book.copiesAvailable, 1))
+      .then(result => result[0]?.count || 0);
 
-      // Popular Books (top 5 by borrow count)
-      const popularBooks = await db
-        .select({
-          title: book.title,
-          author: book.author,
-        })
-        .from(book)
-        .limit(5);
+    // Daily Visits for Chart
+    const dailyVisitsRaw = await db
+      .select({
+        date: sql<string>`DATE(${libraryVisit.timeIn})`,
+        count: count()
+      })
+      .from(libraryVisit)
+      .where(and(gte(libraryVisit.timeIn, start), lte(libraryVisit.timeIn, end)))
+      .groupBy(sql`DATE(${libraryVisit.timeIn})`)
+      .orderBy(sql`DATE(${libraryVisit.timeIn})`);
 
-      // Recent Activity (dummy for now)
-      const recentActivity = await db
-        .select({
-          type: bookTransaction.transactionType,
-          description: book.title,
-          timestamp: bookTransaction.createdAt
-        })
-        .from(bookTransaction)
-        .leftJoin(book, eq(bookTransaction.bookId, book.id))
-        .orderBy(desc(bookTransaction.createdAt))
-        .limit(5);
+    const dailyVisits = dailyVisitsRaw.map(item => ({
+      date: item.date,
+      count: item.count
+    }));
 
-      return json({
-        success: true,
-        data: {
-          overview: {
-            totalVisits,
-            totalTransactions,
-            activeBorrowings,
-            overdueBooks,
-            totalPenalties,
-            newMembers,
-            popularBooks,
-            recentActivity
-          }
+    // Transaction Types Distribution
+    const transactionTypesRaw = await db
+      .select({
+        type: bookTransaction.transactionType,
+        count: count()
+      })
+      .from(bookTransaction)
+      .where(and(gte(bookTransaction.createdAt, start), lte(bookTransaction.createdAt, end)))
+      .groupBy(bookTransaction.transactionType);
+
+    const transactionTypes = transactionTypesRaw.map(item => ({
+      type: item.type || 'Unknown',
+      count: item.count
+    }));
+
+    // Category Distribution
+    const categoryStatsRaw = await db
+      .select({
+        category: category.name,
+        count: count()
+      })
+      .from(book)
+      .leftJoin(category, eq(book.categoryId, category.id))
+      .groupBy(category.name)
+      .orderBy(desc(count()));
+
+    const totalBooksCount = categoryStatsRaw.reduce((sum, cat) => sum + cat.count, 0);
+    const categoryDistribution = categoryStatsRaw.map(item => ({
+      category: item.category || 'Uncategorized',
+      count: item.count,
+      percentage: totalBooksCount > 0 ? Math.round((item.count / totalBooksCount) * 100) : 0
+    }));
+
+    // Penalty Trends (weekly aggregation)
+    const penaltyTrendsRaw = await db
+      .select({
+        week: sql<string>`DATE_TRUNC('week', ${penalty.createdAt})`,
+        amount: sql<number>`COALESCE(SUM(${penalty.amount}), 0)`
+      })
+      .from(penalty)
+      .where(and(gte(penalty.createdAt, start), lte(penalty.createdAt, end)))
+      .groupBy(sql`DATE_TRUNC('week', ${penalty.createdAt})`)
+      .orderBy(sql`DATE_TRUNC('week', ${penalty.createdAt})`);
+
+    const penaltyTrends = penaltyTrendsRaw.map(item => ({
+      date: item.week,
+      amount: item.amount
+    }));
+
+    // Member Activity Summary
+    const studentCount = await db
+      .select({ count: count() })
+      .from(user)
+      .where(and(eq(user.role, 'student'), eq(user.isActive, true)))
+      .then(result => result[0]?.count || 0);
+
+    const facultyCount = await db
+      .select({ count: count() })
+      .from(user)
+      .where(and(eq(user.role, 'faculty'), eq(user.isActive, true)))
+      .then(result => result[0]?.count || 0);
+
+    const newStudents = await db
+      .select({ count: count() })
+      .from(user)
+      .where(and(
+        eq(user.role, 'student'),
+        gte(user.createdAt, start),
+        lte(user.createdAt, end)
+      ))
+      .then(result => result[0]?.count || 0);
+
+    const newFaculty = await db
+      .select({ count: count() })
+      .from(user)
+      .where(and(
+        eq(user.role, 'faculty'),
+        gte(user.createdAt, start),
+        lte(user.createdAt, end)
+      ))
+      .then(result => result[0]?.count || 0);
+
+    const memberActivity = [
+      { type: 'Students', active: studentCount, new: newStudents },
+      { type: 'Faculty', active: facultyCount, new: newFaculty }
+    ];
+
+    // Top Books by Borrow Count
+    const topBooksRaw = await db
+      .select({
+        title: book.title,
+        author: book.author,
+        borrowCount: count()
+      })
+      .from(bookTransaction)
+      .leftJoin(book, eq(bookTransaction.bookId, book.id))
+      .where(and(
+        gte(bookTransaction.createdAt, start),
+        lte(bookTransaction.createdAt, end),
+        eq(bookTransaction.transactionType, 'borrow')
+      ))
+      .groupBy(book.id, book.title, book.author)
+      .orderBy(desc(count()))
+      .limit(5);
+
+    const topBooks = topBooksRaw.map(item => ({
+      title: item.title || 'Unknown Title',
+      author: item.author || 'Unknown Author',
+      borrowCount: item.borrowCount
+    }));
+
+    // Overdue Books List
+    const overdueListRaw = await db
+      .select({
+        bookTitle: book.title,
+        borrowerName: user.name,
+        dueDate: bookTransaction.dueDate,
+        createdAt: bookTransaction.createdAt
+      })
+      .from(bookTransaction)
+      .leftJoin(book, eq(bookTransaction.bookId, book.id))
+      .leftJoin(user, eq(bookTransaction.userId, user.id))
+      .where(eq(bookTransaction.status, 'overdue'))
+      .orderBy(desc(bookTransaction.createdAt))
+      .limit(10);
+
+    const overdueList = overdueListRaw.map(item => {
+      const dueDate = item.dueDate ? new Date(item.dueDate) : new Date();
+      const now = new Date();
+      const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+      const fine = Math.max(daysOverdue * 500, 0); // ₱5.00 per day in centavos
+
+      return {
+        bookTitle: item.bookTitle || 'Unknown Book',
+        borrowerName: item.borrowerName || 'Unknown Borrower',
+        daysOverdue: Math.max(daysOverdue, 0),
+        fine: fine
+      };
+    });
+
+    return json({
+      success: true,
+      data: {
+        overview: {
+          totalVisits,
+          totalTransactions,
+          activeBorrowings,
+          overdueBooks,
+          totalPenalties,
+          availableBooks
+        },
+        charts: {
+          dailyVisits,
+          transactionTypes,
+          categoryDistribution,
+          penaltyTrends,
+          memberActivity
+        },
+        tables: {
+          topBooks,
+          overdueList
         }
-      });
-    }
+      }
+    });
 
-    // Visits
-    if (type === 'visits') {
-      const totalVisits = await db
-        .select()
-        .from(libraryVisit)
-        .where(and(gte(libraryVisit.timeIn, start), lte(libraryVisit.timeIn, end)))
-        .then(rows => rows.length);
-
-      // Visitor Types
-      const visitorTypes = [
-        { type: 'student', count: 0 },
-        { type: 'faculty', count: 0 },
-        { type: 'external', count: 0 }
-      ];
-      const visits = await db
-        .select()
-        .from(libraryVisit)
-        .where(and(gte(libraryVisit.timeIn, start), lte(libraryVisit.timeIn, end)));
-      visits.forEach(v => {
-        const idx = visitorTypes.findIndex(t => t.type === v.visitorType);
-        if (idx !== -1) visitorTypes[idx].count += 1;
-      });
-
-      // Average Duration (dummy)
-      const averageDuration = "0:45";
-
-      // Peak Hours (dummy)
-      const peakHours = [{ hour: "14:00", count: 10 }];
-
-      // Daily Visits (typed)
-      type DailyVisit = { date: string; count: number };
-      const dailyVisits: DailyVisit[] = [];
-
-      return json({
-        success: true,
-        data: {
-          visits: {
-            totalVisits,
-            dailyVisits,
-            visitorTypes,
-            peakHours,
-            averageDuration
-          }
-        }
-      });
-    }
-
-    // Transactions
-    if (type === 'transactions') {
-      const totalTransactions = await db
-        .select()
-        .from(bookTransaction)
-        .where(and(gte(bookTransaction.createdAt, start), lte(bookTransaction.createdAt, end)))
-        .then(rows => rows.length);
-
-      // Overdue List
-      const overdueList = await db
-        .select()
-        .from(bookTransaction)
-        .where(eq(bookTransaction.status, 'overdue'));
-
-      return json({
-        success: true,
-        data: {
-          transactions: {
-            totalTransactions,
-            byType: [],
-            dailyTransactions: [],
-            topBooks: [],
-            overdueList
-          }
-        }
-      });
-    }
-
-    // Penalties
-    if (type === 'penalties') {
-      const totalAmount = await db
-        .select()
-        .from(penalty)
-        .then(rows => rows.reduce((sum, p) => sum + (p.amount || 0), 0));
-      const paidAmount = await db
-        .select()
-        .from(penalty)
-        .where(eq(penalty.status, 'paid'))
-        .then(rows => rows.reduce((sum, p) => sum + (p.amount || 0), 0));
-      const unpaidAmount = totalAmount - paidAmount;
-
-      return json({
-        success: true,
-        data: {
-          penalties: {
-            totalAmount,
-            paidAmount,
-            unpaidAmount,
-            byType: [],
-            recentPenalties: []
-          }
-        }
-      });
-    }
-
-    // Members
-    if (type === 'members') {
-      const activeMembers = await db
-        .select()
-        .from(user)
-        .where(eq(user.isActive, true))
-        .then(rows => rows.length);
-
-      const newThisMonth = await db
-        .select()
-        .from(user)
-        .where(gte(user.createdAt, start))
-        .then(rows => rows.length);
-
-      return json({
-        success: true,
-        data: {
-          members: {
-            activeMembers,
-            newThisMonth,
-            topBorrowers: [],
-            memberActivity: []
-          }
-        }
-      });
-    }
-
-    // Books
-    if (type === 'books') {
-      const totalBooks = await db.select().from(book).then(rows => rows.length);
-      const availableBooks = await db.select().from(book).where(gte(book.copiesAvailable, 1)).then(rows => rows.length);
-      const issuedBooks = await db.select().from(book).where(eq(book.copiesAvailable, 0)).then(rows => rows.length);
-      const reservedBooks = 0; // Placeholder
-
-      return json({
-        success: true,
-        data: {
-          books: {
-            totalBooks,
-            availableBooks,
-            issuedBooks,
-            reservedBooks,
-            categoryStats: [],
-            popularAuthors: []
-          }
-        }
-      });
-    }
-
-    // Default
-    return json({ success: false, message: 'Invalid report type' }, { status: 400 });
   } catch (err) {
-    console.error('Error fetching reports:', err);
+    console.error('Error fetching dashboard data:', err);
     throw error(500, { message: 'Internal server error' });
   }
 };

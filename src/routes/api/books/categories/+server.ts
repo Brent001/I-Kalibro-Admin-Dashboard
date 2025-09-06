@@ -5,7 +5,7 @@ import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
 import { db } from '$lib/server/db/index.js';
 import { account, category, book } from '$lib/server/db/schema/schema.js';
-import { eq, not } from 'drizzle-orm';
+import { eq, not, count } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 

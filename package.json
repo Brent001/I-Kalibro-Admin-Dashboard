@@ -60,6 +60,7 @@
 		"@neondatabase/serverless": "^0.10.4",
 		"@upstash/redis": "^1.35.3",
 		"bcrypt": "^6.0.0",
+		"chart.js": "^4.5.0",
 		"drizzle-orm": "^0.40.0",
 		"jsonwebtoken": "^9.0.2",
 		"nanoid": "^5.1.5",
