@@ -64,6 +64,7 @@
 		"drizzle-orm": "^0.40.0",
 		"jsonwebtoken": "^9.0.2",
 		"nanoid": "^5.1.5",
+		"pdfkit": "^0.17.2",
 		"qrcode": "^1.5.4",
 		"zod": "^4.0.17"
 	}
