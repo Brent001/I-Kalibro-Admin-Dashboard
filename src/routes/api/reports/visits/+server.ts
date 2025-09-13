@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { libraryVisit, user } from '$lib/server/db/schema/schema.js';
-import { and, eq, gte, lte, sql, desc } from 'drizzle-orm';
+import { and, eq, gte, lte, lt, desc } from 'drizzle-orm';
 
 // Utility: get date range for period
 function getDateRange(period: string) {
@@ -69,7 +69,7 @@ export const GET: RequestHandler = async ({ url }) => {
       }
     }
 
-    // Query visits
+    // Query visits - only select fields that exist in your schema
     const visitsRaw = await db
       .select({
         id: libraryVisit.id,
@@ -77,11 +77,9 @@ export const GET: RequestHandler = async ({ url }) => {
         username: libraryVisit.username,
         fullName: libraryVisit.fullName,
         visitorType: libraryVisit.visitorType,
-        idNumber: libraryVisit.idNumber,
-        purpose: libraryVisit.purpose,
         timeIn: libraryVisit.timeIn,
         timeOut: libraryVisit.timeOut,
-        status: libraryVisit.status
+        createdAt: libraryVisit.createdAt
       })
       .from(libraryVisit)
       .where(and(...filters))
@@ -98,6 +96,7 @@ export const GET: RequestHandler = async ({ url }) => {
             .where(eq(user.id, visit.userId));
           userInfo = userRes[0] || null;
         }
+        
         // Calculate duration
         let duration = "—";
         if (visit.timeIn && visit.timeOut) {
@@ -105,6 +104,7 @@ export const GET: RequestHandler = async ({ url }) => {
           const mins = Math.floor(diffMs / 60000);
           duration = mins > 0 ? `${mins} min` : "—";
         }
+        
         return {
           ...visit,
           user: userInfo,

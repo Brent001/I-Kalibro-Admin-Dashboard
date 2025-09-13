@@ -34,18 +34,21 @@
     loading = true;
     errorMsg = "";
     try {
+      // Use the refactored API endpoint and parameters
       let url = `/api/reports/visits?period=${selectedPeriod}`;
       if (selectedDate) url += `&date=${selectedDate}`;
       if (selectedTime) url += `&time=${selectedTime}`;
       const res = await fetch(url);
       const data = await res.json();
-      if (res.ok && data.success) {
+      if (res.ok && data.success && Array.isArray(data.visits)) {
         visits = data.visits;
       } else {
         errorMsg = data.message || "Failed to load visits.";
+        visits = [];
       }
     } catch (err) {
       errorMsg = "Network error. Please try again.";
+      visits = [];
     } finally {
       loading = false;
     }
