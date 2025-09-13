@@ -70,18 +70,13 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
         username: account.username,
         email: account.email,
         role: account.role,
-        isActive: account.isActive,
-        tokenVersion: account.tokenVersion
+        isActive: account.isActive
       })
       .from(account)
       .where(eq(account.id, userId))
       .limit(1);
 
     if (!user || !user.isActive) return null;
-
-    if (decoded.tokenVersion !== undefined && decoded.tokenVersion !== user.tokenVersion) {
-      return null;
-    }
 
     return {
       id: user.id,

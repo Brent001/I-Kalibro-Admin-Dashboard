@@ -4,8 +4,8 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
 import { db } from '$lib/server/db/index.js';
-import { book, account, category, bookTransaction } from '$lib/server/db/schema/schema.js';
-import { eq, count, sum, gt, isNull } from 'drizzle-orm';
+import { book, account, category, bookBorrowing } from '$lib/server/db/schema/schema.js';
+import { eq, count, sum, and, gt } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -42,16 +42,12 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
         username: account.username,
         email: account.email,
         role: account.role,
-        isActive: account.isActive,
-        tokenVersion: account.tokenVersion
+        isActive: account.isActive
       })
       .from(account)
       .where(eq(account.id, userId))
       .limit(1);
     if (!user || !user.isActive) return null;
-    if (decoded.tokenVersion !== undefined && decoded.tokenVersion !== user.tokenVersion) {
-      return null;
-    }
     return {
       id: user.id,
       role: user.role || '',
@@ -80,9 +76,8 @@ export const GET: RequestHandler = async ({ request }) => {
     // Currently borrowed books (active borrow transactions)
     const borrowedBooksResult = await db
       .select({ count: count() })
-      .from(bookTransaction)
-      .where(eq(bookTransaction.transactionType, 'borrow'))
-      .where(eq(bookTransaction.status, 'active'));
+      .from(bookBorrowing)
+      .where(eq(bookBorrowing.status, 'borrowed'));
     const borrowedBooks = borrowedBooksResult[0]?.count || 0;
 
     // Dynamic categories count
@@ -93,8 +88,10 @@ export const GET: RequestHandler = async ({ request }) => {
     const lowStockResult = await db
       .select({ count: count() })
       .from(book)
-      .where(gt(book.copiesAvailable, 0))
-      .where(gt(3, book.copiesAvailable));
+      .where(and(
+        gt(book.copiesAvailable, 0),
+        gt(3, book.copiesAvailable)
+      ));
     const lowStock = lowStockResult[0]?.count || 0;
 
     // Out of stock books
@@ -123,7 +120,7 @@ export const GET: RequestHandler = async ({ request }) => {
     });
   } catch (err) {
     console.error('Error fetching statistics:', err);
-    if (err.status) throw err;
+    if ((err as any)?.status) throw err;
     throw error(500, { message: 'Internal server error' });
   }
 };

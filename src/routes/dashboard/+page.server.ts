@@ -46,11 +46,8 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
             throw redirect(302, '/');
         }
 
-        // Fetch dashboard stats from API
-        const res = await fetch('/api/dashboard');
-        const dashboard = res.ok ? await res.json().then(r => r.data) : {};
-
-        return {
+        // Prepare base response with user data
+        const response = {
             user: {
                 id: user.id,
                 name: user.name,
@@ -58,8 +55,53 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
                 email: user.email,
                 role: user.role
             },
-            dashboard
+            dashboard: {} as any
         };
+
+        // Try to fetch dashboard data, but don't fail if it's unavailable
+        try {
+            const dashboardResponse = await fetch('/api/dashboard', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cookie': `token=${token}` // Pass auth cookie if API needs it
+                }
+            });
+
+            if (dashboardResponse.ok) {
+                const dashboardResult = await dashboardResponse.json();
+                
+                if (dashboardResult.success && dashboardResult.data) {
+                    response.dashboard = dashboardResult.data;
+                }
+            } else {
+                console.warn('Dashboard API returned non-ok status:', dashboardResponse.status);
+                // Set empty dashboard data as fallback
+                response.dashboard = {
+                    totalBooks: 0,
+                    activeMembers: 0,
+                    booksBorrowed: 0,
+                    overdueBooks: 0,
+                    recentActivity: [],
+                    overdueBooksList: []
+                };
+            }
+        } catch (dashboardError) {
+            // Dashboard fetch failed, but user auth is valid
+            console.warn('Dashboard data fetch failed:', dashboardError);
+            
+            // Provide empty dashboard data as fallback
+            response.dashboard = {
+                totalBooks: 0,
+                activeMembers: 0,
+                booksBorrowed: 0,
+                overdueBooks: 0,
+                recentActivity: [],
+                overdueBooksList: []
+            };
+        }
+
+        return response;
 
     } catch (error) {
         // Token is invalid or expired
@@ -70,7 +112,7 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
         }
         
         // Database or other errors
-        console.error('Dashboard auth check error:', error);
+        console.error('Dashboard page server load error:', error);
         
         // Still redirect to login on any auth error
         cookies.delete('token', { path: '/' });

@@ -5,7 +5,7 @@ import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
 import { eq, like, and, or, gt, count, not } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
-import { book, account, category, bookTransaction } from '$lib/server/db/schema/schema.js'; // add category import
+import { book, account, category, bookBorrowing } from '$lib/server/db/schema/schema.js'; // remove bookTransaction
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -63,8 +63,8 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
         username: account.username,
         email: account.email,
         role: account.role,
-        isActive: account.isActive,
-        tokenVersion: account.tokenVersion
+        isActive: account.isActive
+        // REMOVED: tokenVersion
       })
       .from(account)
       .where(eq(account.id, userId))
@@ -72,9 +72,7 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
 
     if (!user || !user.isActive) return null;
 
-    if (decoded.tokenVersion !== undefined && decoded.tokenVersion !== user.tokenVersion) {
-      return null;
-    }
+    // REMOVED: tokenVersion check
 
     return {
       id: user.id,
@@ -255,11 +253,8 @@ export const POST: RequestHandler = async ({ request }) => {
       copiesAvailable: body.copiesAvailable,
       categoryId: body.categoryId,
       publisher: body.publisher ? body.publisher.trim() : null,
-      edition: body.edition ? body.edition.trim() : null,
-      location: body.location ? body.location.trim() : null,
-      description: body.description ? body.description.trim() : null,
-      tags: Array.isArray(body.tags) ? body.tags.join(',') : (body.tags ? body.tags : null),
-      supplier: body.supplier ? body.supplier.trim() : null
+      location: body.location ? body.location.trim() : null
+      // REMOVED: edition, description, tags, supplier
     };
 
     // Insert the book
@@ -277,15 +272,16 @@ export const POST: RequestHandler = async ({ request }) => {
         copiesAvailable: book.copiesAvailable,
         categoryId: book.categoryId,
         publisher: book.publisher,
-        edition: book.edition,
-        location: book.location,
-        description: book.description,
-        tags: book.tags,
-        supplier: book.supplier
+        location: book.location
+        // REMOVED: edition, description, tags, supplier
       });
 
     // Get category name for response
-    const [cat] = await db.select({ name: category.name }).from(category).where(eq(category.id, newBook.categoryId)).limit(1);
+    const [cat] = await db
+      .select({ name: category.name })
+      .from(category)
+      .where(eq(category.id, Number(newBook.categoryId)))
+      .limit(1);
 
     return json({
       success: true,
@@ -298,8 +294,8 @@ export const POST: RequestHandler = async ({ request }) => {
     }, { status: 201 });
 
   } catch (err) {
-    console.error('Error creating book:', err);
-    if (err.status) {
+    console.error('Error creating book:', err instanceof Error ? err.message : err);
+    if ((err as any).status) {
       throw err;
     }
     throw error(500, { message: 'Internal server error while creating book' });
@@ -382,7 +378,7 @@ export const PUT: RequestHandler = async ({ request, url }) => {
 
     if (body.author !== undefined) {
       if (typeof body.author !== 'string' || body.author.trim().length === 0) {
-        validationErrors.push('Author cannot be empty');
+        validationErrors.push('Author cannot be.empty');
       } else if (body.author.length > 100) {
         validationErrors.push('Author must be less than 100 characters');
       }
@@ -484,10 +480,11 @@ export const DELETE: RequestHandler = async ({ request, url }) => {
     // Prevent deletion if book is currently borrowed
     const issuedCount = await db
       .select({ count: count() })
-      .from(bookTransaction)
-      .where(eq(bookTransaction.bookId, parseInt(bookId)))
-      .where(eq(bookTransaction.transactionType, 'borrow'))
-      .where(eq(bookTransaction.status, 'active'));
+      .from(bookBorrowing)
+      .where(and(
+        eq(bookBorrowing.bookId, parseInt(bookId)),
+        eq(bookBorrowing.status, 'borrowed')
+      ));
     if (issuedCount[0]?.count > 0) {
       throw error(400, { message: 'Cannot delete book: It is currently borrowed.' });
     }
@@ -509,12 +506,10 @@ export const DELETE: RequestHandler = async ({ request, url }) => {
     });
 
   } catch (err) {
-    console.error('Error deleting book:', err);
-    
-    if (err.status) {
+    console.error('Error deleting book:', err instanceof Error ? err.message : err);
+    if ((err as any).status) {
       throw err;
     }
-
     throw error(500, { message: 'Internal server error while deleting book' });
   }
 };
