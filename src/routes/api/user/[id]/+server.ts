@@ -2,14 +2,14 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { user, bookTransaction, book } from '$lib/server/db/schema/schema.js';
+import { user, bookBorrowing, book } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
 
 // GET: Return specific user details with issued books
 export const GET: RequestHandler = async ({ params }) => {
   try {
     const userId = parseInt(params.id);
-    
+
     if (isNaN(userId)) {
       throw error(400, { message: 'Invalid user ID' });
     }
@@ -34,28 +34,25 @@ export const GET: RequestHandler = async ({ params }) => {
     // Get issued books count
     const issuedBooksCount = await db
       .select({ count: count() })
-      .from(bookTransaction)
-      .where(eq(bookTransaction.userId, userId));
+      .from(bookBorrowing)
+      .where(eq(bookBorrowing.userId, userId))
+      .where(eq(bookBorrowing.status, 'borrowed'));
 
     // Get detailed issued books information
     const issuedBooks = await db
       .select({
-        id: bookTransaction.id,
+        id: bookBorrowing.id,
         bookTitle: book.title,
         bookAuthor: book.author,
-        issueDate: bookTransaction.issueDate,
-        returnDate: bookTransaction.returnDate,
-        actualReturnDate: bookTransaction.actualReturnDate,
-        status: bookTransaction.status,
-        isOverdue: db.raw(`CASE 
-          WHEN book_transaction.actual_return_date IS NULL AND book_transaction.return_date < CURRENT_DATE 
-          THEN true 
-          ELSE false 
-        END`),
+        borrowDate: bookBorrowing.borrowDate,
+        dueDate: bookBorrowing.dueDate,
+        returnDate: bookBorrowing.returnDate,
+        status: bookBorrowing.status
       })
-      .from(bookTransaction)
-      .leftJoin(book, eq(bookTransaction.bookId, book.id))
-      .where(eq(bookTransaction.userId, userId));
+      .from(bookBorrowing)
+      .leftJoin(book, eq(bookBorrowing.bookId, book.id))
+      .where(eq(bookBorrowing.userId, userId))
+      .where(eq(bookBorrowing.status, 'borrowed'));
 
     memberDetails.booksCount = issuedBooksCount[0]?.count ?? 0;
     memberDetails.issuedBooks = issuedBooks;

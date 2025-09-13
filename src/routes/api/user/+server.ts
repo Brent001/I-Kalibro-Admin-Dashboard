@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { user, bookTransaction } from '$lib/server/db/schema/schema.js';
+import { user, bookBorrowing } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 
@@ -14,10 +14,9 @@ export const GET: RequestHandler = async () => {
     const getBooksCount = async (userId: number): Promise<number> => {
       const result = await db
         .select({ count: count() })
-        .from(bookTransaction)
-        .where(eq(bookTransaction.userId, userId))
-        .where(eq(bookTransaction.transactionType, 'borrow'))
-        .where(eq(bookTransaction.status, 'active'));
+        .from(bookBorrowing)
+        .where(eq(bookBorrowing.userId, userId))
+        .where(eq(bookBorrowing.status, 'borrowed'));
       return result[0]?.count ?? 0;
     };
 
@@ -269,10 +268,9 @@ export const DELETE: RequestHandler = async ({ request }) => {
     // Check if user has any issued books
     const issuedBooksCount = await db
       .select({ count: count() })
-      .from(bookTransaction)
-      .where(eq(bookTransaction.userId, id))
-      .where(eq(bookTransaction.transactionType, 'borrow'))
-      .where(eq(bookTransaction.status, 'active'));
+      .from(bookBorrowing)
+      .where(eq(bookBorrowing.userId, id))
+      .where(eq(bookBorrowing.status, 'borrowed'));
 
     if (issuedBooksCount[0].count > 0 && permanent) {
       throw error(400, {
