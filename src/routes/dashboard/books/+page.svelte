@@ -57,6 +57,7 @@
 
   // Categories - you may want to fetch these from API too
   let categories = ['all'];
+  let categoryMap: Record<number, string> = {};
   let stats = {
     totalBooks: 0,
     availableCopies: 0,
@@ -116,8 +117,8 @@
           published: book.publishedYear?.toString() || 'Unknown',
           status: book.copiesAvailable > 5 ? 'Available' : 
                   book.copiesAvailable > 0 ? 'Limited' : 'Unavailable',
-          // Use the actual category name from API, fallback to 'General' if missing
-          category: book.category || 'General'
+          // Use category name from categoryMap, fallback to 'General'
+          category: categoryMap[book.categoryId] || 'General'
         }));
         pagination = data.data.pagination;
       } else {
@@ -158,16 +159,19 @@
   // Function to fetch categories from API
   async function fetchCategories() {
     if (!browser) return;
-    
     try {
       const response = await fetch('/api/books/categories', {
         credentials: 'include'
       });
-
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          categories = ['all', ...data.data.categories];
+          categories = ['all', ...data.data.categories.map((cat: any) => cat.name)];
+          // Build categoryMap for ID -> name lookup
+          categoryMap = {};
+          for (const cat of data.data.categories) {
+            categoryMap[cat.id] = cat.name;
+          }
         }
       }
     } catch (err) {
@@ -381,7 +385,7 @@
     {/if}
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
       <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
           <div class="p-3 bg-slate-100 rounded-xl">

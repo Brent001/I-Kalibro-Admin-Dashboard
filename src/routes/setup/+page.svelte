@@ -1,6 +1,5 @@
 <script lang="ts">
     import { enhance } from '$app/forms';
-    import { page } from '$app/stores';
     import { goto } from '$app/navigation';
     import { onMount } from 'svelte';
     
@@ -15,7 +14,6 @@
     export let data: { setupRequired?: boolean } = {};
     
     const libraryName = 'Metro Dagupan Colleges Library';
-    const libraryCode = 'MDC-LIB';
     
     let isSubmitting = false;
     let showPassword = false;
@@ -57,9 +55,6 @@
     
     let passwordValue = '';
     $: passwordStrength = checkPasswordStrength(passwordValue);
-    
-    // Check if setup was successful
-    $: setupSuccess = $page.url.searchParams.get('setup') === 'success';
 </script>
 
 <!-- Only show setup form if setup is required -->
@@ -95,9 +90,16 @@
                 class="space-y-6"
                 use:enhance={() => {
                     isSubmitting = true;
-                    return async ({ update }) => {
-                        await update();
+                    return async ({ result, update }) => {
                         isSubmitting = false;
+                        
+                        // Handle redirect
+                        if (result.type === 'redirect') {
+                            goto(result.location);
+                        } else {
+                            // Update form state for errors
+                            await update();
+                        }
                     };
                 }}
             >
@@ -107,27 +109,29 @@
                         id="name"
                         name="name" 
                         required 
-                        placeholder="Enter your full name" 
+                        placeholder="Enter your full name"
                         value={form?.name ?? ''}
                         class="w-full border border-gray-200 rounded-lg px-4 py-3 focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 bg-gray-50 focus:bg-white" 
                     />
                 </div>
                 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+                    <label for="email" class="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
                     <input 
+                        id="email"
                         name="email" 
                         type="email" 
                         required 
-                        placeholder="admin@mdc.edu.ph" 
+                        placeholder="admin@mdc.edu.ph"
                         value={form?.email ?? ''}
                         class="w-full border border-gray-200 rounded-lg px-4 py-3 focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 bg-gray-50 focus:bg-white" 
                     />
                 </div>
                 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                    <label for="username" class="block text-sm font-medium text-gray-700 mb-2">Username</label>
                     <input
+                        id="username"
                         name="username"
                         required
                         placeholder="Username (letters, numbers, _, - only)"
@@ -138,15 +142,16 @@
                 </div>
                 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                    <label for="password" class="block text-sm font-medium text-gray-700 mb-2">Password</label>
                     <div class="relative">
                         <input 
+                            id="password"
                             name="password" 
                             type={showPassword ? 'text' : 'password'}
                             required 
                             minlength="8" 
                             placeholder="Enter secure password"
-                            bind:value={passwordValue}
+                            on:input={(e) => passwordValue = e.currentTarget.value}
                             class="w-full border border-gray-200 rounded-lg px-4 py-3 pr-12 focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 bg-gray-50 focus:bg-white" 
                         />
                         <button 
@@ -209,9 +214,10 @@
                 </div>
                 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+                    <label for="confirmPassword" class="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
                     <div class="relative">
                         <input 
+                            id="confirmPassword"
                             name="confirmPassword" 
                             type={showConfirmPassword ? 'text' : 'password'}
                             required 

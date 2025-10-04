@@ -2,10 +2,10 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { user, bookBorrowing, book } from '$lib/server/db/schema/schema.js';
+import { user, bookBorrowing, book, bookReturn } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
 
-// GET: Return specific user details with issued books
+// GET: Return specific user details with issued and returned books
 export const GET: RequestHandler = async ({ params }) => {
   try {
     const userId = parseInt(params.id);
@@ -38,15 +38,14 @@ export const GET: RequestHandler = async ({ params }) => {
       .where(eq(bookBorrowing.userId, userId))
       .where(eq(bookBorrowing.status, 'borrowed'));
 
-    // Get detailed issued books information
-    const issuedBooks = await db
+    // Get active borrowings
+    const issuedBooksRaw = await db
       .select({
         id: bookBorrowing.id,
         bookTitle: book.title,
         bookAuthor: book.author,
         borrowDate: bookBorrowing.borrowDate,
         dueDate: bookBorrowing.dueDate,
-        returnDate: bookBorrowing.returnDate,
         status: bookBorrowing.status
       })
       .from(bookBorrowing)
@@ -54,8 +53,37 @@ export const GET: RequestHandler = async ({ params }) => {
       .where(eq(bookBorrowing.userId, userId))
       .where(eq(bookBorrowing.status, 'borrowed'));
 
-    memberDetails.booksCount = issuedBooksCount[0]?.count ?? 0;
+    // Calculate fines for each active borrowing
+    const issuedBooks = issuedBooksRaw.map(b => {
+      const now = new Date();
+      const due = new Date(b.dueDate);
+      let fine = 0;
+      if (now > due) {
+        const msPerHour = 1000 * 60 * 60;
+        const overdueMs = now.getTime() - due.getTime();
+        const overdueHours = Math.ceil(overdueMs / msPerHour);
+        fine = overdueHours * 5;
+      }
+      return { ...b, fine };
+    });
+
+    // Get returned books from bookReturn
+    const returnedBooksRaw = await db
+      .select({
+        id: bookReturn.id,
+        bookTitle: book.title,
+        bookAuthor: book.author,
+        returnDate: bookReturn.returnDate,
+        finePaid: bookReturn.finePaid,
+        remarks: bookReturn.remarks
+      })
+      .from(bookReturn)
+      .leftJoin(book, eq(bookReturn.bookId, book.id))
+      .where(eq(bookReturn.userId, userId));
+
+    memberDetails.booksCount = issuedBooks.length;
     memberDetails.issuedBooks = issuedBooks;
+    memberDetails.returnedBooks = returnedBooksRaw;
 
     return json({
       success: true,

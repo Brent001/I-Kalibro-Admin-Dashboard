@@ -64,6 +64,7 @@ export const bookBorrowing = pgTable('book_borrowing', {
     dueDate: date('due_date').notNull(),
     returnDate: date('return_date'), // null if not returned yet
     status: varchar('status', { length: 20 }).default('borrowed'), // 'borrowed', 'returned', 'overdue'
+    fine: integer('fine').default(0), // <-- Add this line
     createdAt: timestamp('created_at').defaultNow()
 });
 
@@ -92,4 +93,24 @@ export const libraryVisit = pgTable('library_visit', {
 export const qrCodeToken = pgTable('qr_code_token', {
     id: serial('id').primaryKey(),
     token: varchar('token', { length: 255 }).unique().notNull()
+});
+
+export const userActivity = pgTable('user_activity', {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').references(() => user.id).notNull(),
+    activityType: varchar('activity_type', { length: 50 }).notNull(), // e.g. 'borrow', 'return', 'reserve', 'visit'
+    activityDetails: varchar('activity_details', { length: 255 }), // optional details (book title, etc.)
+    relatedId: integer('related_id'), // e.g. bookBorrowing.id, bookReservation.id, libraryVisit.id
+    timestamp: timestamp('timestamp').defaultNow().notNull()
+});
+
+export const bookReturn = pgTable('book_return', {
+    id: serial('id').primaryKey(),
+    borrowingId: integer('borrowing_id').references(() => bookBorrowing.id).notNull(),
+    userId: integer('user_id').references(() => user.id).notNull(),
+    bookId: integer('book_id').references(() => book.id).notNull(),
+    returnDate: date('return_date').notNull(),
+    finePaid: integer('fine_paid').default(0),
+    remarks: varchar('remarks', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow()
 });

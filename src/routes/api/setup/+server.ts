@@ -30,8 +30,15 @@ const setupSchema = z.object({
 
 export const POST: RequestHandler = async ({ request }) => {
     try {
-        // Parse and validate JSON body
-        const body = await request.json();
+        // Parse form data instead of JSON
+        const formData = await request.formData();
+        const body = {
+            name: formData.get('name'),
+            email: formData.get('email'),
+            username: formData.get('username'),
+            password: formData.get('password')
+        };
+
         const validationResult = setupSchema.safeParse(body);
         
         if (!validationResult.success) {

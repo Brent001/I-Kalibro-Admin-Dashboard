@@ -11,9 +11,22 @@
   const transactions = data.transactions ?? [];
 
   const transactionTypes = ['all', 'Borrow', 'Return', 'Reserve'];
-  const transactionStatuses = ['all', 'Active', 'Returned', 'Overdue', 'Reserved'];
+  const transactionStatuses = ['all', 'borrowed', 'returned', 'overdue', 'active', 'fulfilled', 'cancelled'];
 
-  $: filteredTransactions = transactions.filter(transaction => {
+  interface Transaction {
+    id: number;
+    bookTitle?: string;
+    memberName?: string;
+    bookId?: string;
+    memberId?: string;
+    type: string;
+    status: string;
+    borrowDate?: string;
+    dueDate?: string;
+    returnDate?: string;
+  }
+
+  $: filteredTransactions = transactions.filter((transaction: Transaction) => {
     const matchesSearch =
       (transaction.bookTitle?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
       (transaction.memberName?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
@@ -26,67 +39,144 @@
 
   function getStatusColor(status: string) {
     switch (status) {
-      case 'Active':
-        return 'bg-slate-100 text-slate-800';
-      case 'Returned':
-        return 'bg-emerald-100 text-emerald-800';
-      case 'Overdue':
-        return 'bg-red-100 text-red-800';
-      case 'Reserved':
-        return 'bg-amber-100 text-amber-800';
+      case 'borrowed':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'returned':
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      case 'overdue':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'active':
+        return 'bg-amber-100 text-amber-800 border-amber-200';
+      case 'fulfilled':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'cancelled':
+        return 'bg-gray-100 text-gray-800 border-gray-200';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   }
 
   function getStatusIcon(status: string) {
     switch (status) {
-      case 'Active':
-        return 'clock';
-      case 'Returned':
-        return 'check';
-      case 'Overdue':
-        return 'x';
-      case 'Reserved':
+      case 'borrowed':
+        return 'book-open';
+      case 'returned':
+        return 'check-circle';
+      case 'overdue':
+        return 'alert-circle';
+      case 'active':
         return 'bookmark';
+      case 'fulfilled':
+        return 'check-square';
+      case 'cancelled':
+        return 'x-circle';
       default:
-        return 'clock';
+        return 'circle';
     }
   }
 
   function getTypeColor(type: string) {
     switch (type) {
       case 'Borrow':
-        return 'bg-slate-100 text-slate-800';
+        return 'bg-slate-100 text-slate-800 border-slate-200';
       case 'Return':
-        return 'bg-emerald-100 text-emerald-800';
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
       case 'Reserve':
-        return 'bg-amber-100 text-amber-800';
+        return 'bg-amber-100 text-amber-800 border-amber-200';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   }
 
   function formatDate(dateString: string) {
-    if (!dateString) return '';
+    if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
   }
+
+  function calculateDaysRemaining(dueDate: string) {
+    if (!dueDate) return null;
+    const today = new Date();
+    const due = new Date(dueDate);
+    const diffTime = due.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  }
+
+  async function handleDelete(transactionId: number) {
+    if (!confirm("Are you sure you want to delete this transaction?")) return;
+    try {
+      const res = await fetch(`/api/transactions/${transactionId}`, { 
+        method: "DELETE" 
+      });
+      if (res.ok) {
+        alert("Transaction deleted successfully!");
+        location.reload();
+      } else {
+        alert("Failed to delete transaction.");
+      }
+    } catch (err) {
+      alert("Error deleting transaction.");
+    }
+  }
+
+  async function handleReturn(transactionId: number) {
+    if (!confirm("Mark this book as returned?")) return;
+    try {
+      const res = await fetch(`/api/transactions/${transactionId}/return`, { 
+        method: "POST" 
+      });
+      if (res.ok) {
+        alert("Book returned successfully!");
+        location.reload();
+      } else {
+        alert("Failed to return book.");
+      }
+    } catch (err) {
+      alert("Error returning book.");
+    }
+  }
+
+  async function handleConfirmBorrow(reservationId: number) {
+    if (!confirm("Confirm this reservation and convert to borrow?")) return;
+    try {
+      const res = await fetch(`/api/transactions/${reservationId}/confirm-borrow`, { 
+        method: "POST" 
+      });
+      if (res.ok) {
+        alert("Reservation confirmed as borrow!");
+        location.reload();
+      } else {
+        const data = await res.json();
+        alert(data.message || "Failed to confirm borrow.");
+      }
+    } catch (err) {
+      alert("Error confirming borrow.");
+    }
+  }
+
+  // Calculate stats
+  $: stats = {
+    active: transactions.filter((t: Transaction) => t.status === 'borrowed').length,
+    returned: transactions.filter((t: Transaction) => t.status === 'returned').length,
+    overdue: transactions.filter((t: Transaction) => t.status === 'overdue').length,
+    reserved: transactions.filter((t: Transaction) => t.status === 'active' && t.type === 'Reserve').length,
+  };
 </script>
 
 <Layout>
-  <div class="space-y-4 sm:space-y-6">
+  <div class="space-y-6">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
-        <h2 class="text-xl sm:text-2xl font-bold text-gray-900">Transaction Management</h2>
-        <p class="text-sm sm:text-base text-gray-600">Track all library transactions and activities</p>
+        <h2 class="text-2xl sm:text-3xl font-bold text-gray-900">Transaction Management</h2>
+        <p class="text-sm sm:text-base text-gray-600 mt-1">Monitor and manage all library transactions</p>
       </div>
-      <button class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200 w-full sm:w-auto">
-        <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <button class="inline-flex items-center justify-center px-5 py-2.5 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-all duration-200 shadow-sm hover:shadow-md w-full sm:w-auto">
+        <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
         </svg>
         New Transaction
@@ -94,76 +184,82 @@
     </div>
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-      <div class="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-200">
-        <div class="flex items-center">
-          <div class="p-2 bg-slate-100 rounded-lg">
-            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
-            </svg>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <p class="text-sm font-medium text-gray-600 mb-1">Active Loans</p>
+            <p class="text-3xl font-bold text-gray-900">{stats.active}</p>
+            <p class="text-xs text-gray-500 mt-1">Currently borrowed</p>
           </div>
-          <div class="ml-3 sm:ml-4">
-            <p class="text-xs sm:text-sm font-medium text-gray-600">Active Loans</p>
-            <p class="text-lg sm:text-2xl font-semibold text-gray-900">{transactions.filter(t => t.status === 'Active').length}</p>
+          <div class="p-3 bg-blue-100 rounded-lg">
+            <svg class="h-6 w-6 text-blue-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+            </svg>
           </div>
         </div>
       </div>
-      <div class="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-200">
-        <div class="flex items-center">
-          <div class="p-2 bg-emerald-100 rounded-lg">
-            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-emerald-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-            </svg>
+
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <p class="text-sm font-medium text-gray-600 mb-1">Returned</p>
+            <p class="text-3xl font-bold text-gray-900">{stats.returned}</p>
+            <p class="text-xs text-gray-500 mt-1">Successfully returned</p>
           </div>
-          <div class="ml-3 sm:ml-4">
-            <p class="text-xs sm:text-sm font-medium text-gray-600">Returned</p>
-            <p class="text-lg sm:text-2xl font-semibold text-gray-900">{transactions.filter(t => t.status === 'Returned').length}</p>
+          <div class="p-3 bg-emerald-100 rounded-lg">
+            <svg class="h-6 w-6 text-emerald-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
           </div>
         </div>
       </div>
-      <div class="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-200">
-        <div class="flex items-center">
-          <div class="p-2 bg-red-100 rounded-lg">
-            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-red-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z"/>
-            </svg>
+
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <p class="text-sm font-medium text-gray-600 mb-1">Overdue</p>
+            <p class="text-3xl font-bold text-gray-900">{stats.overdue}</p>
+            <p class="text-xs text-gray-500 mt-1">Need attention</p>
           </div>
-          <div class="ml-3 sm:ml-4">
-            <p class="text-xs sm:text-sm font-medium text-gray-600">Overdue</p>
-            <p class="text-lg sm:text-2xl font-semibold text-gray-900">{transactions.filter(t => t.status === 'Overdue').length}</p>
+          <div class="p-3 bg-red-100 rounded-lg">
+            <svg class="h-6 w-6 text-red-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+            </svg>
           </div>
         </div>
       </div>
-      <div class="bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-200">
-        <div class="flex items-center">
-          <div class="p-2 bg-amber-100 rounded-lg">
-            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-amber-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
+
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <p class="text-sm font-medium text-gray-600 mb-1">Reserved</p>
+            <p class="text-3xl font-bold text-gray-900">{stats.reserved}</p>
+            <p class="text-xs text-gray-500 mt-1">Pending pickup</p>
           </div>
-          <div class="ml-3 sm:ml-4">
-            <p class="text-xs sm:text-sm font-medium text-gray-600">Total Fines</p>
-            <p class="text-lg sm:text-2xl font-semibold text-gray-900">₱{transactions.reduce((acc, t) => acc + t.fine, 0)}</p>
+          <div class="p-3 bg-amber-100 rounded-lg">
+            <svg class="h-6 w-6 text-amber-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"/>
+            </svg>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Search and Filters -->
-    <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200">
+    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
       <!-- Search Bar -->
       <div class="mb-4">
         <div class="relative">
-          <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="8"/>
             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35"/>
           </svg>
           <input
             type="text"
-            placeholder="Search transactions..."
+            placeholder="Search by book title, member name, ID..."
             bind:value={searchTerm}
-            class="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200"
+            class="pl-12 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200"
           />
         </div>
       </div>
@@ -172,15 +268,15 @@
       <div class="sm:hidden mb-4">
         <button
           on:click={() => showFilters = !showFilters}
-          class="w-full flex items-center justify-between px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+          class="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors duration-200"
         >
-          <span class="flex items-center">
-            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <span class="flex items-center font-medium text-gray-700">
+            <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z"/>
             </svg>
-            Filters
+            Filters & Actions
           </span>
-          <svg class={`h-4 w-4 transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class={`h-5 w-5 transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
           </svg>
         </button>
@@ -188,10 +284,10 @@
 
       <!-- Filters -->
       <div class={`${showFilters ? 'block' : 'hidden'} sm:block`}>
-        <div class="flex flex-col sm:flex-row gap-3 sm:gap-2">
+        <div class="flex flex-col sm:flex-row gap-3">
           <select
             bind:value={selectedType}
-            class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200 flex-1 sm:flex-none"
+            class="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 flex-1 sm:flex-none"
           >
             {#each transactionTypes as type}
               <option value={type}>
@@ -201,16 +297,16 @@
           </select>
           <select
             bind:value={selectedStatus}
-            class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200 flex-1 sm:flex-none"
+            class="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 flex-1 sm:flex-none"
           >
             {#each transactionStatuses as status}
               <option value={status}>
-                {status === 'all' ? 'All Statuses' : status}
+                {status === 'all' ? 'All Statuses' : status.charAt(0).toUpperCase() + status.slice(1)}
               </option>
             {/each}
           </select>
-          <button class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center transition-colors duration-200">
-            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <button class="px-5 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center transition-all duration-200 font-medium text-gray-700">
+            <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
             </svg>
             Export
@@ -220,28 +316,28 @@
     </div>
 
     <!-- Desktop Table View -->
-    <div class="hidden lg:block bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+    <div class="hidden lg:block bg-white shadow-sm border border-gray-200 rounded-xl overflow-hidden">
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-slate-50">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Transaction ID
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                Transaction
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Book Details
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                Book
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Member Details
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                Member
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Dates
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                Timeline
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
                 Status
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Fine
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                Actions
               </th>
             </tr>
           </thead>
@@ -249,92 +345,135 @@
             {#each filteredTransactions as transaction}
               <tr class="hover:bg-slate-50 transition-colors duration-150">
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <div>
-                    <div class="text-sm font-medium text-gray-900">#{transaction.id.toString().padStart(6, '0')}</div>
-                    <span class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getTypeColor(transaction.type)}`}>
+                  <div class="flex flex-col">
+                    <span class="text-sm font-semibold text-gray-900">#{transaction.id.toString().padStart(6, '0')}</span>
+                    <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border mt-2 w-fit ${getTypeColor(transaction.type)}`}>
                       {transaction.type}
                     </span>
                   </div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                  <div>
-                    <div class="text-sm font-medium text-gray-900">{transaction.bookTitle}</div>
-                    <div class="text-sm text-gray-500">ID: {transaction.bookId}</div>
-                  </div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                  <div>
-                    <div class="text-sm font-medium text-gray-900">{transaction.memberName}</div>
-                    <div class="text-sm text-gray-500">{transaction.memberId}</div>
-                  </div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  <div class="space-y-1">
-                    <div class="flex items-center">
-                      <svg class="h-3 w-3 mr-1.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                        <line x1="16" y1="2" x2="16" y2="6"/>
-                        <line x1="8" y1="2" x2="8" y2="6"/>
-                        <line x1="3" y1="10" x2="21" y2="10"/>
+                <td class="px-6 py-4">
+                  <div class="flex items-start">
+                    <div class="flex-shrink-0 h-10 w-10 flex items-center justify-center bg-slate-100 rounded-lg mr-3">
+                      <svg class="h-6 w-6 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
                       </svg>
-                      <span class="text-xs text-slate-500">Borrowed:</span>
-                      <span class="ml-1 text-xs">{formatDate(transaction.borrowDate)}</span>
                     </div>
-                    <div class="flex items-center">
-                      <svg class="h-3 w-3 mr-1.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                        <line x1="16" y1="2" x2="16" y2="6"/>
-                        <line x1="8" y1="2" x2="8" y2="6"/>
-                        <line x1="3" y1="10" x2="21" y2="10"/>
+                    <div>
+                      <div class="text-sm font-medium text-gray-900">{transaction.bookTitle}</div>
+                      <div class="text-xs text-gray-500">ID: {transaction.bookId || 'N/A'}</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <div class="flex items-center">
+                    <div class="flex-shrink-0 h-10 w-10 flex items-center justify-center bg-slate-100 rounded-full mr-3">
+                      <span class="text-sm font-semibold text-slate-700">
+                        {transaction.memberName?.charAt(0).toUpperCase() || 'U'}
+                      </span>
+                    </div>
+                    <div>
+                      <div class="text-sm font-medium text-gray-900">{transaction.memberName}</div>
+                      <div class="text-xs text-gray-500">{transaction.memberId || 'N/A'}</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="px-6 py-4">
+                  <div class="space-y-2">
+                    <div class="flex items-center text-xs">
+                      <svg class="h-4 w-4 mr-2 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/>
                       </svg>
-                      <span class="text-xs text-slate-500">Due:</span>
-                      <span class="ml-1 text-xs">{formatDate(transaction.dueDate)}</span>
+                      <span class="text-gray-600 font-medium">Start:</span>
+                      <span class="ml-1 text-gray-900">{formatDate(transaction.borrowDate)}</span>
+                    </div>
+                    <div class="flex items-center text-xs">
+                      <svg class="h-4 w-4 mr-2 text-amber-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/>
+                      </svg>
+                      <span class="text-gray-600 font-medium">Due:</span>
+                      <span class="ml-1 text-gray-900">{formatDate(transaction.dueDate)}</span>
+                      {#if transaction.status === 'borrowed'}
+                        {@const daysLeft = calculateDaysRemaining(transaction.dueDate)}
+                        {#if daysLeft !== null}
+                          <span class={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium
+                            ${daysLeft < 0 ? 'bg-red-100 text-red-700' :
+                            daysLeft <= 3 ? 'bg-amber-100 text-amber-700' :
+                            'bg-green-100 text-green-700'}`}>
+                            {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
+                          </span>
+                        {/if}
+                      {/if}
                     </div>
                     {#if transaction.returnDate}
-                      <div class="flex items-center">
-                        <svg class="h-3 w-3 mr-1.5 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                          <line x1="16" y1="2" x2="16" y2="6"/>
-                          <line x1="8" y1="2" x2="8" y2="6"/>
-                          <line x1="3" y1="10" x2="21" y2="10"/>
+                      <div class="flex items-center text-xs">
+                        <svg class="h-4 w-4 mr-2 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                         </svg>
-                        <span class="text-xs text-slate-500">Returned:</span>
-                        <span class="ml-1 text-xs">{formatDate(transaction.returnDate)}</span>
+                        <span class="text-gray-600 font-medium">Returned:</span>
+                        <span class="ml-1 text-emerald-600 font-medium">{formatDate(transaction.returnDate)}</span>
                       </div>
                     {/if}
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(transaction.status)}`}>
-                    <span class="mr-1.5">
-                      {#if getStatusIcon(transaction.status) === 'clock'}
-                        <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                          <circle cx="12" cy="12" r="10"/>
-                          <polyline points="12 6 12 12 16 14"/>
-                        </svg>
-                      {:else if getStatusIcon(transaction.status) === 'check'}
-                        <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                        </svg>
-                      {:else if getStatusIcon(transaction.status) === 'x'}
-                        <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z"/>
-                        </svg>
-                      {:else if getStatusIcon(transaction.status) === 'bookmark'}
-                        <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"/>
-                        </svg>
-                      {/if}
-                    </span>
-                    {transaction.status}
+                  <span class={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${getStatusColor(transaction.status)}`}>
+                    {transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1)}
                   </span>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  {#if transaction.fine > 0}
-                    <span class="text-red-600 font-semibold">₱{transaction.fine}</span>
-                  {:else}
-                    <span class="text-slate-500">₱0</span>
-                  {/if}
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <div class="relative inline-block text-left">
+                    <button
+                      class="p-2 rounded-full bg-gray-100 hover:bg-gray-200 focus:outline-none"
+                      aria-haspopup="true"
+                      aria-expanded="false"
+                      on:click={() => transaction.showActions = !transaction.showActions}
+                    >
+                      <!-- Dots Icon -->
+                      <svg class="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <circle cx="5" cy="12" r="1.5"/>
+                        <circle cx="12" cy="12" r="1.5"/>
+                        <circle cx="19" cy="12" r="1.5"/>
+                      </svg>
+                    </button>
+                    {#if transaction.showActions}
+                      <div class="origin-top-right absolute right-0 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
+                        <div class="py-1">
+                          {#if transaction.type === 'Borrow' && transaction.status === 'borrowed'}
+                            <button
+                              class="w-full flex items-center px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-50"
+                              on:click={() => handleReturn(transaction.id)}
+                            >
+                              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+                              </svg>
+                              Return Book
+                            </button>
+                          {/if}
+                          {#if transaction.type === 'Reserve' && transaction.status === 'active'}
+                            <button
+                              class="w-full flex items-center px-4 py-2 text-blue-700 hover:bg-blue-50"
+                              on:click={() => handleConfirmBorrow(transaction.id)}
+                            >
+                              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/>
+                              </svg>
+                              Confirm Borrow
+                            </button>
+                          {/if}
+                          <button
+                            class="w-full flex items-center px-4 py-2 text-red-700 hover:bg-red-50"
+                            on:click={() => handleDelete(transaction.id)}
+                          >
+                            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
                 </td>
               </tr>
             {/each}
@@ -344,97 +483,127 @@
     </div>
 
     <!-- Mobile Card View -->
-    <div class="lg:hidden space-y-3">
+    <div class="lg:hidden space-y-4">
       {#each filteredTransactions as transaction}
-        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-          <!-- Header Row -->
-          <div class="flex items-start justify-between mb-3">
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+          <!-- Header -->
+          <div class="flex items-start justify-between mb-4">
             <div class="flex-1">
-              <div class="flex items-center gap-2 mb-1">
-                <span class="text-sm font-medium text-gray-900">#{transaction.id.toString().padStart(6, '0')}</span>
-                <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getTypeColor(transaction.type)}`}>
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-sm font-bold text-gray-900">#{transaction.id.toString().padStart(6, '0')}</span>
+                <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getTypeColor(transaction.type)}`}>
                   {transaction.type}
                 </span>
               </div>
-              <h3 class="text-sm font-medium text-gray-900 leading-5">{transaction.bookTitle}</h3>
-              <p class="text-xs text-gray-500">ID: {transaction.bookId}</p>
+              <h3 class="text-base font-semibold text-gray-900 leading-snug mb-1">{transaction.bookTitle}</h3>
+              <p class="text-xs text-gray-500">Book ID: {transaction.bookId || 'N/A'}</p>
             </div>
-            <div class="flex flex-col items-end gap-1">
-              <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(transaction.status)}`}>
-                <span class="mr-1">
-                  {#if getStatusIcon(transaction.status) === 'clock'}
-                    <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <circle cx="12" cy="12" r="10"/>
-                      <polyline points="12 6 12 12 16 14"/>
-                    </svg>
-                  {:else if getStatusIcon(transaction.status) === 'check'}
-                    <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                    </svg>
-                  {:else if getStatusIcon(transaction.status) === 'x'}
-                    <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z"/>
-                    </svg>
-                  {:else if getStatusIcon(transaction.status) === 'bookmark'}
-                    <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"/>
-                    </svg>
-                  {/if}
-                </span>
-                {transaction.status}
-              </span>
-              {#if transaction.fine > 0}
-                <span class="text-sm font-semibold text-red-600">₱{transaction.fine}</span>
-              {/if}
-            </div>
+            <span class={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${getStatusColor(transaction.status)}`}>
+              {transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1)}
+            </span>
           </div>
 
           <!-- Member Info -->
-          <div class="mb-3 pb-3 border-b border-gray-100">
-            <p class="text-sm font-medium text-gray-900">{transaction.memberName}</p>
-            <p class="text-xs text-gray-500">{transaction.memberId}</p>
+          <div class="flex items-center mb-4 pb-4 border-b border-gray-100">
+            <div class="flex-shrink-0 h-10 w-10 flex items-center justify-center bg-slate-100 rounded-full mr-3">
+              <span class="text-sm font-semibold text-slate-700">
+                {transaction.memberName?.charAt(0).toUpperCase() || 'U'}
+              </span>
+            </div>
+            <div>
+              <p class="text-sm font-medium text-gray-900">{transaction.memberName}</p>
+              <p class="text-xs text-gray-500">{transaction.memberId || 'N/A'}</p>
+            </div>
           </div>
 
-          <!-- Dates -->
-          <div class="grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <p class="text-gray-500 mb-1">Borrowed</p>
-              <p class="font-medium text-gray-900">{formatDate(transaction.borrowDate)}</p>
+          <!-- Timeline -->
+          <div class="space-y-2 mb-4">
+            <div class="flex items-center text-xs">
+              <svg class="h-4 w-4 mr-2 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/>
+              </svg>
+              <span class="text-gray-600 font-medium">Start:</span>
+              <span class="ml-1 text-gray-900">{formatDate(transaction.borrowDate)}</span>
             </div>
-            <div>
-              <p class="text-gray-500 mb-1">Due Date</p>
-              <p class="font-medium text-gray-900">{formatDate(transaction.dueDate)}</p>
+            <div class="flex items-center text-xs">
+              <svg class="h-4 w-4 mr-2 text-amber-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/>
+              </svg>
+              <span class="text-gray-600 font-medium">Due:</span>
+              <span class="ml-1 text-gray-900">{formatDate(transaction.dueDate)}</span>
             </div>
+            {#if transaction.status === 'borrowed'}
+              {@const daysLeft = calculateDaysRemaining(transaction.dueDate)}
+              {#if daysLeft !== null}
+                <div class="flex items-center">
+                  <span class={`px-2.5 py-1 rounded-full text-xs font-medium
+                    ${daysLeft < 0 ? 'bg-red-100 text-red-700' :
+                    daysLeft <= 3 ? 'bg-amber-100 text-amber-700' :
+                    'bg-green-100 text-green-700'}`}>
+                    {daysLeft < 0 ? `${Math.abs(daysLeft)} days overdue` : `${daysLeft} days remaining`}
+                  </span>
+                </div>
+              {/if}
+            {/if}
             {#if transaction.returnDate}
-              <div class="col-span-2">
-                <p class="text-gray-500 mb-1">Returned</p>
-                <p class="font-medium text-emerald-600">{formatDate(transaction.returnDate)}</p>
+              <div class="flex items-center text-xs">
+                <svg class="h-4 w-4 mr-2 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span class="text-gray-600 font-medium">Returned:</span>
+                <span class="ml-1 text-emerald-600 font-medium">{formatDate(transaction.returnDate)}</span>
               </div>
             {/if}
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex flex-col gap-2">
+            {#if transaction.type === 'Borrow' && transaction.status === 'borrowed'}
+              <button
+                class="w-full px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors duration-200 text-sm font-medium shadow-sm"
+                on:click={() => handleReturn(transaction.id)}
+              >
+                Return Book
+              </button>
+            {/if}
+            {#if transaction.type === 'Reserve' && transaction.status === 'active'}
+              <button
+                class="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm font-medium shadow-sm"
+                on:click={() => handleConfirmBorrow(transaction.id)}
+              >
+                Confirm Borrow
+              </button>
+            {/if}
+            <button
+              class="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 text-sm font-medium shadow-sm"
+              on:click={() => handleDelete(transaction.id)}
+            >
+              Delete Transaction
+            </button>
           </div>
         </div>
       {/each}
     </div>
 
     <!-- Pagination -->
-    <div class="bg-white px-4 sm:px-6 py-3 border border-gray-200 rounded-lg flex flex-col sm:flex-row items-center justify-between gap-3">
+    <div class="bg-white px-6 py-4 border border-gray-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
       <div class="text-sm text-gray-700 order-2 sm:order-1">
-        Showing <span class="font-medium">1</span> to <span class="font-medium">{filteredTransactions.length}</span> of
-        <span class="font-medium">{filteredTransactions.length}</span> results
+        Showing <span class="font-semibold">1</span> to <span class="font-semibold">{filteredTransactions.length}</span> of
+        <span class="font-semibold">{filteredTransactions.length}</span> results
       </div>
       <nav class="relative z-0 inline-flex rounded-lg shadow-sm -space-x-px order-1 sm:order-2">
-        <button class="relative inline-flex items-center px-3 sm:px-4 py-2 border border-gray-300 text-sm font-medium rounded-l-lg text-gray-500 bg-white hover:bg-slate-50 transition-colors duration-200">
-          <svg class="h-4 w-4 sm:mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <button class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-l-lg text-gray-500 bg-white hover:bg-slate-50 transition-colors duration-200">
+          <svg class="h-5 w-5 sm:mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
           </svg>
           <span class="hidden sm:inline">Previous</span>
         </button>
-        <button class="relative inline-flex items-center px-3 sm:px-4 py-2 border border-gray-300 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800">
+        <button class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800">
           1
         </button>
-        <button class="relative inline-flex items-center px-3 sm:px-4 py-2 border border-gray-300 text-sm font-medium rounded-r-lg text-gray-500 bg-white hover:bg-slate-50 transition-colors duration-200">
+        <button class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-r-lg text-gray-500 bg-white hover:bg-slate-50 transition-colors duration-200">
           <span class="hidden sm:inline">Next</span>
-          <svg class="h-4 w-4 sm:ml-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class="h-5 w-5 sm:ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
           </svg>
         </button>

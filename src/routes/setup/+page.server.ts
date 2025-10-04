@@ -24,7 +24,7 @@ const setupSchema = z.object({
     password: z.string()
         .min(8, 'Password must be at least 8 characters')
         .max(255, 'Password is too long')
-        .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, 
+        .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/, 
                'Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'),
     confirmPassword: z.string()
 });
@@ -47,7 +47,7 @@ export const load: PageServerLoad = async () => {
     
     if (setupCompleted) {
         // Force redirect to login if setup is already done
-        throw redirect(302, '/');
+        throw redirect(302, '/login');
     }
 
     // Setup is needed, allow access to setup page
@@ -58,61 +58,63 @@ export const load: PageServerLoad = async () => {
 
 export const actions: Actions = {
     default: async ({ request }) => {
+        // Double-check setup status before processing form
+        const setupCompleted = await isSetupCompleted();
+        
+        if (setupCompleted) {
+            return fail(403, { 
+                errorMsg: 'System setup has already been completed. Please use the login page.' 
+            });
+        }
+
+        const formData = await request.formData();
+        
+        // Extract form data
+        const formFields = {
+            name: formData.get('name') as string,
+            email: formData.get('email') as string,
+            username: formData.get('username') as string,
+            password: formData.get('password') as string,
+            confirmPassword: formData.get('confirmPassword') as string
+        };
+
+        // Basic null checks
+        if (!formFields.name || !formFields.email || !formFields.username || 
+            !formFields.password || !formFields.confirmPassword) {
+            return fail(400, { 
+                errorMsg: 'All fields are required.',
+                name: formFields.name,
+                email: formFields.email,
+                username: formFields.username
+            });
+        }
+
+        // Password confirmation check
+        if (formFields.password !== formFields.confirmPassword) {
+            return fail(400, { 
+                errorMsg: 'Passwords do not match.',
+                name: formFields.name,
+                email: formFields.email,
+                username: formFields.username
+            });
+        }
+
+        // Validate with Zod schema
+        const validationResult = setupSchema.safeParse(formFields);
+        
+        if (!validationResult.success) {
+            const firstError = validationResult.error.issues[0];
+            return fail(400, { 
+                errorMsg: firstError.message,
+                name: formFields.name,
+                email: formFields.email,
+                username: formFields.username
+            });
+        }
+
+        const { name, email, username, password } = validationResult.data;
+
         try {
-            // Double-check setup status before processing form
-            const setupCompleted = await isSetupCompleted();
-            
-            if (setupCompleted) {
-                return fail(403, { 
-                    errorMsg: 'System setup has already been completed. Please use the login page.' 
-                });
-            }
-
-            const formData = await request.formData();
-            
-            // Extract form data
-            const formFields = {
-                name: formData.get('name') as string,
-                email: formData.get('email') as string,
-                username: formData.get('username') as string,
-                password: formData.get('password') as string,
-                confirmPassword: formData.get('confirmPassword') as string
-            };
-
-            // Basic null checks
-            if (!formFields.name || !formFields.email || !formFields.username || 
-                !formFields.password || !formFields.confirmPassword) {
-                return fail(400, { 
-                    errorMsg: 'All fields are required.',
-                    ...formFields // Preserve form data
-                });
-            }
-
-            // Password confirmation check
-            if (formFields.password !== formFields.confirmPassword) {
-                return fail(400, { 
-                    errorMsg: 'Passwords do not match.',
-                    ...formFields,
-                    password: '', // Clear passwords on error
-                    confirmPassword: ''
-                });
-            }
-
-            // Validate with Zod schema
-            const validationResult = setupSchema.safeParse(formFields);
-            
-            if (!validationResult.success) {
-                const firstError = validationResult.error.issues[0];
-                return fail(400, { 
-                    errorMsg: firstError.message,
-                    ...formFields,
-                    password: '', // Clear passwords on validation error
-                    confirmPassword: ''
-                });
-            }
-
-            const { name, email, username, password } = validationResult.data;
-
             // Final check before creating account (race condition protection)
             const finalCheck = await isSetupCompleted();
             if (finalCheck) {
@@ -131,9 +133,9 @@ export const actions: Actions = {
             if (existingEmail.length > 0) {
                 return fail(409, { 
                     errorMsg: 'Email address is already registered.',
-                    ...formFields,
-                    password: '',
-                    confirmPassword: ''
+                    name: formFields.name,
+                    email: formFields.email,
+                    username: formFields.username
                 });
             }
 
@@ -147,9 +149,9 @@ export const actions: Actions = {
             if (existingUsername.length > 0) {
                 return fail(409, { 
                     errorMsg: 'Username is already taken.',
-                    ...formFields,
-                    password: '',
-                    confirmPassword: ''
+                    name: formFields.name,
+                    email: formFields.email,
+                    username: formFields.username
                 });
             }
 
@@ -183,8 +185,8 @@ export const actions: Actions = {
             throw redirect(303, '/login?setup=success');
 
         } catch (error) {
-            // If it's a redirect, re-throw it
-            if (error instanceof Response) {
+            // IMPORTANT: Re-throw redirect errors - they are not actual errors!
+            if (error instanceof Response && error.status >= 300 && error.status < 400) {
                 throw error;
             }
 
