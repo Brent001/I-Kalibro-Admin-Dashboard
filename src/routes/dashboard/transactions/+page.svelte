@@ -1,11 +1,19 @@
 <script lang="ts">
   import Layout from "$lib/components/ui/layout.svelte";
+  import ConfirmBorrowModal from "$lib/components/ui/ConfirmBorrowModal.svelte";
+  import ReturnBookModal from "$lib/components/ui/ReturnBookModal.svelte";
   export let data;
 
   let searchTerm = "";
   let selectedStatus = "all";
   let selectedType = "all";
   let showFilters = false;
+
+  // Modal states
+  let showConfirmBorrowModal = false;
+  let showReturnModal = false;
+  let selectedTransaction: Transaction | null = null;
+  let customDueDate = "";
 
   // Use transactions from server data
   const transactions = data.transactions ?? [];
@@ -97,6 +105,15 @@
     });
   }
 
+  function formatDateForInput(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+
   function calculateDaysRemaining(dueDate: string) {
     if (!dueDate) return null;
     const today = new Date();
@@ -123,14 +140,25 @@
     }
   }
 
-  async function handleReturn(transactionId: number) {
-    if (!confirm("Mark this book as returned?")) return;
+  function openReturnModal(transaction: Transaction) {
+    selectedTransaction = transaction;
+    showReturnModal = true;
+  }
+
+  function closeReturnModal() {
+    showReturnModal = false;
+    selectedTransaction = null;
+  }
+
+  async function confirmReturn() {
+    if (!selectedTransaction) return;
     try {
-      const res = await fetch(`/api/transactions/${transactionId}/return`, { 
-        method: "POST" 
+      const res = await fetch(`/api/transactions/${selectedTransaction.id}/return`, { 
+        method: "POST"
       });
       if (res.ok) {
         alert("Book returned successfully!");
+        closeReturnModal();
         location.reload();
       } else {
         alert("Failed to return book.");
@@ -140,14 +168,34 @@
     }
   }
 
-  async function handleConfirmBorrow(reservationId: number) {
-    if (!confirm("Confirm this reservation and convert to borrow?")) return;
+  function openConfirmBorrowModal(transaction: Transaction) {
+    selectedTransaction = transaction;
+    // Set default due date to 24 hours from now
+    const defaultDue = new Date();
+    defaultDue.setHours(defaultDue.getHours() + 24);
+    customDueDate = formatDateForInput(defaultDue);
+    showConfirmBorrowModal = true;
+  }
+
+  function closeConfirmBorrowModal() {
+    showConfirmBorrowModal = false;
+    selectedTransaction = null;
+    customDueDate = "";
+  }
+
+  async function confirmBorrow() {
+    if (!selectedTransaction) return;
     try {
-      const res = await fetch(`/api/transactions/${reservationId}/confirm-borrow`, { 
-        method: "POST" 
+      const res = await fetch(`/api/transactions/${selectedTransaction.id}/confirm-borrow`, { 
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          dueDate: customDueDate
+        })
       });
       if (res.ok) {
         alert("Reservation confirmed as borrow!");
+        closeConfirmBorrowModal();
         location.reload();
       } else {
         const data = await res.json();
@@ -175,12 +223,6 @@
         <h2 class="text-2xl sm:text-3xl font-bold text-gray-900">Transaction Management</h2>
         <p class="text-sm sm:text-base text-gray-600 mt-1">Monitor and manage all library transactions</p>
       </div>
-      <button class="inline-flex items-center justify-center px-5 py-2.5 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-all duration-200 shadow-sm hover:shadow-md w-full sm:w-auto">
-        <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-        </svg>
-        New Transaction
-      </button>
     </div>
 
     <!-- Stats Cards -->
@@ -422,57 +464,29 @@
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <div class="relative inline-block text-left">
-                    <button
-                      class="p-2 rounded-full bg-gray-100 hover:bg-gray-200 focus:outline-none"
-                      aria-haspopup="true"
-                      aria-expanded="false"
-                      on:click={() => transaction.showActions = !transaction.showActions}
-                    >
-                      <!-- Dots Icon -->
-                      <svg class="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <circle cx="5" cy="12" r="1.5"/>
-                        <circle cx="12" cy="12" r="1.5"/>
-                        <circle cx="19" cy="12" r="1.5"/>
-                      </svg>
-                    </button>
-                    {#if transaction.showActions}
-                      <div class="origin-top-right absolute right-0 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
-                        <div class="py-1">
-                          {#if transaction.type === 'Borrow' && transaction.status === 'borrowed'}
-                            <button
-                              class="w-full flex items-center px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-50"
-                              on:click={() => handleReturn(transaction.id)}
-                            >
-                              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
-                              </svg>
-                              Return Book
-                            </button>
-                          {/if}
-                          {#if transaction.type === 'Reserve' && transaction.status === 'active'}
-                            <button
-                              class="w-full flex items-center px-4 py-2 text-blue-700 hover:bg-blue-50"
-                              on:click={() => handleConfirmBorrow(transaction.id)}
-                            >
-                              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/>
-                              </svg>
-                              Confirm Borrow
-                            </button>
-                          {/if}
-                          <button
-                            class="w-full flex items-center px-4 py-2 text-red-700 hover:bg-red-50"
-                            on:click={() => handleDelete(transaction.id)}
-                          >
-                            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                            Delete
-                          </button>
-                        </div>
-                      </div>
+                  <div class="flex gap-2">
+                    {#if transaction.type === 'Borrow' && transaction.status === 'borrowed'}
+                      <button
+                        class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-xs font-medium"
+                        on:click={() => openReturnModal(transaction)}
+                      >
+                        Return
+                      </button>
                     {/if}
+                    {#if transaction.type === 'Reserve' && transaction.status === 'active'}
+                      <button
+                        class="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium"
+                        on:click={() => openConfirmBorrowModal(transaction)}
+                      >
+                        Confirm
+                      </button>
+                    {/if}
+                    <button
+                      class="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 text-xs font-medium"
+                      on:click={() => handleDelete(transaction.id)}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -561,7 +575,7 @@
             {#if transaction.type === 'Borrow' && transaction.status === 'borrowed'}
               <button
                 class="w-full px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors duration-200 text-sm font-medium shadow-sm"
-                on:click={() => handleReturn(transaction.id)}
+                on:click={() => openReturnModal(transaction)}
               >
                 Return Book
               </button>
@@ -569,7 +583,7 @@
             {#if transaction.type === 'Reserve' && transaction.status === 'active'}
               <button
                 class="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm font-medium shadow-sm"
-                on:click={() => handleConfirmBorrow(transaction.id)}
+                on:click={() => openConfirmBorrowModal(transaction)}
               >
                 Confirm Borrow
               </button>
@@ -610,4 +624,21 @@
       </nav>
     </div>
   </div>
+
+  <!-- Confirm Borrow Modal as component -->
+  <ConfirmBorrowModal
+    open={showConfirmBorrowModal}
+    transaction={selectedTransaction}
+    bind:customDueDate
+    on:close={closeConfirmBorrowModal}
+    on:confirm={() => confirmBorrow()}
+  />
+
+  <!-- Return Book Modal as component -->
+  <ReturnBookModal
+    open={showReturnModal}
+    transaction={selectedTransaction}
+    on:close={closeReturnModal}
+    on:confirm={() => confirmReturn()}
+  />
 </Layout>
