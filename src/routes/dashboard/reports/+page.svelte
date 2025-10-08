@@ -362,66 +362,163 @@
         <!-- Skeleton Loading -->
         <div class="space-y-6">
           <!-- Skeleton Metrics -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-            {#each Array(6) as _}
-              <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 animate-pulse">
-                <div class="flex items-start justify-between">
-                  <div class="flex-1">
-                    <div class="h-3 bg-gray-200 rounded w-20 mb-3"></div>
-                    <div class="h-8 bg-gray-200 rounded w-16"></div>
-                  </div>
-                  <div class="w-12 h-12 bg-gray-200 rounded-xl"></div>
+          <div class="overflow-x-auto pb-2">
+            <div class="flex gap-2 min-w-[400px] sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {#each METRIC_CONFIGS as config}
+                <div class="min-w-[120px] bg-white rounded-xl shadow-sm border border-gray-200 p-2 flex flex-col items-center justify-center animate-pulse">
+                  <!-- Icon Skeleton -->
+                  <div class="p-1.5 bg-gray-200 rounded-full mb-1 w-9 h-9 sm:w-11 sm:h-11"></div>
+                  <!-- Value Skeleton -->
+                  <div class="h-5 sm:h-6 bg-gray-200 rounded w-16 mb-1"></div>
+                  <!-- Label Skeleton (mobile) -->
+                  <div class="block sm:hidden h-3 bg-gray-200 rounded w-20 mt-0.5"></div>
                 </div>
-              </div>
-            {/each}
+              {/each}
+            </div>
           </div>
 
           <!-- Skeleton Main Chart -->
-          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
-            <div class="mb-6">
-              <div class="h-6 bg-gray-200 rounded w-48 mb-2"></div>
-              <div class="h-4 bg-gray-200 rounded w-64"></div>
+          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:p-8 animate-pulse">
+            <div class="flex items-start justify-between mb-6">
+              <div class="flex-1">
+                <div class="h-6 bg-gray-200 rounded w-48 mb-2"></div>
+                <div class="h-4 bg-gray-200 rounded w-64"></div>
+              </div>
+              <div class="h-6 bg-gray-200 rounded-full w-20"></div>
             </div>
             <div class="h-80 bg-gray-100 rounded-lg"></div>
           </div>
 
-          <!-- Skeleton Grid -->
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
-              <div class="h-5 bg-gray-200 rounded w-40 mb-4"></div>
-              <div class="h-64 bg-gray-100 rounded-lg"></div>
-            </div>
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
-              <div class="h-5 bg-gray-200 rounded w-40 mb-4"></div>
-              <div class="h-64 bg-gray-100 rounded-lg"></div>
-            </div>
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
-              <div class="h-5 bg-gray-200 rounded w-40 mb-4"></div>
-              <div class="h-64 bg-gray-100 rounded-lg"></div>
+          <!-- Skeleton Three Column Charts -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            {#each ['Transaction Types', 'Book Categories', 'Penalty Collections'] as title}
+              <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
+                <div class="h-5 bg-gray-200 rounded w-40 mb-4"></div>
+                <div class="h-64 bg-gray-100 rounded-lg"></div>
+              </div>
+            {/each}
+          </div>
+
+          <!-- Skeleton Member Activity -->
+          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:p-8 animate-pulse">
+            <div class="h-6 bg-gray-200 rounded w-56 mb-6"></div>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {#each Array(4) as _}
+                <div class="bg-gradient-to-br from-gray-50 via-white to-gray-50 p-6 rounded-xl border border-gray-200">
+                  <div class="h-4 bg-gray-200 rounded w-20 mb-4"></div>
+                  <div class="flex items-end justify-between">
+                    <div class="space-y-2">
+                      <div class="h-8 bg-gray-200 rounded w-12"></div>
+                      <div class="h-3 bg-gray-200 rounded w-24"></div>
+                    </div>
+                    <div class="text-right space-y-2">
+                      <div class="h-6 bg-gray-200 rounded w-10"></div>
+                      <div class="h-3 bg-gray-200 rounded w-20"></div>
+                    </div>
+                  </div>
+                </div>
+              {/each}
             </div>
           </div>
 
-          <!-- Skeleton Tables -->
-          <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            {#each Array(2) as _}
-              <div class="bg-white rounded-xl shadow-sm border border-gray-200 animate-pulse">
-                <div class="p-6 border-b border-gray-200">
-                  <div class="h-5 bg-gray-200 rounded w-40"></div>
-                </div>
-                <div class="p-6 space-y-4">
-                  {#each Array(5) as _}
-                    <div class="flex items-center gap-4">
-                      <div class="w-10 h-10 bg-gray-200 rounded-full flex-shrink-0"></div>
-                      <div class="flex-1 space-y-2">
-                        <div class="h-4 bg-gray-200 rounded w-3/4"></div>
-                        <div class="h-3 bg-gray-200 rounded w-1/2"></div>
-                      </div>
-                      <div class="h-6 bg-gray-200 rounded w-20"></div>
-                    </div>
-                  {/each}
+          <!-- Skeleton Data Tables -->
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+            <!-- Top Books Skeleton -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-pulse">
+              <div class="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+                <div class="h-5 bg-gray-200 rounded w-48 mb-2"></div>
+                <div class="h-4 bg-gray-200 rounded w-40"></div>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                  <thead class="bg-gray-50">
+                    <tr>
+                      <th class="px-6 py-3 text-left">
+                        <div class="h-3 bg-gray-200 rounded w-12"></div>
+                      </th>
+                      <th class="px-6 py-3 text-left">
+                        <div class="h-3 bg-gray-200 rounded w-24"></div>
+                      </th>
+                      <th class="px-6 py-3 text-center">
+                        <div class="h-3 bg-gray-200 rounded w-16 mx-auto"></div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="bg-white divide-y divide-gray-200">
+                    {#each Array(5) as _, index}
+                      <tr>
+                        <td class="px-6 py-4">
+                          <div class="w-10 h-10 bg-gray-200 rounded-full mx-auto"></div>
+                        </td>
+                        <td class="px-6 py-4">
+                          <div class="flex items-center gap-3">
+                            <div class="flex-shrink-0 w-10 h-14 bg-gray-200 rounded"></div>
+                            <div class="flex-1 space-y-2">
+                              <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                              <div class="h-3 bg-gray-200 rounded w-1/2"></div>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                          <div class="h-6 bg-gray-200 rounded-full w-12 mx-auto"></div>
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Overdue Books Skeleton -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-pulse">
+              <div class="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-red-50 to-white">
+                <div class="flex items-center justify-between">
+                  <div class="flex-1">
+                    <div class="h-5 bg-gray-200 rounded w-32 mb-2"></div>
+                    <div class="h-4 bg-gray-200 rounded w-40"></div>
+                  </div>
+                  <div class="h-6 bg-gray-200 rounded-full w-16"></div>
                 </div>
               </div>
-            {/each}
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                  <thead class="bg-gray-50">
+                    <tr>
+                      <th class="px-6 py-3 text-left">
+                        <div class="h-3 bg-gray-200 rounded w-32"></div>
+                      </th>
+                      <th class="px-6 py-3 text-center">
+                        <div class="h-3 bg-gray-200 rounded w-16 mx-auto"></div>
+                      </th>
+                      <th class="px-6 py-3 text-right">
+                        <div class="h-3 bg-gray-200 rounded w-12 ml-auto"></div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="bg-white divide-y divide-gray-200">
+                    {#each Array(5) as _}
+                      <tr>
+                        <td class="px-6 py-4">
+                          <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-gray-200 rounded-full flex-shrink-0"></div>
+                            <div class="flex-1 space-y-2">
+                              <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                              <div class="h-3 bg-gray-200 rounded w-1/2"></div>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                          <div class="h-6 bg-gray-200 rounded-full w-12 mx-auto"></div>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                          <div class="h-4 bg-gray-200 rounded w-16 ml-auto"></div>
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       {:else}
@@ -544,7 +641,7 @@
                           <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold text-sm shadow-sm
                             {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-500 text-white' : 
                              index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-400 text-white' :
-                             index === 2 ?                              'bg-gradient-to-br from-orange-400 to-orange-500 text-white' :
+                             index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-500 text-white' :
                              'bg-gray-100 text-gray-600'}">
                             {index + 1}
                           </div>

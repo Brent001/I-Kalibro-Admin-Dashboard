@@ -47,7 +47,7 @@ export const load: PageServerLoad = async () => {
     
     if (setupCompleted) {
         // Force redirect to login if setup is already done
-        throw redirect(302, '/login');
+        throw redirect(302, '/');
     }
 
     // Setup is needed, allow access to setup page
