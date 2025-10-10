@@ -150,15 +150,15 @@
 </script>
 
 <Layout>
-  <div class={`space-y-4 lg:space-y-6 transition-all duration-300 ${isAddStaffOpen ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
+  <div class={`space-y-6 transition-all duration-300 ${isAddStaffOpen ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
     <!-- Header -->
-    <div class="flex flex-col space-y-3 lg:flex-row lg:items-center lg:justify-between lg:space-y-0">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <h2 class="text-xl lg:text-2xl font-bold text-gray-900">Staff Management</h2>
-        <p class="text-sm lg:text-base text-gray-600">Manage library staff accounts and permissions</p>
+        <h2 class="text-2xl font-bold text-slate-900">Staff Management</h2>
+        <p class="text-slate-600">Manage library staff accounts and permissions</p>
       </div>
       <button
-        class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+        class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
         on:click={() => isAddStaffOpen = true} 
       >
         <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -169,8 +169,8 @@
     </div>
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-      <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
           <div class="p-2 bg-slate-100 rounded-lg">
             <svg class="h-4 w-4 lg:h-6 lg:w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -183,7 +183,7 @@
           </div>
         </div>
       </div>
-      <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
+      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
           <div class="p-2 bg-green-50 rounded-lg">
             <svg class="h-4 w-4 lg:h-6 lg:w-6 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -196,7 +196,7 @@
           </div>
         </div>
       </div>
-      <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
+      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
           <div class="p-2 bg-purple-50 rounded-lg">
             <svg class="h-4 w-4 lg:h-6 lg:w-6 text-purple-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -209,7 +209,7 @@
           </div>
         </div>
       </div>
-      <div class="bg-white p-3 lg:p-4 rounded-lg shadow-sm border">
+      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
           <div class="p-2 bg-slate-50 rounded-lg">
             <svg class="h-4 w-4 lg:h-6 lg:w-6 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -225,11 +225,11 @@
     </div>
 
     <!-- Filters and Search -->
-    <div class="bg-white p-4 lg:p-6 rounded-lg shadow-sm border">
-      <div class="flex flex-col space-y-3 lg:flex-row lg:space-y-0 lg:gap-4">
+    <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
+      <div class="flex flex-col lg:flex-row gap-4">
         <div class="flex-1">
           <div class="relative">
-            <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="8"/>
               <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35"/>
             </svg>
@@ -237,41 +237,37 @@
               type="text"
               placeholder="Search by name, email, or username..."
               bind:value={searchTerm}
-              class="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-md focus:ring-2 focus:ring-slate-500 focus:border-slate-500 text-sm lg:text-base"
+              class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200"
             />
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-3 lg:flex lg:gap-4">
-          <div>
-            <select
-              bind:value={selectedRole}
-              class="px-4 py-2 w-full border border-gray-300 rounded-md focus:ring-2 focus:ring-slate-500 focus:border-slate-500 text-sm lg:text-base"
-            >
-              {#each roleTypes as role}
-                <option value={role}>
-                  {role === 'all' ? 'All Roles' : role.charAt(0).toUpperCase() + role.slice(1)}
-                </option>
-              {/each}
-            </select>
-          </div>
-          <div>
-            <select
-              bind:value={selectedStatus}
-              class="px-4 py-2 w-full border border-gray-300 rounded-md focus:ring-2 focus:ring-slate-500 focus:border-slate-500 text-sm lg:text-base"
-            >
-              {#each statusTypes as status}
-                <option value={status}>
-                  {status === 'all' ? 'All Status' : status.charAt(0).toUpperCase() + status.slice(1)}
-                </option>
-              {/each}
-            </select>
-          </div>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <select
+            bind:value={selectedRole}
+            class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200"
+          >
+            {#each roleTypes as role}
+              <option value={role}>
+                {role === 'all' ? 'All Roles' : role.charAt(0).toUpperCase() + role.slice(1)}
+              </option>
+            {/each}
+          </select>
+          <select
+            bind:value={selectedStatus}
+            class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200"
+          >
+            {#each statusTypes as status}
+              <option value={status}>
+                {status === 'all' ? 'All Status' : status.charAt(0).toUpperCase() + status.slice(1)}
+              </option>
+            {/each}
+          </select>
         </div>
       </div>
     </div>
 
     <!-- Desktop Table View -->
-    <div class="hidden lg:block bg-white shadow-sm border rounded-lg overflow-hidden">
+    <div class="hidden lg:block bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden">
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-slate-50">
@@ -363,7 +359,7 @@
     </div>
 
     <!-- Mobile Card View -->
-    <div class="lg:hidden space-y-3">
+    <div class="lg:hidden grid grid-cols-1 gap-4">
       {#each filteredStaff as member}
         <div class="bg-white rounded-lg shadow-sm border p-4">
           <div class="flex items-start justify-between mb-3">
@@ -433,29 +429,27 @@
     </div>
 
     <!-- Pagination -->
-    <div class="bg-white px-4 lg:px-6 py-3 border rounded-lg flex flex-col space-y-3 lg:space-y-0 lg:flex-row lg:items-center lg:justify-between">
-      <div class="text-sm text-gray-700 text-center lg:text-left">
-        Showing <span class="font-medium">1</span> to <span class="font-medium">{filteredStaff.length}</span> of
-        <span class="font-medium">{filteredStaff.length}</span> results
+    <div class="bg-white px-4 lg:px-6 py-4 border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="text-sm text-slate-700 order-2 sm:order-1">
+        Showing <span class="font-semibold">1</span> to <span class="font-semibold">{filteredStaff.length}</span> of
+        <span class="font-semibold">{filteredStaff.length}</span> results
       </div>
-      <nav class="flex justify-center lg:justify-end">
-        <div class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-          <button class="relative inline-flex items-center px-3 lg:px-4 py-2 border border-gray-300 text-sm font-medium rounded-l-md text-gray-500 bg-white hover:bg-slate-50 transition-colors duration-200">
-            <svg class="h-4 w-4 lg:mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-            </svg>
-            <span class="hidden lg:inline">Previous</span>
-          </button>
-          <button class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 transition-colors duration-200">
-            1
-          </button>
-          <button class="relative inline-flex items-center px-3 lg:px-4 py-2 border border-gray-300 text-sm font-medium rounded-r-md text-gray-500 bg-white hover:bg-slate-50 transition-colors duration-200">
-            <span class="hidden lg:inline">Next</span>
-            <svg class="h-4 w-4 lg:ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-            </svg>
-          </button>
-        </div>
+      <nav class="relative z-0 inline-flex rounded-lg shadow-sm -space-x-px order-1 sm:order-2">
+        <button class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-l-lg text-slate-500 bg-white hover:bg-slate-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+          <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+          </svg>
+          <span class="hidden sm:inline">Previous</span>
+        </button>
+        <button class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium text-slate-700 bg-slate-50" disabled>
+          1
+        </button>
+        <button class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-r-lg text-slate-500 bg-white hover:bg-slate-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+          <span class="hidden sm:inline">Next</span>
+          <svg class="h-4 w-4 ml-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+          </svg>
+        </button>
       </nav>
     </div>
   </div>
