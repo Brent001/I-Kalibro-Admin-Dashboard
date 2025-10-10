@@ -9,7 +9,7 @@ import {
   category,
   bookReservation 
 } from '$lib/server/db/schema/schema.js';
-import { and, eq, gte, lte, desc, sql, count, lt } from 'drizzle-orm';
+import { and, eq, gte, lte, desc, sql, count, lt, or } from 'drizzle-orm';
 
 // Utility: get date range for period
 function getDateRange(period: string) {
@@ -70,34 +70,41 @@ export const GET: RequestHandler = async ({ url }) => {
       .where(eq(bookBorrowing.status, 'borrowed'))
       .then(result => result[0]?.count || 0);
 
-    const overdueBooks = await db
-      .select({ count: count() })
-      .from(bookBorrowing)
-      .where(eq(bookBorrowing.status, 'overdue'))
-      .then(result => result[0]?.count || 0);
-
-    // Calculate total penalties from overdue books
-    const overdueRecords = await db
+    // Overdue Books (count and list) - match transactions page logic
+    const overdueBorrowingsRaw = await db
       .select({
+        id: bookBorrowing.id,
+        bookTitle: book.title,
+        borrowerName: user.name,
         dueDate: bookBorrowing.dueDate,
+        status: bookBorrowing.status,
         createdAt: bookBorrowing.createdAt
       })
       .from(bookBorrowing)
+      .leftJoin(book, eq(bookBorrowing.bookId, book.id))
+      .leftJoin(user, eq(bookBorrowing.userId, user.id))
       .where(and(
-        eq(bookBorrowing.status, 'overdue'),
-        gte(bookBorrowing.createdAt, start),
-        lte(bookBorrowing.createdAt, end)
-      ));
+        lt(bookBorrowing.dueDate, new Date().toISOString()), // <-- FIXED
+        or(eq(bookBorrowing.status, 'borrowed'), eq(bookBorrowing.status, 'overdue'))
+      ))
+      .orderBy(desc(bookBorrowing.createdAt));
 
-    const totalPenalties = overdueRecords.reduce((total, record) => {
-      if (record.dueDate) {
-        const dueDate = new Date(record.dueDate);
-        const now = new Date();
-        const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-        return total + calculatePenalty(Math.max(daysOverdue, 0));
-      }
-      return total;
-    }, 0);
+    const overdueBooks = overdueBorrowingsRaw.length;
+
+    const overdueList = overdueBorrowingsRaw.slice(0, 10).map(item => {
+      const dueDate = item.dueDate ? new Date(item.dueDate) : new Date();
+      const now = new Date();
+      const daysOverdue = Math.max(Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)), 0);
+      const fine = calculatePenalty(daysOverdue);
+      return {
+        bookTitle: item.bookTitle || 'Unknown Book',
+        borrowerName: item.borrowerName || 'Unknown Borrower',
+        daysOverdue,
+        fine
+      };
+    });
+
+    const totalPenalties = overdueList.reduce((sum, item) => sum + item.fine, 0);
 
     const availableBooks = await db
       .select({ count: count() })
@@ -247,34 +254,24 @@ export const GET: RequestHandler = async ({ url }) => {
       borrowCount: item.borrowCount
     }));
 
-    // Overdue Books List
-    const overdueListRaw = await db
+    // Overdue Count Trend (group by day)
+    const overdueCountTrendRaw = await db
       .select({
-        bookTitle: book.title,
-        borrowerName: user.name,
-        dueDate: bookBorrowing.dueDate,
-        createdAt: bookBorrowing.createdAt
+        date: sql<string>`DATE(${bookBorrowing.dueDate})`,
+        count: count()
       })
       .from(bookBorrowing)
-      .leftJoin(book, eq(bookBorrowing.bookId, book.id))
-      .leftJoin(user, eq(bookBorrowing.userId, user.id))
-      .where(eq(bookBorrowing.status, 'overdue'))
-      .orderBy(desc(bookBorrowing.createdAt))
-      .limit(10);
+      .where(and(
+        lt(bookBorrowing.dueDate, new Date().toISOString()),
+        or(eq(bookBorrowing.status, 'borrowed'), eq(bookBorrowing.status, 'overdue'))
+      ))
+      .groupBy(sql`DATE(${bookBorrowing.dueDate})`)
+      .orderBy(sql`DATE(${bookBorrowing.dueDate})`);
 
-    const overdueList = overdueListRaw.map(item => {
-      const dueDate = item.dueDate ? new Date(item.dueDate) : new Date();
-      const now = new Date();
-      const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-      const fine = calculatePenalty(Math.max(daysOverdue, 0));
-
-      return {
-        bookTitle: item.bookTitle || 'Unknown Book',
-        borrowerName: item.borrowerName || 'Unknown Borrower',
-        daysOverdue: Math.max(daysOverdue, 0),
-        fine: fine
-      };
-    });
+    const overdueCountTrend = overdueCountTrendRaw.map(item => ({
+      date: item.date,
+      count: item.count
+    }));
 
     return json({
       success: true,
@@ -284,7 +281,7 @@ export const GET: RequestHandler = async ({ url }) => {
           totalTransactions,
           activeBorrowings,
           overdueBooks,
-          totalPenalties,
+          totalPenalties, // <-- FIXED
           availableBooks
         },
         charts: {
@@ -292,7 +289,8 @@ export const GET: RequestHandler = async ({ url }) => {
           transactionTypes,
           categoryDistribution,
           penaltyTrends,
-          memberActivity
+          memberActivity,
+          overdueCountTrend // <-- add this
         },
         tables: {
           topBooks,

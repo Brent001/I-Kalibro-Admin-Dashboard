@@ -21,6 +21,7 @@
     qrCode?: string;
     publishedYear: number;
     copiesAvailable: number;
+    categoryId?: number;
     // Computed fields for display
     copies?: number;
     available?: number;
@@ -385,61 +386,79 @@
     {/if}
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-slate-100 rounded-xl">
-            <svg class="h-6 w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-            </svg>
+    {#if loading && books.length === 0}
+      <!-- Stats Skeleton -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        {#each Array(4) as _, i}
+          <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200 animate-pulse">
+            <div class="flex items-center">
+              <div class="p-3 bg-slate-200 rounded-xl w-12 h-12"></div>
+              <div class="ml-4 flex-1">
+                <div class="h-3 bg-slate-200 rounded w-20 mb-2"></div>
+                <div class="h-6 bg-slate-200 rounded w-12"></div>
+              </div>
+            </div>
           </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Total Books</p>
-            <p class="text-2xl font-bold text-slate-900">{stats.totalBooks}</p>
+        {/each}
+      </div>
+    {:else}
+      <!-- Stats Cards -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex items-center">
+            <div class="p-3 bg-slate-100 rounded-xl">
+              <svg class="h-6 w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+              </svg>
+            </div>
+            <div class="ml-4">
+              <p class="text-sm font-medium text-slate-600">Total Books</p>
+              <p class="text-2xl font-bold text-slate-900">{stats.totalBooks}</p>
+            </div>
+          </div>
+        </div>
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex items-center">
+            <div class="p-3 bg-emerald-100 rounded-xl">
+              <svg class="h-6 w-6 text-emerald-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div class="ml-4">
+              <p class="text-sm font-medium text-slate-600">Available</p>
+              <p class="text-2xl font-bold text-slate-900">{stats.availableCopies}</p>
+            </div>
+          </div>
+        </div>
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex items-center">
+            <div class="p-3 bg-amber-100 rounded-xl">
+              <svg class="h-6 w-6 text-amber-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4"/>
+              </svg>
+            </div>
+            <div class="ml-4">
+              <p class="text-sm font-medium text-slate-600">Borrowed</p>
+              <p class="text-2xl font-bold text-slate-900">{stats.borrowedBooks}</p>
+            </div>
+          </div>
+        </div>
+        <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex items-center">
+            <div class="p-3 bg-purple-100 rounded-xl">
+              <svg class="h-6 w-6 text-purple-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+              </svg>
+            </div>
+            <div class="ml-4">
+              <p class="text-sm font-medium text-slate-600">Categories</p>
+              <p class="text-2xl font-bold text-slate-900">{categories.length - 1}</p>
+            </div>
           </div>
         </div>
       </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-emerald-100 rounded-xl">
-            <svg class="h-6 w-6 text-emerald-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Available</p>
-            <p class="text-2xl font-bold text-slate-900">{stats.availableCopies}</p>
-          </div>
-        </div>
-      </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-amber-100 rounded-xl">
-            <svg class="h-6 w-6 text-amber-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4"/>
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Borrowed</p>
-            <p class="text-2xl font-bold text-slate-900">{stats.borrowedBooks}</p>
-          </div>
-        </div>
-      </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-purple-100 rounded-xl">
-            <svg class="h-6 w-6 text-purple-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Categories</p>
-            <p class="text-2xl font-bold text-slate-900">{categories.length - 1}</p>
-          </div>
-        </div>
-      </div>
-    </div>
+    {/if}
 
     <!-- Filters and Search -->
     <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
@@ -488,13 +507,96 @@
       </div>
     </div>
 
-    <!-- Loading State -->
+    <!-- Loading State with Skeleton -->
     {#if loading && books.length === 0}
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-        <div class="flex items-center justify-center">
-          <div class="animate-spin rounded-full h-8 w-8 border-2 border-slate-300 border-t-slate-600"></div>
-          <span class="ml-3 text-slate-600">Loading books...</span>
+      <!-- Desktop Table Skeleton -->
+      <div class="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Book Details
+                </th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Category
+                </th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Availability
+                </th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Status
+                </th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-slate-100">
+              {#each Array(8) as _, i}
+                <tr class="animate-pulse">
+                  <td class="px-6 py-4">
+                    <div class="space-y-2">
+                      <div class="h-4 bg-slate-200 rounded w-3/4"></div>
+                      <div class="h-3 bg-slate-200 rounded w-1/2"></div>
+                      <div class="h-3 bg-slate-200 rounded w-2/3"></div>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="h-6 bg-slate-200 rounded-full w-20"></div>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="space-y-2">
+                      <div class="h-3 bg-slate-200 rounded w-24 mb-2"></div>
+                      <div class="h-2 bg-slate-200 rounded-full w-full"></div>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="h-6 bg-slate-200 rounded-full w-20"></div>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="flex space-x-3">
+                      <div class="h-4 w-4 bg-slate-200 rounded"></div>
+                      <div class="h-4 w-4 bg-slate-200 rounded"></div>
+                      <div class="h-4 w-4 bg-slate-200 rounded"></div>
+                    </div>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
         </div>
+      </div>
+
+      <!-- Mobile Card Skeleton -->
+      <div class="grid grid-cols-1 gap-4 lg:hidden">
+        {#each Array(5) as _, i}
+          <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 animate-pulse">
+            <div class="flex items-start justify-between mb-3">
+              <div class="flex-1 space-y-2">
+                <div class="h-4 bg-slate-200 rounded w-3/4"></div>
+                <div class="h-3 bg-slate-200 rounded w-1/2"></div>
+                <div class="h-3 bg-slate-200 rounded w-2/3"></div>
+              </div>
+              <div class="h-6 bg-slate-200 rounded-full w-16 ml-3"></div>
+            </div>
+            
+            <div class="flex items-center justify-between mb-3">
+              <div class="h-6 bg-slate-200 rounded-full w-20"></div>
+              <div class="h-3 bg-slate-200 rounded w-24"></div>
+            </div>
+
+            <div class="mb-4">
+              <div class="w-full bg-slate-200 rounded-full h-2"></div>
+            </div>
+
+            <div class="flex justify-end space-x-3">
+              <div class="h-8 w-8 bg-slate-200 rounded-lg"></div>
+              <div class="h-8 w-8 bg-slate-200 rounded-lg"></div>
+              <div class="h-8 w-8 bg-slate-200 rounded-lg"></div>
+            </div>
+          </div>
+        {/each}
       </div>
     {/if}
 

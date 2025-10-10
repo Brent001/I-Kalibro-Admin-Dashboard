@@ -50,7 +50,7 @@
           </svg>
         </div>
         <h2 class="mt-6 text-3xl font-bold text-gray-900">
-          i/Kalibro Admin Portal
+          i-Kalibro Admin Portal
         </h2>
         <p class="mt-2 text-sm text-gray-600">
           Smart Library Management System

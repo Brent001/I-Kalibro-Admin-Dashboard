@@ -210,7 +210,13 @@
   $: stats = {
     active: transactions.filter((t: Transaction) => t.status === 'borrowed').length,
     returned: transactions.filter((t: Transaction) => t.status === 'returned').length,
-    overdue: transactions.filter((t: Transaction) => t.status === 'overdue').length,
+    overdue: transactions.filter((t: Transaction) => {
+      if (!t.dueDate) return false;
+      const due = new Date(t.dueDate);
+      const now = new Date();
+      // Only count if dueDate is in the past and not returned
+      return due < now && (t.status === 'borrowed' || t.status === 'overdue');
+    }).length,
     reserved: transactions.filter((t: Transaction) => t.status === 'active' && t.type === 'Reserve').length,
   };
 </script>
@@ -226,7 +232,7 @@
     </div>
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
       <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
         <div class="flex items-start justify-between">
           <div class="flex-1">
