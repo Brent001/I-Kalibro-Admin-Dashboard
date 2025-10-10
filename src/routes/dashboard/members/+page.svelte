@@ -427,6 +427,82 @@
       </div>
     {/if}
 
+    <!-- Stats Skeleton -->
+    {#if loading && members.length === 0}
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-6">
+        {#each Array(4) as _, i}
+          <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200 animate-pulse">
+            <div class="flex items-center">
+              <div class="p-3 bg-slate-200 rounded-xl w-12 h-12"></div>
+              <div class="ml-4 flex-1">
+                <div class="h-3 bg-slate-200 rounded w-20 mb-2"></div>
+                <div class="h-6 bg-slate-200 rounded w-12"></div>
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    <!-- Table Skeleton -->
+    {#if loading && members.length === 0}
+      <div class="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden hidden lg:block mb-6">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200">
+            <thead class="bg-slate-50">
+              <tr>
+                {#each Array(6) as _, i}
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider"></th>
+                {/each}
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-slate-100">
+              {#each Array(8) as _, i}
+                <tr class="animate-pulse">
+                  {#each Array(6) as _, j}
+                    <td class="px-6 py-4">
+                      <div class="h-4 bg-slate-200 rounded w-3/4 mb-2"></div>
+                      <div class="h-3 bg-slate-200 rounded w-1/2"></div>
+                    </td>
+                  {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Mobile Card Skeleton -->
+    {#if loading && members.length === 0}
+      <div class="grid grid-cols-1 gap-4 lg:hidden mb-6">
+        {#each Array(5) as _, i}
+          <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 animate-pulse">
+            <div class="flex items-start justify-between mb-3">
+              <div class="flex-1 space-y-2">
+                <div class="h-4 bg-slate-200 rounded w-3/4"></div>
+                <div class="h-3 bg-slate-200 rounded w-1/2"></div>
+                <div class="h-3 bg-slate-200 rounded w-2/3"></div>
+              </div>
+              <div class="h-6 bg-slate-200 rounded-full w-16 ml-3"></div>
+            </div>
+            <div class="flex items-center justify-between mb-3">
+              <div class="h-6 bg-slate-200 rounded-full w-20"></div>
+              <div class="h-3 bg-slate-200 rounded w-24"></div>
+            </div>
+            <div class="mb-4">
+              <div class="w-full bg-slate-200 rounded-full h-2"></div>
+            </div>
+            <div class="flex justify-end space-x-3">
+              <div class="h-8 w-8 bg-slate-200 rounded-lg"></div>
+              <div class="h-8 w-8 bg-slate-200 rounded-lg"></div>
+              <div class="h-8 w-8 bg-slate-200 rounded-lg"></div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
     <!-- Desktop Table View -->
     {#if !loading || members.length > 0}
       <div class="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
