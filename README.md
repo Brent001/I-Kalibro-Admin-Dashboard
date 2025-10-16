@@ -72,6 +72,7 @@ This project is **unlicensed**.
 - Art Kendrick
 - Kristel
 - Joseph Benjamin
+- Jennylyn
 
 **Software Engineering 1, College of Computer Studies**
 
