@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
+  import { goto } from '$app/navigation';
+  
+  export let data;
   export let dbError = false;
 
   let showPassword = false;
@@ -7,6 +10,12 @@
   let password = '';
   let errorMsg = '';
   const dispatch = createEventDispatcher();
+
+  onMount(async () => {
+      if (data.redirect) {
+          await goto(data.redirect);
+      }
+  });
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
@@ -20,8 +29,7 @@
         });
         const data = await res.json();
         if (data.success) {
-          // Optionally: redirect or reload
-          window.location.href = '/dashboard'; // or your dashboard route
+          await goto('/dashboard', { replaceState: true });
         } else {
           errorMsg = data.message || 'Login failed';
         }
@@ -135,7 +143,7 @@
               Forgot password?
             </a>
           </div>
-        </div>
+        </div>s
 
         <div>
           <button
