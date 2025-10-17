@@ -114,3 +114,24 @@ export const bookReturn = pgTable('book_return', {
     remarks: varchar('remarks', { length: 255 }),
     createdAt: timestamp('created_at').defaultNow()
 });
+
+export const paymentInfo = pgTable('payment_info', {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').references(() => user.id).notNull(),
+    borrowingId: integer('borrowing_id').references(() => bookBorrowing.id),
+    totalAmount: integer('total_amount').notNull(),
+    fineAmount: integer('fine_amount').default(0),
+    paymentDate: timestamp('payment_date').defaultNow(),
+    createdAt: timestamp('created_at').defaultNow()
+});
+
+export const securityLog = pgTable('security_log', {
+    id: serial('id').primaryKey(),
+    accountId: integer('account_id').references(() => account.id), // <-- add this
+    userId: integer('user_id').references(() => user.id),         // <-- keep this
+    eventType: varchar('event_type', { length: 20 }).notNull(),
+    eventTime: timestamp('event_time').defaultNow().notNull(),
+    browser: varchar('browser', { length: 100 }),
+    ipAddress: varchar('ip_address', { length: 45 }),
+    createdAt: timestamp('created_at').defaultNow()
+});
