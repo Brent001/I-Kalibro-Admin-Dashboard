@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { account } from '$lib/server/db/schema/schema.js';
+import { account, securityLog } from '$lib/server/db/schema/schema.js';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt, { type Secret } from 'jsonwebtoken';
@@ -55,6 +55,17 @@ function recordFailedAttempt(identifier: string): void {
 
 function clearFailedAttempts(identifier: string): void {
     loginAttempts.delete(identifier);
+}
+
+// Helper to get browser info from user-agent
+function getBrowserType(userAgent: string | null): string {
+    if (!userAgent) return 'Unknown';
+    if (userAgent.includes('Chrome')) return 'Chrome';
+    if (userAgent.includes('Firefox')) return 'Firefox';
+    if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) return 'Safari';
+    if (userAgent.includes('Edge')) return 'Edge';
+    if (userAgent.includes('Opera') || userAgent.includes('OPR')) return 'Opera';
+    return 'Other';
 }
 
 export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
@@ -160,6 +171,19 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
         // Log successful login (don't log password or sensitive data)
         console.log(`Successful login: ${foundUser.username} (${foundUser.role}) from ${clientIP}`);
+
+        // Log security event
+        const userAgent = request.headers.get('user-agent');
+        const browserType = getBrowserType(userAgent);
+
+        await db.insert(securityLog).values({
+            accountId: foundUser.id, // Use accountId for admin/staff
+            userId: null,            // No userId for admin/staff login
+            eventType: 'login',
+            eventTime: new Date(),
+            browser: browserType,
+            ipAddress: clientIP
+        });
 
         // Return success response with user data (excluding password)
         return new Response(

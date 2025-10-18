@@ -266,88 +266,106 @@
       </div>
     </div>
 
+    <!-- Skeleton Loading State -->
+    {#if loading}
+      <div class="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="px-6 py-4"></th>
+                <th class="px-6 py-4"></th>
+                <th class="px-6 py-4"></th>
+                <th class="px-6 py-4"></th>
+                <th class="px-6 py-4"></th>
+                <th class="px-6 py-4"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each Array(6) as _, i}
+                <tr>
+                  {#each Array(6) as __}
+                    <td class="px-6 py-4">
+                      <div class="h-4 bg-slate-100 rounded w-full animate-pulse"></div>
+                    </td>
+                  {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {/if}
+
     <!-- Desktop Table View -->
+    {#if !loading}
     <div class="hidden lg:block bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden">
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-slate-50">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Name
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                Name & Email
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Email
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 Username
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 Role
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 Status
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 Created At
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody class="bg-white divide-y divide-gray-200">
+          <tbody class="bg-white divide-y divide-slate-100">
             {#each filteredStaff as member}
-              <tr class="hover:bg-slate-50">
-                <td class="px-6 py-4 whitespace-nowrap">{member.name}</td>
-                <td class="px-6 py-4 whitespace-nowrap">{member.email}</td>
-                <td class="px-6 py-4 whitespace-nowrap">@{member.username}</td>
+              <tr class="hover:bg-slate-50 transition-colors duration-200">
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleColor(member.role)}`}>
+                  <div>
+                    <div class="text-sm font-semibold text-slate-900">{member.name}</div>
+                    <div class="text-sm text-slate-600">{member.email}</div>
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <div class="text-xs text-slate-700">@{member.username}</div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getRoleColor(member.role)}`}>
                     {member.role}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span class={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(member.isActive)}`}>
+                  <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(member.isActive)}`}>
                     {member.isActive ? 'Active' : 'Inactive'}
                   </span>
-                  <div class="text-xs text-gray-500">
-                    Token v{member.tokenVersion}
-                  </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  {formatDateTime(member.createdAt)}
+                  <div class="text-xs text-slate-700">{formatDateTime(member.createdAt)}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <div class="flex space-x-2">
+                  <div class="flex space-x-3">
                     <button class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                      </svg>
+                      View
                     </button>
-                    <button class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Staff" on:click={() => handleEditStaff(member)}>
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                      </svg>
+                    <button class="text-emerald-600 hover:text-emerald-700 transition-colors duration-200" title="Edit Staff" on:click={() => handleEditStaff(member)}>
+                      Edit
                     </button>
-                    <button class="text-blue-600 hover:text-blue-900 transition-colors duration-200" title="Reset Password">
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 12H9v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.586l4.707-4.707A6.006 6.006 0 0118 9z"/>
-                      </svg>
-                    </button>
-                    <button class="text-red-600 hover:text-red-900 transition-colors duration-200" title="Delete Staff" on:click={() => handleDeleteStaff(member)}>
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728"/>
-                      </svg>
+                    <button class="text-red-600 hover:text-red-700 transition-colors duration-200" title="Delete Staff" on:click={() => handleDeleteStaff(member)}>
+                      Remove
                     </button>
                     <button
                       class={member.isActive ? "text-yellow-600 hover:text-yellow-900" : "text-green-600 hover:text-green-900"}
                       title={member.isActive ? "Deactivate" : "Activate"}
                       on:click={() => toggleStaffStatus(member)}
                     >
-                      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-                      </svg>
+                      {member.isActive ? 'Deactivate' : 'Activate'}
                     </button>
                   </div>
                 </td>
@@ -357,6 +375,7 @@
         </table>
       </div>
     </div>
+    {/if}
 
     <!-- Mobile Card View -->
     <div class="lg:hidden grid grid-cols-1 gap-4">
@@ -421,7 +440,6 @@
               <div>Token v{member.tokenVersion}</div>
             </div>
             <div class="text-xs text-gray-500">
-              ID: {member.id}
             </div>
           </div>
         </div>

@@ -150,7 +150,7 @@
 
 <Layout>
   <div class="min-h-screen bg-gray-50">
-    <div class="px-2 sm:px-4 lg:px-6 pb-8">
+    <div class="px-2 sm:px-4 lg:px-6 pb-4">
       {#if error}
         <!-- Error State -->
         <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">

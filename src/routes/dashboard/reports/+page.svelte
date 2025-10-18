@@ -1,7 +1,7 @@
 <script lang="ts">
   import Layout from "$lib/components/ui/layout.svelte";
   import { onMount } from 'svelte';
-  import { writable } from 'svelte/store';
+  import { writable, derived } from 'svelte/store';
 
   // Types
   interface Overview {
@@ -45,6 +45,20 @@
       penaltyTrends: [], memberActivity: []
     },
     tables: { topBooks: [], overdueList: [] }
+  });
+
+  // Add this computed array after your stores and before your chart functions
+  const transactionTypesForChart = derived(dashboardData, $dashboardData => {
+    // Get counts from API for Borrowed, Returned, Reserved
+    const apiTypes = $dashboardData.charts.transactionTypes.filter(
+      t => t.type !== 'Overdue'
+    );
+    // Overdue count from overdueList table
+    const overdueCount = $dashboardData.tables.overdueList.length;
+    return [
+      ...apiTypes,
+      { type: 'Overdue', count: overdueCount }
+    ];
   });
 
   // Configuration
@@ -181,13 +195,30 @@
       });
     }
 
+    // Use transactionTypesForChart for the chart
+    let transactionTypesData: Array<{type: string; count: number}> = [];
+    transactionTypesForChart.subscribe(types => {
+      transactionTypesData = types;
+    })();
+
+    // If all counts are zero, show a single light gray segment
+    const allZero = transactionTypesData.every(d => d.count === 0);
+
     createChart('transactionsChart', {
       type: 'doughnut',
       data: {
-        labels: data.charts.transactionTypes.map(d => d.type),
+        labels: allZero ? ['No Data'] : transactionTypesData.map(d => d.type),
         datasets: [{
-          data: data.charts.transactionTypes.map(d => d.count),
-          backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444'],
+          data: allZero ? [1] : transactionTypesData.map(d => d.count),
+          backgroundColor: allZero
+            ? ['#E5E7EB'] // Tailwind gray-200
+            : transactionTypesData.map(d =>
+                d.type === 'Overdue' ? '#EF4444' :      // red-500
+                d.type === 'Reserved' ? '#F59E42' :     // orange-400
+                d.type === 'Borrowed' ? '#10B981' :     // green-500
+                d.type === 'Returned' ? '#3B82F6' :     // blue-500
+                '#A855F7' // violet-500 fallback
+              ),
           borderWidth: 0
         }]
       },
@@ -232,8 +263,14 @@
           datasets: [{
             label: 'Penalties (₱)',
             data: data.charts.penaltyTrends.map(d => d.amount / 100),
-            borderColor: '#EF4444',
-            backgroundColor: createGradient(penaltiesCanvas, [[0, 'rgba(239, 68, 68, 0.3)'], [1, 'rgba(239, 68, 68, 0.05)']]),
+            borderColor: '#F59E0B', // Changed from '#EF4444' (red) to orange
+            backgroundColor: createGradient(
+              penaltiesCanvas,
+              [
+                [0, 'rgba(245, 158, 11, 0.3)'],   // orange-400
+                [1, 'rgba(245, 158, 11, 0.05)']
+              ]
+            ),
             borderWidth: 3,
             tension: 0.4,
             fill: true

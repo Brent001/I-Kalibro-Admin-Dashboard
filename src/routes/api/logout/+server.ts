@@ -3,6 +3,8 @@ import { json } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
 import { revokeToken, logSecurityEvent, getUserSessions, revokeAllUserSessions } from '$lib/server/db/auth.js';
 import { redisClient } from '$lib/server/db/cache.js';
+import { db } from '$lib/server/db/index.js';
+import { securityLog } from '$lib/server/db/schema/schema.js';
 import { z } from 'zod';
 
 // Request validation schema
@@ -171,7 +173,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 {
                     success: false,
                     message: 'Invalid request parameters',
-                    errors: validationError.errors
+                    errors: validationError.issues // <-- fix here
                 },
                 { status: 400 }
             );
