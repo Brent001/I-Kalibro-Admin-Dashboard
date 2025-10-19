@@ -150,122 +150,130 @@
 
 <Layout>
   <div class="min-h-screen bg-gray-50">
-    <div class="px-2 sm:px-4 lg:px-6 pb-4">
+    <div class="px-0 sm:px-2 lg:px-4 pb-4">
       {#if error}
         <!-- Error State -->
-        <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <div class="flex items-center">
-            <svg class="w-5 h-5 text-red-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="bg-red-50 border border-red-200 rounded-lg p-3 lg:p-4 mb-4 lg:mb-6">
+          <div class="flex items-start">
+            <svg class="w-5 h-5 text-red-400 mr-2 lg:mr-3 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
             </svg>
-            <div>
+            <div class="flex-1">
               <h3 class="text-sm font-medium text-red-800">Error loading dashboard</h3>
-              <p class="text-sm text-red-700 mt-1">{error}</p>
+              <p class="text-xs lg:text-sm text-red-700 mt-1">{error}</p>
             </div>
           </div>
         </div>
       {:else}
         <!-- Stats Cards -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-8">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-1 lg:gap-2 mb-6 lg:mb-8">
           <!-- Total Books -->
-          <div class="bg-white overflow-hidden rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
-            <div class="p-4 lg:p-6">
-              <div class="flex items-center">
-                <div class="flex-shrink-0">
-                  <div class="w-10 h-10 lg:w-12 lg:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-5 h-5 lg:w-6 lg:h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
-                    </svg>
+          <div class="bg-white overflow-hidden rounded-xl lg:rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+            <div class="p-3 lg:p-6">
+              <div class="flex flex-col lg:flex-row lg:items-center">
+                <div class="flex items-center justify-between lg:justify-start mb-2 lg:mb-0">
+                  <div class="flex-shrink-0">
+                    <div class="w-9 h-9 lg:w-12 lg:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <svg class="w-5 h-5 lg:w-6 lg:h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                      </svg>
+                    </div>
                   </div>
                 </div>
-                <div class="ml-3 lg:ml-4 flex-1">
-                  <p class="text-xs lg:text-sm font-medium text-gray-600">Total Books</p>
+                <div class="lg:ml-4 lg:flex-1">
+                  <p class="text-xs lg:text-sm font-medium text-gray-600 mb-1">Total Books</p>
                   <p class="text-2xl lg:text-3xl font-bold text-gray-900">
                     {#if loading}
-                      <div class="animate-pulse bg-gray-200 h-7 lg:h-8 w-12 lg:w-16 rounded"></div>
+                      <div class="animate-pulse bg-gray-200 h-7 lg:h-8 w-14 lg:w-16 rounded"></div>
                     {:else}
                       {dashboardData.totalBooks.toLocaleString()}
                     {/if}
                   </p>
-                  <p class="text-xs text-gray-500 mt-0.5 lg:mt-1">In collection</p>
+                  <p class="text-xs text-gray-500 mt-0.5 lg:mt-1 hidden lg:block">In collection</p>
                 </div>
               </div>
             </div>
           </div>
 
           <!-- Active Members -->
-          <div class="bg-white overflow-hidden rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
-            <div class="p-4 lg:p-6">
-              <div class="flex items-center">
-                <div class="flex-shrink-0">
-                  <div class="w-10 h-10 lg:w-12 lg:h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-5 h-5 lg:w-6 lg:h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
-                    </svg>
+          <div class="bg-white overflow-hidden rounded-xl lg:rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+            <div class="p-3 lg:p-6">
+              <div class="flex flex-col lg:flex-row lg:items-center">
+                <div class="flex items-center justify-between lg:justify-start mb-2 lg:mb-0">
+                  <div class="flex-shrink-0">
+                    <div class="w-9 h-9 lg:w-12 lg:h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                      <svg class="w-5 h-5 lg:w-6 lg:h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                      </svg>
+                    </div>
                   </div>
                 </div>
-                <div class="ml-3 lg:ml-4 flex-1">
-                  <p class="text-xs lg:text-sm font-medium text-gray-600">Active Members</p>
+                <div class="lg:ml-4 lg:flex-1">
+                  <p class="text-xs lg:text-sm font-medium text-gray-600 mb-1">Active Members</p>
                   <p class="text-2xl lg:text-3xl font-bold text-gray-900">
                     {#if loading}
-                      <div class="animate-pulse bg-gray-200 h-7 lg:h-8 w-12 lg:w-16 rounded"></div>
+                      <div class="animate-pulse bg-gray-200 h-7 lg:h-8 w-14 lg:w-16 rounded"></div>
                     {:else}
                       {dashboardData.activeMembers.toLocaleString()}
                     {/if}
                   </p>
-                  <p class="text-xs text-gray-500 mt-0.5 lg:mt-1">Registered users</p>
+                  <p class="text-xs text-gray-500 mt-0.5 lg:mt-1 hidden lg:block">Registered users</p>
                 </div>
               </div>
             </div>
           </div>
 
           <!-- Books Borrowed -->
-          <div class="bg-white overflow-hidden rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
-            <div class="p-4 lg:p-6">
-              <div class="flex items-center">
-                <div class="flex-shrink-0">
-                  <div class="w-10 h-10 lg:w-12 lg:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-5 h-5 lg:w-6 lg:h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"></path>
-                    </svg>
+          <div class="bg-white overflow-hidden rounded-xl lg:rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+            <div class="p-3 lg:p-6">
+              <div class="flex flex-col lg:flex-row lg:items-center">
+                <div class="flex items-center justify-between lg:justify-start mb-2 lg:mb-0">
+                  <div class="flex-shrink-0">
+                    <div class="w-9 h-9 lg:w-12 lg:h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                      <svg class="w-5 h-5 lg:w-6 lg:h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"></path>
+                      </svg>
+                    </div>
                   </div>
                 </div>
-                <div class="ml-3 lg:ml-4 flex-1">
-                  <p class="text-xs lg:text-sm font-medium text-gray-600">Books Borrowed</p>
+                <div class="lg:ml-4 lg:flex-1">
+                  <p class="text-xs lg:text-sm font-medium text-gray-600 mb-1">Books Borrowed</p>
                   <p class="text-2xl lg:text-3xl font-bold text-gray-900">
                     {#if loading}
-                      <div class="animate-pulse bg-gray-200 h-7 lg:h-8 w-12 lg:w-16 rounded"></div>
+                      <div class="animate-pulse bg-gray-200 h-7 lg:h-8 w-14 lg:w-16 rounded"></div>
                     {:else}
                       {dashboardData.booksBorrowed.toLocaleString()}
                     {/if}
                   </p>
-                  <p class="text-xs text-gray-500 mt-0.5 lg:mt-1">Currently out</p>
+                  <p class="text-xs text-gray-500 mt-0.5 lg:mt-1 hidden lg:block">Currently out</p>
                 </div>
               </div>
             </div>
           </div>
 
           <!-- Overdue Books -->
-          <div class="bg-white overflow-hidden rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
-            <div class="p-4 lg:p-6">
-              <div class="flex items-center">
-                <div class="flex-shrink-0">
-                  <div class="w-10 h-10 lg:w-12 lg:h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-5 h-5 lg:w-6 lg:h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
-                    </svg>
+          <div class="bg-white overflow-hidden rounded-xl lg:rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+            <div class="p-3 lg:p-6">
+              <div class="flex flex-col lg:flex-row lg:items-center">
+                <div class="flex items-center justify-between lg:justify-start mb-2 lg:mb-0">
+                  <div class="flex-shrink-0">
+                    <div class="w-9 h-9 lg:w-12 lg:h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                      <svg class="w-5 h-5 lg:w-6 lg:h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                      </svg>
+                    </div>
                   </div>
                 </div>
-                <div class="ml-3 lg:ml-4 flex-1">
-                  <p class="text-xs lg:text-sm font-medium text-gray-600">Overdue Books</p>
+                <div class="lg:ml-4 lg:flex-1">
+                  <p class="text-xs lg:text-sm font-medium text-gray-600 mb-1">Overdue Books</p>
                   <p class="text-2xl lg:text-3xl font-bold text-red-600">
                     {#if loading}
-                      <div class="animate-pulse bg-gray-200 h-7 lg:h-8 w-12 lg:w-16 rounded"></div>
+                      <div class="animate-pulse bg-gray-200 h-7 lg:h-8 w-14 lg:w-16 rounded"></div>
                     {:else}
                       {dashboardData.overdueBooks.toLocaleString()}
                     {/if}
                   </p>
-                  <p class="text-xs text-red-600 mt-0.5 lg:mt-1">Need attention</p>
+                  <p class="text-xs text-red-600 mt-0.5 lg:mt-1 hidden lg:block">Need attention</p>
                 </div>
               </div>
             </div>
@@ -273,38 +281,38 @@
         </div>
 
         <!-- Activity and Overdue Lists -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-2">
+        <div class="space-y-4 lg:grid lg:grid-cols-2 lg:gap-2 lg:space-y-0">
           <!-- Recent Activity -->
-          <div class="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div class="px-6 py-4 border-b border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900">Recent Activity</h3>
-              <p class="text-sm text-gray-600 mt-1">Latest borrowing and return transactions</p>
+          <div class="bg-white rounded-xl lg:rounded-lg shadow-sm border border-gray-200 flex flex-col">
+            <div class="px-4 py-3 lg:px-6 lg:py-4 border-b border-gray-200 flex-shrink-0">
+              <h3 class="text-base lg:text-lg font-semibold text-gray-900">Recent Activity</h3>
+              <p class="text-sm text-gray-600 mt-1 hidden lg:block">Latest borrowing and return transactions</p>
             </div>
-            <div class="divide-y divide-gray-100">
+            <div class="divide-y divide-gray-100 overflow-y-auto max-h-[400px] lg:max-h-[500px]">
               {#if loading}
                 {#each Array(5) as _}
-                  <div class="px-6 py-4 animate-pulse">
+                  <div class="px-4 py-3 lg:px-6 lg:py-4 animate-pulse">
                     <div class="flex items-center space-x-3">
                       <div class="w-8 h-8 bg-gray-200 rounded-full"></div>
                       <div class="flex-1 space-y-2">
-                        <div class="h-4 bg-gray-200 rounded w-1/2"></div>
-                        <div class="h-3 bg-gray-200 rounded w-3/4"></div>
+                        <div class="h-3 lg:h-4 bg-gray-200 rounded w-2/3 lg:w-1/2"></div>
+                        <div class="h-3 bg-gray-200 rounded w-1/2 lg:w-3/4"></div>
                       </div>
                     </div>
                   </div>
                 {/each}
               {:else if dashboardData.recentActivity.length === 0}
-                <div class="px-6 py-8 text-center text-gray-500">
-                  <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="px-4 py-8 lg:px-6 text-center text-gray-500">
+                  <svg class="mx-auto h-10 w-10 lg:h-12 lg:w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
                   </svg>
-                  <p class="mt-2">No recent activity</p>
+                  <p class="mt-2 text-sm">No recent activity</p>
                 </div>
               {:else}
-                {#each dashboardData.recentActivity as activity, index}
-                  <div class="px-6 py-4 hover:bg-gray-50 transition-colors duration-150">
-                    <div class="flex items-center space-x-4">
-                      <div class="flex-shrink-0">
+                {#each dashboardData.recentActivity as activity}
+                  <div class="px-4 py-3 lg:px-6 lg:py-4 hover:bg-gray-50 transition-colors duration-150">
+                    <div class="flex items-start lg:items-center space-x-3 lg:space-x-4">
+                      <div class="flex-shrink-0 mt-0.5 lg:mt-0">
                         <div class="w-8 h-8 rounded-full bg-{activity.type === 'borrowed' ? 'blue' : activity.type === 'returned' ? 'green' : 'red'}-100 flex items-center justify-center">
                           <svg class="w-4 h-4 text-{activity.type === 'borrowed' ? 'blue' : activity.type === 'returned' ? 'green' : 'red'}-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{getActivityIcon(activity.type)}"></path>
@@ -312,13 +320,29 @@
                         </div>
                       </div>
                       <div class="flex-1 min-w-0">
-                        <p class="text-sm font-medium text-gray-900">
-                          {getActivityTypeDisplay(activity.type)}
-                        </p>
-                        <p class="text-sm text-gray-600 truncate">{activity.bookTitle || 'Unknown Book'}</p>
-                        <div class="flex items-center justify-between mt-1">
-                          <span class="text-sm font-medium text-gray-700">{activity.memberName || 'Unknown Member'}</span>
-                          <span class="text-xs text-gray-500">{formatTime(activity.time)}</span>
+                        <!-- Mobile Layout -->
+                        <div class="lg:hidden">
+                          <div class="flex items-start justify-between gap-2 mb-1">
+                            <p class="text-sm font-semibold text-gray-900 truncate flex-1">
+                              {activity.bookTitle || 'Unknown Book'}
+                            </p>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-{activity.type === 'borrowed' ? 'blue' : activity.type === 'returned' ? 'green' : 'red'}-100 text-{activity.type === 'borrowed' ? 'blue' : activity.type === 'returned' ? 'green' : 'red'}-700 flex-shrink-0">
+                              {getActivityTypeDisplay(activity.type)}
+                            </span>
+                          </div>
+                          <p class="text-xs text-gray-600 mb-1">{activity.memberName || 'Unknown Member'}</p>
+                          <p class="text-xs text-gray-400">{formatTime(activity.time)}</p>
+                        </div>
+                        <!-- Desktop Layout -->
+                        <div class="hidden lg:block">
+                          <p class="text-sm font-medium text-gray-900">
+                            {getActivityTypeDisplay(activity.type)}
+                          </p>
+                          <p class="text-sm text-gray-600 truncate">{activity.bookTitle || 'Unknown Book'}</p>
+                          <div class="flex items-center justify-between mt-1">
+                            <span class="text-sm font-medium text-gray-700">{activity.memberName || 'Unknown Member'}</span>
+                            <span class="text-xs text-gray-500">{formatTime(activity.time)}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -329,43 +353,43 @@
           </div>
 
           <!-- Overdue Books -->
-          <div class="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div class="px-6 py-4 border-b border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900">Overdue Books</h3>
-              <p class="text-sm text-gray-600 mt-1">Books past their due date requiring attention</p>
+          <div class="bg-white rounded-xl lg:rounded-lg shadow-sm border border-gray-200 flex flex-col">
+            <div class="px-4 py-3 lg:px-6 lg:py-4 border-b border-gray-200 flex-shrink-0">
+              <h3 class="text-base lg:text-lg font-semibold text-gray-900">Overdue Books</h3>
+              <p class="text-sm text-gray-600 mt-1 hidden lg:block">Books past their due date requiring attention</p>
             </div>
-            <div class="divide-y divide-gray-100">
+            <div class="divide-y divide-gray-100 overflow-y-auto max-h-[400px] lg:max-h-[500px]">
               {#if loading}
                 {#each Array(5) as _}
-                  <div class="px-6 py-4 animate-pulse">
+                  <div class="px-4 py-3 lg:px-6 lg:py-4 animate-pulse">
                     <div class="flex items-center space-x-3">
                       <div class="w-2 h-2 bg-gray-200 rounded-full"></div>
                       <div class="flex-1 space-y-2">
-                        <div class="h-4 bg-gray-200 rounded w-1/2"></div>
-                        <div class="h-3 bg-gray-200 rounded w-3/4"></div>
+                        <div class="h-3 lg:h-4 bg-gray-200 rounded w-2/3 lg:w-1/2"></div>
+                        <div class="h-3 bg-gray-200 rounded w-1/2 lg:w-3/4"></div>
                       </div>
                     </div>
                   </div>
                 {/each}
               {:else if dashboardData.overdueBooksList.length === 0}
-                <div class="px-6 py-8 text-center text-gray-500">
-                  <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="px-4 py-8 lg:px-6 text-center text-gray-500">
+                  <svg class="mx-auto h-10 w-10 lg:h-12 lg:w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                   </svg>
-                  <p class="mt-2">No overdue books</p>
-                  <p class="text-xs mt-1">All books are returned on time!</p>
+                  <p class="mt-2 text-sm">No overdue books</p>
+                  <p class="text-xs mt-1 text-gray-400">All books returned on time!</p>
                 </div>
               {:else}
-                {#each dashboardData.overdueBooksList as book, index}
-                  <div class="px-6 py-4 hover:bg-red-50 transition-colors duration-150">
-                    <div class="flex items-center space-x-4">
-                      <div class="w-2 h-2 bg-red-500 rounded-full flex-shrink-0"></div>
+                {#each dashboardData.overdueBooksList as book}
+                  <div class="px-4 py-3 lg:px-6 lg:py-4 hover:bg-red-50 transition-colors duration-150">
+                    <div class="flex items-start lg:items-center space-x-3 lg:space-x-4">
+                      <div class="w-2 h-2 bg-red-500 rounded-full flex-shrink-0 mt-1.5 lg:mt-0"></div>
                       <div class="flex-1 min-w-0">
-                        <p class="text-sm font-medium text-gray-900 truncate">{book.bookTitle || 'Unknown Book'}</p>
-                        <p class="text-sm text-gray-600 truncate">{book.memberName || 'Unknown Member'}</p>
-                        <div class="flex items-center justify-between mt-2">
-                          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                            {book.daysOverdue} days overdue
+                        <p class="text-sm font-semibold text-gray-900 mb-1 truncate">{book.bookTitle || 'Unknown Book'}</p>
+                        <p class="text-xs lg:text-sm text-gray-600 mb-2 truncate">{book.memberName || 'Unknown Member'}</p>
+                        <div class="flex items-center justify-between flex-wrap gap-2">
+                          <span class="inline-flex items-center px-2 lg:px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            {book.daysOverdue} {book.daysOverdue === 1 ? 'day' : 'days'} overdue
                           </span>
                           <span class="text-xs text-gray-500">Due: {formatDate(book.dueDate)}</span>
                         </div>
@@ -395,5 +419,30 @@
   
   .animate-pulse {
     animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* Custom scrollbar styling */
+  .overflow-y-auto::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+  }
+
+  .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  /* For Firefox */
+  .overflow-y-auto {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f1f1;
   }
 </style>
