@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { securityLog, account, user } from '$lib/server/db/schema/schema.js';
+import { securityLog, staffAccount, user } from '$lib/server/db/schema/schema.js'; // updated import
 import { desc, eq, and, gte, lte, or, like, sql } from 'drizzle-orm';
 
 export const GET: RequestHandler = async ({ url, locals }) => {
@@ -15,30 +15,30 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         const limit = parseInt(url.searchParams.get('limit') || '100');
         const offset = parseInt(url.searchParams.get('offset') || '0');
 
-        // Build the query with joins to get user/account names and emails
+        // Build the query with joins to get user/staffAccount names and emails
         let query = db
             .select({
                 id: securityLog.id,
-                accountId: securityLog.accountId,
+                staffAccountId: securityLog.staffAccountId, // <-- updated
                 userId: securityLog.userId,
                 eventType: securityLog.eventType,
                 eventTime: securityLog.eventTime,
                 browser: securityLog.browser,
                 ipAddress: securityLog.ipAddress,
                 createdAt: securityLog.createdAt,
-                // Account information
-                accountName: account.name,
-                accountEmail: account.email,
-                accountUsername: account.username,
-                accountRole: account.role, // <-- Add this line
+                // StaffAccount information
+                accountName: staffAccount.name,
+                accountEmail: staffAccount.email,
+                accountUsername: staffAccount.username,
+                accountRole: staffAccount.role,
                 // User information
                 userName: user.name,
                 userEmail: user.email,
                 userUsername: user.username,
-                userRole: user.role, // <-- Add this line
+                userRole: user.role,
             })
             .from(securityLog)
-            .leftJoin(account, eq(securityLog.accountId, account.id))
+            .leftJoin(staffAccount, eq(securityLog.staffAccountId, staffAccount.id)) // <-- updated
             .leftJoin(user, eq(securityLog.userId, user.id))
             .orderBy(desc(securityLog.eventTime))
             .limit(limit)
@@ -52,12 +52,12 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         }
 
         if (userType === 'account') {
-            conditions.push(sql`${securityLog.accountId} IS NOT NULL`);
+            conditions.push(sql`${securityLog.staffAccountId} IS NOT NULL`); // <-- updated
         } else if (userType === 'user') {
             conditions.push(
                 and(
                     sql`${securityLog.userId} IS NOT NULL`,
-                    sql`${securityLog.accountId} IS NULL`
+                    sql`${securityLog.staffAccountId} IS NULL` // <-- updated
                 )
             );
         }
@@ -78,9 +78,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
                 or(
                     like(sql`LOWER(${securityLog.ipAddress})`, searchPattern),
                     like(sql`LOWER(${securityLog.browser})`, searchPattern),
-                    like(sql`LOWER(${account.name})`, searchPattern),
-                    like(sql`LOWER(${account.email})`, searchPattern),
-                    like(sql`LOWER(${account.username})`, searchPattern),
+                    like(sql`LOWER(${staffAccount.name})`, searchPattern),
+                    like(sql`LOWER(${staffAccount.email})`, searchPattern),
+                    like(sql`LOWER(${staffAccount.username})`, searchPattern),
                     like(sql`LOWER(${user.name})`, searchPattern),
                     like(sql`LOWER(${user.email})`, searchPattern),
                     like(sql`LOWER(${user.username})`, searchPattern)
@@ -93,22 +93,24 @@ export const GET: RequestHandler = async ({ url, locals }) => {
             ? db
                   .select({
                       id: securityLog.id,
-                      accountId: securityLog.accountId,
+                      staffAccountId: securityLog.staffAccountId, // <-- updated
                       userId: securityLog.userId,
                       eventType: securityLog.eventType,
                       eventTime: securityLog.eventTime,
                       browser: securityLog.browser,
                       ipAddress: securityLog.ipAddress,
                       createdAt: securityLog.createdAt,
-                      accountName: account.name,
-                      accountEmail: account.email,
-                      accountUsername: account.username,
+                      accountName: staffAccount.name,
+                      accountEmail: staffAccount.email,
+                      accountUsername: staffAccount.username,
                       userName: user.name,
                       userEmail: user.email,
                       userUsername: user.username,
+                      accountRole: staffAccount.role, // <-- add this for role
+                      userRole: user.role, // <-- add this for role
                   })
                   .from(securityLog)
-                  .leftJoin(account, eq(securityLog.accountId, account.id))
+                  .leftJoin(staffAccount, eq(securityLog.staffAccountId, staffAccount.id)) // <-- updated
                   .leftJoin(user, eq(securityLog.userId, user.id))
                   .where(and(...conditions))
                   .orderBy(desc(securityLog.eventTime))
@@ -119,18 +121,17 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         // Format the logs with proper user information
         const formattedLogs = logs.map((log) => ({
             id: log.id,
-            accountId: log.accountId,
+            staffAccountId: log.staffAccountId, // <-- updated
             userId: log.userId,
             eventType: log.eventType,
             eventTime: log.eventTime,
             browser: log.browser,
             ipAddress: log.ipAddress,
             createdAt: log.createdAt,
-            // Use account info if accountId exists, otherwise use user info
             userName: log.accountName || log.userName || 'Unknown',
             userEmail: log.accountEmail || log.userEmail || null,
             userUsername: log.accountUsername || log.userUsername || null,
-            role: log.accountRole || log.userRole || null, // <-- Add this line
+            role: log.accountRole || log.userRole || null, // <-- updated
         }));
 
         // Get total count for pagination
@@ -166,7 +167,7 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
     try {
         const body = await request.json();
         const {
-            accountId,
+            staffAccountId, // <-- updated
             userId,
             eventType,
             browser,
@@ -184,11 +185,11 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
             );
         }
 
-        if (!accountId && !userId) {
+        if (!staffAccountId && !userId) { // <-- updated
             return json(
                 {
                     success: false,
-                    error: 'Either accountId or userId is required',
+                    error: 'Either staffAccountId or userId is required',
                 },
                 { status: 400 }
             );
@@ -201,7 +202,7 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
         const [newLog] = await db
             .insert(securityLog)
             .values({
-                accountId: accountId || null,
+                staffAccountId: staffAccountId || null, // <-- updated
                 userId: userId || null,
                 eventType,
                 browser: browser || null,

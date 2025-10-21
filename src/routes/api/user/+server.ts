@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { user, bookBorrowing } from '$lib/server/db/schema/schema.js';
+import { user, student, faculty, bookBorrowing } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 
@@ -9,6 +9,10 @@ import bcrypt from 'bcrypt';
 export const GET: RequestHandler = async () => {
   try {
     const users = await db.select().from(user);
+
+    // Get extra info from student/faculty tables
+    const studentInfos = await db.select().from(student);
+    const facultyInfos = await db.select().from(faculty);
 
     // Function to get issued books count for a user
     const getBooksCount = async (userId: number): Promise<number> => {
@@ -20,26 +24,47 @@ export const GET: RequestHandler = async () => {
       return result[0]?.count ?? 0;
     };
 
-    // Transform users data and add books count
+    // Transform users data and add books count and normalized fields
     const members = await Promise.all(
-      users.map(async (u) => ({
-        id: u.id,
-        type: u.role === 'student' ? 'Student' : 'Faculty',
-        name: u.name,
-        email: u.email,
-        phone: u.phone,
-        role: u.role,
-        age: u.age,
-        enrollmentNo: u.enrollmentNo,
-        course: u.course,
-        year: u.year,
-        department: u.department,
-        designation: u.designation,
-        isActive: u.isActive,
-        joined: u.createdAt,
-        username: u.username,
-        booksCount: await getBooksCount(u.id),
-      }))
+      users.map(async (u) => {
+        let extra: any = {};
+        if (u.role === 'student') {
+          const s = studentInfos.find(stu => stu.userId === u.id);
+          if (s) {
+            extra = {
+              gender: s.gender,
+              age: s.age,
+              enrollmentNo: s.enrollmentNo,
+              course: s.course,
+              year: s.year,
+              department: s.department
+            };
+          }
+        } else if (u.role === 'faculty') {
+          const f = facultyInfos.find(fac => fac.userId === u.id);
+          if (f) {
+            extra = {
+              gender: f.gender,
+              age: f.age,
+              department: f.department,
+              facultyNumber: f.facultyNumber
+            };
+          }
+        }
+        return {
+          id: u.id,
+          type: u.role === 'student' ? 'Student' : 'Faculty',
+          name: u.name,
+          email: u.email,
+          phone: u.phone,
+          role: u.role,
+          isActive: u.isActive,
+          joined: u.createdAt,
+          username: u.username,
+          booksCount: await getBooksCount(u.id),
+          ...extra
+        };
+      })
     );
 
     return json({
@@ -61,14 +86,14 @@ export const POST: RequestHandler = async ({ request }) => {
       body.type = body.role;
     }
 
-    if (!body.type || !body.name || !body.email || !body.username || !body.password) {
+    if (!body.type || !body.name || !body.email || !body.username || !body.password || !body.gender) {
       return new Response(
-        JSON.stringify({ message: 'Missing required fields: type, name, email, username, password' }),
+        JSON.stringify({ message: 'Missing required fields: type, name, email, username, password, gender' }),
         { status: 400 }
       );
     }
 
-    const { type, name, email, phone, age, username, password, enrollmentNo, course, year, department, designation } = body;
+    const { type, name, email, phone, age, username, password, gender, enrollmentNo, course, year, department, facultyNumber } = body;
 
     if (!['Student', 'Faculty'].includes(type)) {
       throw error(400, { message: 'Invalid member type. Must be Student or Faculty' });
@@ -98,9 +123,9 @@ export const POST: RequestHandler = async ({ request }) => {
     // For students, check enrollmentNo
     if (type === 'Student' && enrollmentNo) {
       const existingEnrollment = await db
-        .select({ id: user.id })
-        .from(user)
-        .where(eq(user.enrollmentNo, enrollmentNo))
+        .select({ id: student.id })
+        .from(student)
+        .where(eq(student.enrollmentNo, enrollmentNo))
         .limit(1);
 
       if (existingEnrollment.length > 0) {
@@ -108,42 +133,59 @@ export const POST: RequestHandler = async ({ request }) => {
       }
     }
 
+    // For faculty, check facultyNumber
+    if (type === 'Faculty' && facultyNumber) {
+      const existingFacultyNumber = await db
+        .select({ id: faculty.id })
+        .from(faculty)
+        .where(eq(faculty.facultyNumber, facultyNumber))
+        .limit(1);
+
+      if (existingFacultyNumber.length > 0) {
+        throw error(409, { message: 'Faculty number already exists' });
+      }
+    }
+
     // Hash password
     const passwordSalt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, passwordSalt);
 
-    // Prepare insert data
-    const insertData: any = {
-      name,
-      email,
-      phone: phone || null,
-      username,
-      password: hashedPassword,
-      passwordSalt,
-      role: type.toLowerCase(),
-      age: typeof age === 'number' ? age : null,
-      enrollmentNo: type === 'Student' ? enrollmentNo : null,
-      course: type === 'Student' ? course : null,
-      year: type === 'Student' ? year : null,
-      department: type === 'Faculty' ? department : null,
-      designation: type === 'Faculty' ? designation : null,
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      lastPasswordChange: new Date(),
-    };
-
-    // Remove undefined values
-    Object.keys(insertData).forEach(key => {
-      if (insertData[key] === undefined) {
-        insertData[key] = null;
-      }
-    });
-
+    // Insert into user table
     const [newUser] = await db
       .insert(user)
-      .values(insertData)
+      .values({
+        name,
+        email,
+        phone: phone || null,
+        username,
+        password: hashedPassword,
+        role: type.toLowerCase(),
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
       .returning();
+
+    // Insert into student or faculty table
+    if (type === 'Student') {
+      await db.insert(student).values({
+        userId: newUser.id,
+        gender,
+        age: typeof age === 'number' ? age : null,
+        enrollmentNo,
+        course,
+        year,
+        department
+      });
+    } else if (type === 'Faculty') {
+      await db.insert(faculty).values({
+        userId: newUser.id,
+        gender,
+        age: typeof age === 'number' ? age : null,
+        department,
+        facultyNumber
+      });
+    }
 
     return json({
       success: true,
@@ -154,14 +196,8 @@ export const POST: RequestHandler = async ({ request }) => {
         name: newUser.name,
         email: newUser.email,
         phone: newUser.phone,
-        enrollmentNo: newUser.enrollmentNo,
-        course: newUser.course,
-        year: newUser.year,
-        department: newUser.department,
-        designation: newUser.designation,
         isActive: newUser.isActive,
-        booksCount: 0,
-        username: newUser.username,
+        username: newUser.username
       }
     }, { status: 201 });
 
@@ -176,7 +212,7 @@ export const POST: RequestHandler = async ({ request }) => {
 export const PUT: RequestHandler = async ({ request }) => {
   try {
     const body = await request.json();
-    const { id, type, name, email, phone, age, username, password, enrollmentNo, course, year, department, designation, isActive } = body;
+    const { id, type, name, email, phone, age, username, password, gender, enrollmentNo, course, year, department, facultyNumber, isActive } = body;
 
     if (!id) {
       throw error(400, { message: 'Member ID is required' });
@@ -193,18 +229,12 @@ export const PUT: RequestHandler = async ({ request }) => {
       throw error(404, { message: 'Member not found' });
     }
 
-    // Prepare update data
+    // Prepare update data for user table
     let updateData: any = {
       name: name ?? undefined,
       email: email ?? undefined,
       phone: phone ?? undefined,
-      age: typeof age === 'number' ? age : undefined,
       username: username ?? undefined,
-      enrollmentNo: type === 'Student' ? enrollmentNo ?? undefined : null,
-      course: type === 'Student' ? course ?? undefined : null,
-      year: type === 'Student' ? year ?? undefined : null,
-      department: type === 'Faculty' ? department ?? undefined : null,
-      designation: type === 'Faculty' ? designation ?? undefined : null,
       isActive: isActive !== undefined ? isActive : undefined,
       updatedAt: new Date(),
     };
@@ -214,22 +244,46 @@ export const PUT: RequestHandler = async ({ request }) => {
       const passwordSalt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, passwordSalt);
       updateData.password = hashedPassword;
-      updateData.passwordSalt = passwordSalt;
-      updateData.lastPasswordChange = new Date();
     }
 
-    // Remove undefined values, set null for non-applicable fields
+    // Remove undefined values
     Object.keys(updateData).forEach(key => {
       if (updateData[key] === undefined) {
         updateData[key] = null;
       }
     });
 
+    // Update user table
     const [updatedUser] = await db
       .update(user)
       .set(updateData)
       .where(eq(user.id, id))
       .returning();
+
+    // Update student/faculty table
+    if (type === 'Student') {
+      await db
+        .update(student)
+        .set({
+          gender: gender ?? null,
+          age: typeof age === 'number' ? age : null,
+          enrollmentNo: enrollmentNo ?? null,
+          course: course ?? null,
+          year: year ?? null,
+          department: department ?? null
+        })
+        .where(eq(student.userId, id));
+    } else if (type === 'Faculty') {
+      await db
+        .update(faculty)
+        .set({
+          gender: gender ?? null,
+          age: typeof age === 'number' ? age : null,
+          department: department ?? null,
+          facultyNumber: facultyNumber ?? null
+        })
+        .where(eq(faculty.userId, id));
+    }
 
     return json({
       success: true,
@@ -280,6 +334,8 @@ export const DELETE: RequestHandler = async ({ request }) => {
 
     if (permanent) {
       await db.delete(user).where(eq(user.id, id));
+      await db.delete(student).where(eq(student.userId, id));
+      await db.delete(faculty).where(eq(faculty.userId, id));
       return json({
         success: true,
         message: 'Member permanently deleted'

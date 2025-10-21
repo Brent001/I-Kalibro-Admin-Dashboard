@@ -13,16 +13,17 @@
     email: string;
     phone: string;
     age: number | '';
+    gender: string;
     username: string;
     password: string;
-    confirmPassword?: string; // <-- Make this optional
+    confirmPassword?: string;
     // Student fields
     enrollmentNo?: string;
     course?: string;
     year?: string;
-    // Faculty fields
     department?: string;
-    designation?: string;
+    // Faculty fields
+    facultyNumber?: string;
   };
 
   let formData: MemberForm = {
@@ -31,6 +32,7 @@
     email: '',
     phone: '',
     age: '',
+    gender: '',
     username: '',
     password: '',
     confirmPassword: '',
@@ -38,7 +40,7 @@
     course: '',
     year: '',
     department: '',
-    designation: ''
+    facultyNumber: ''
   };
 
   let errors: Record<string, string> = {};
@@ -48,54 +50,52 @@
 
   function validateForm() {
     errors = {};
-    
+
     if (!formData.name.trim()) errors.name = 'Name is required';
-    
     if (!formData.email.trim()) {
       errors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       errors.email = 'Please enter a valid email address';
     }
-    
     if (!formData.username.trim()) {
       errors.username = 'Username is required';
     } else if (formData.username.length < 3) {
       errors.username = 'Username must be at least 3 characters';
     }
-    
     if (!formData.password) {
       errors.password = 'Password is required';
     } else if (formData.password.length < 6) {
       errors.password = 'Password must be at least 6 characters';
     }
-    
     if (formData.password !== formData.confirmPassword) {
       errors.confirmPassword = 'Passwords do not match';
     }
-    
     if (!formData.phone.trim()) {
       errors.phone = 'Phone is required';
     } else if (!/^\+?[\d\s\-\(\)]+$/.test(formData.phone)) {
       errors.phone = 'Please enter a valid phone number';
     }
-    
     if (formData.age === '' || formData.age === null || formData.age === undefined) {
       errors.age = 'Age is required';
     } else if (typeof formData.age === 'number' && (formData.age < 16 || formData.age > 100)) {
       errors.age = 'Age must be between 16 and 100';
+    }
+    if (!formData.gender) {
+      errors.gender = 'Gender is required';
     }
 
     if (formData.type === 'Student') {
       if (!formData.enrollmentNo?.trim()) errors.enrollmentNo = 'Enrollment No is required';
       if (!formData.course?.trim()) errors.course = 'Course is required';
       if (!formData.year?.trim()) errors.year = 'Year is required';
+      if (!formData.department?.trim()) errors.department = 'Department is required';
     }
-    
+
     if (formData.type === 'Faculty') {
       if (!formData.department?.trim()) errors.department = 'Department is required';
-      if (!formData.designation?.trim()) errors.designation = 'Designation is required';
+      if (!formData.facultyNumber?.trim()) errors.facultyNumber = 'Faculty Number is required';
     }
-    
+
     return Object.keys(errors).length === 0;
   }
 
@@ -106,6 +106,7 @@
       email: '',
       phone: '',
       age: '',
+      gender: '',
       username: '',
       password: '',
       confirmPassword: '',
@@ -113,7 +114,7 @@
       course: '',
       year: '',
       department: '',
-      designation: ''
+      facultyNumber: ''
     };
     errors = {};
     showPassword = false;
@@ -126,7 +127,6 @@
     try {
       const payload = {
         ...formData,
-        type: formData.type,
         age: Number(formData.age)
       };
       delete payload.confirmPassword;
@@ -303,6 +303,18 @@
                   </div>
                   {#if errors.age}<p class="text-sm text-red-600 mt-1 flex items-center"><svg class="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>{errors.age}</p>{/if}
                 </div>
+              </div>
+
+              <!-- Gender -->
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Gender</label>
+                <select bind:value={formData.gender} class="w-full pl-12 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-900 font-medium transition-all" required>
+                  <option value="">Select gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+                {#if errors.gender}<p class="text-sm text-red-600 mt-1">{errors.gender}</p>{/if}
               </div>
             </div>
 
@@ -515,30 +527,24 @@
                     {#if errors.department}<p class="text-sm text-red-600 mt-1 flex items-center"><svg class="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>{errors.department}</p>{/if}
                   </div>
 
-                  <!-- Designation -->
+                  <!-- Faculty Number -->
                   <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-2">Designation</label>
+                    <label class="block text-sm font-medium text-slate-700 mb-2">Faculty Number</label>
                     <div class="relative">
-                      <select 
-                        bind:value={formData.designation} 
-                        class="w-full pl-12 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white transition-all {errors.designation ? 'border-red-500 focus:ring-red-500' : ''}" 
+                      <input 
+                        type="text" 
+                        bind:value={formData.facultyNumber} 
+                        class="w-full pl-12 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all {errors.facultyNumber ? 'border-red-500 focus:ring-red-500' : ''}" 
+                        placeholder="Enter faculty number"
                         required
                       >
-                        <option value="">Select designation</option>
-                        <option value="Professor">Professor</option>
-                        <option value="Associate Professor">Associate Professor</option>
-                        <option value="Assistant Professor">Assistant Professor</option>
-                        <option value="Lecturer">Lecturer</option>
-                        <option value="Instructor">Instructor</option>
-                        <option value="Teaching Assistant">Teaching Assistant</option>
-                      </select>
                       <div class="absolute left-4 top-1/2 transform -translate-y-1/2">
                         <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2-2v2m8 0H8m8 0v2a2 2 0 01-2 2H10a2 2 0 01-2-2V6m8 0H8m0 0H5.5A2.5 2.5 0 003 8.5v.5m0 0v8a2 2 0 002 2h14a2 2 0 002-2V9m0 0a2.5 2.5 0 00-2.5-2.5H16" />
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                         </svg>
                       </div>
                     </div>
-                    {#if errors.designation}<p class="text-sm text-red-600 mt-1 flex items-center"><svg class="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>{errors.designation}</p>{/if}
+                    {#if errors.facultyNumber}<p class="text-sm text-red-600 mt-1 flex items-center"><svg class="h-4 w-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>{errors.facultyNumber}</p>{/if}
                   </div>
                 </div>
               </div>

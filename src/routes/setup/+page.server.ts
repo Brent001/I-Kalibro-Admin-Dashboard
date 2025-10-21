@@ -1,199 +1,282 @@
 import type { PageServerLoad, Actions } from './$types.js';
 import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { account } from '$lib/server/db/schema/schema.js';
+import { staffAccount } from '$lib/server/db/schema/schema.js'; // updated import
 import { eq, count } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 
-// Input validation schema matching the API
+// add these types
+type SetupData = {
+    name: string;
+    email: string;
+    username: string;
+    password: string;
+    confirmPassword: string;
+};
+
+type ValidationResult = {
+    success: boolean;
+    error?: string;
+    data?: SetupData;
+};
+
+// Validation schema
 const setupSchema = z.object({
     name: z.string()
-        .min(1, 'Name is required')
-        .max(100, 'Name must be less than 100 characters')
+        .min(1, 'Full name is required')
+        .max(100, 'Name must not exceed 100 characters')
         .trim(),
     email: z.string()
-        .email('Invalid email format')
-        .max(100, 'Email must be less than 100 characters')
+        .email('Please enter a valid email address')
+        .max(100, 'Email must not exceed 100 characters')
         .toLowerCase(),
     username: z.string()
         .min(3, 'Username must be at least 3 characters')
-        .max(50, 'Username must be less than 50 characters')
+        .max(50, 'Username must not exceed 50 characters')
         .regex(/^[a-zA-Z0-9_-]+$/, 'Username can only contain letters, numbers, underscores, and hyphens')
         .trim(),
     password: z.string()
         .min(8, 'Password must be at least 8 characters')
         .max(255, 'Password is too long')
-        .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/, 
-               'Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'),
+        .regex(
+            /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/,
+            'Password must contain uppercase, lowercase, number, and special character'
+        ),
     confirmPassword: z.string()
 });
 
-// Helper function to check if setup is completed
+// Helper functions
 async function isSetupCompleted(): Promise<boolean> {
     try {
-        const [{ count: userCount }] = await db.select({ count: count() }).from(account);
+        const [{ userCount }] = await db
+            .select({ userCount: count() })
+            .from(staffAccount); // updated
+        
         return userCount > 0;
     } catch (error) {
-        console.error('Error checking setup status:', error);
-        // If we can't check, assume setup is needed to avoid blocking access
+        console.error('[Setup] Error checking setup status:', error);
         return false;
     }
 }
 
-export const load: PageServerLoad = async () => {
-    // Check if setup is already completed
-    const setupCompleted = await isSetupCompleted();
+function validateFormData(formFields: Record<string, string>): ValidationResult {
+    const { password, confirmPassword } = formFields;
     
-    if (setupCompleted) {
-        // Force redirect to login if setup is already done
+    if (password !== confirmPassword) {
+        return {
+            success: false,
+            error: 'Passwords do not match'
+        };
+    }
+
+    const validationResult = setupSchema.safeParse(formFields);
+    
+    if (!validationResult.success) {
+        const firstError = validationResult.error.issues[0];
+        return {
+            success: false,
+            error: firstError.message
+        };
+    }
+
+    return {
+        success: true,
+        data: validationResult.data as SetupData
+    };
+}
+
+async function checkDuplicates(email: string, username: string) {
+    try {
+        const [emailExists, usernameExists] = await Promise.all([
+            db.select({ id: staffAccount.id })
+                .from(staffAccount) // updated
+                .where(eq(staffAccount.email, email)) // updated
+                .limit(1),
+            db.select({ id: staffAccount.id })
+                .from(staffAccount) // updated
+                .where(eq(staffAccount.username, username)) // updated
+                .limit(1)
+        ]);
+
+        if (emailExists.length > 0) {
+            return { 
+                duplicate: 'email', 
+                message: 'Email address is already registered' 
+            };
+        }
+
+        if (usernameExists.length > 0) {
+            return { 
+                duplicate: 'username', 
+                message: 'Username is already taken' 
+            };
+        }
+
+        return null;
+    } catch (error) {
+        console.error('[Setup] Error checking duplicates:', error);
+        throw new Error('Database error while checking duplicates');
+    }
+}
+
+async function hashPassword(password: string): Promise<string> {
+    try {
+        const saltRounds = 12;
+        return await bcrypt.hash(password, saltRounds);
+    } catch (error) {
+        console.error('[Setup] Error hashing password:', error);
+        throw new Error('Failed to hash password');
+    }
+}
+
+async function createAdminAccount(
+    name: string,
+    email: string,
+    username: string,
+    hashedPassword: string
+) {
+    try {
+        const [admin] = await db
+            .insert(staffAccount) // updated
+            .values({
+                name,
+                email,
+                username,
+                password: hashedPassword,
+                role: 'admin',
+                isActive: true
+            })
+            .returning({
+                id: staffAccount.id, // updated
+                name: staffAccount.name,
+                email: staffAccount.email,
+                username: staffAccount.username,
+                role: staffAccount.role
+            });
+
+        return admin;
+    } catch (error) {
+        console.error('[Setup] Error creating admin account:', error);
+        throw new Error('Failed to create admin account');
+    }
+}
+
+// Page load
+export const load: PageServerLoad = async ({ locals }) => {
+    // If user is already authenticated, redirect to dashboard
+    if (locals.user) {
         throw redirect(302, '/');
     }
 
-    // Setup is needed, allow access to setup page
+    const setupCompleted = await isSetupCompleted();
+    
+    if (setupCompleted) {
+        // Redirect to login if setup is completed but not authenticated
+        throw redirect(302, '/');
+    }
+
     return {
         setupRequired: true
     };
 };
 
+// Form actions
 export const actions: Actions = {
-    default: async ({ request }) => {
-        // Double-check setup status before processing form
-        const setupCompleted = await isSetupCompleted();
-        
-        if (setupCompleted) {
-            return fail(403, { 
-                errorMsg: 'System setup has already been completed. Please use the login page.' 
-            });
-        }
-
+    default: async ({ request, locals }) => {
         const formData = await request.formData();
-        
-        // Extract form data
         const formFields = {
-            name: formData.get('name') as string,
-            email: formData.get('email') as string,
-            username: formData.get('username') as string,
-            password: formData.get('password') as string,
-            confirmPassword: formData.get('confirmPassword') as string
+            name: (formData.get('name') as string) || '',
+            email: (formData.get('email') as string) || '',
+            username: (formData.get('username') as string) || '',
+            password: (formData.get('password') as string) || '',
+            confirmPassword: (formData.get('confirmPassword') as string) || ''
         };
 
-        // Basic null checks
-        if (!formFields.name || !formFields.email || !formFields.username || 
-            !formFields.password || !formFields.confirmPassword) {
-            return fail(400, { 
-                errorMsg: 'All fields are required.',
-                name: formFields.name,
-                email: formFields.email,
-                username: formFields.username
-            });
-        }
-
-        // Password confirmation check
-        if (formFields.password !== formFields.confirmPassword) {
-            return fail(400, { 
-                errorMsg: 'Passwords do not match.',
-                name: formFields.name,
-                email: formFields.email,
-                username: formFields.username
-            });
-        }
-
-        // Validate with Zod schema
-        const validationResult = setupSchema.safeParse(formFields);
-        
-        if (!validationResult.success) {
-            const firstError = validationResult.error.issues[0];
-            return fail(400, { 
-                errorMsg: firstError.message,
-                name: formFields.name,
-                email: formFields.email,
-                username: formFields.username
-            });
-        }
-
-        const { name, email, username, password } = validationResult.data;
-
         try {
-            // Final check before creating account (race condition protection)
+            // Check if setup already completed
+            const setupCompleted = await isSetupCompleted();
+            
+            if (setupCompleted) {
+                return fail(403, {
+                    errorMsg: 'System setup has already been completed. Please log in instead.',
+                    name: formFields.name,
+                    email: formFields.email,
+                    username: formFields.username
+                });
+            }
+
+            // Validate form data
+            const validation = validateFormData(formFields);
+            
+            if (!validation.success || !validation.data) {
+                return fail(400, {
+                    errorMsg: validation.error,
+                    name: formFields.name,
+                    email: formFields.email,
+                    username: formFields.username
+                });
+            }
+
+            const { name, email, username, password } = validation.data;
+
+            // Final race condition check
             const finalCheck = await isSetupCompleted();
             if (finalCheck) {
-                return fail(403, { 
-                    errorMsg: 'System setup has already been completed by another user.' 
-                });
-            }
-
-            // Check for duplicate email (shouldn't happen in first setup, but good to have)
-            const existingEmail = await db
-                .select()
-                .from(account)
-                .where(eq(account.email, email))
-                .limit(1);
-
-            if (existingEmail.length > 0) {
-                return fail(409, { 
-                    errorMsg: 'Email address is already registered.',
+                return fail(403, {
+                    errorMsg: 'System setup has already been completed by another user.',
                     name: formFields.name,
                     email: formFields.email,
                     username: formFields.username
                 });
             }
 
-            // Check for duplicate username
-            const existingUsername = await db
-                .select()
-                .from(account)
-                .where(eq(account.username, username))
-                .limit(1);
-
-            if (existingUsername.length > 0) {
-                return fail(409, { 
-                    errorMsg: 'Username is already taken.',
+            // Check duplicates
+            const duplicateCheck = await checkDuplicates(email, username);
+            
+            if (duplicateCheck) {
+                return fail(409, {
+                    errorMsg: duplicateCheck.message,
                     name: formFields.name,
                     email: formFields.email,
                     username: formFields.username
                 });
             }
 
-            // Hash the password
-            const saltRounds = 12;
-            const hashedPassword = await bcrypt.hash(password, saltRounds);
+            // Hash password
+            const hashedPassword = await hashPassword(password);
 
             // Create admin account
-            const [admin] = await db
-                .insert(account)
-                .values({
-                    name,
-                    email,
-                    username,
-                    password: hashedPassword,
-                    role: 'admin',
-                    isActive: true
-                })
-                .returning({
-                    id: account.id,
-                    name: account.name,
-                    email: account.email,
-                    username: account.username,
-                    role: account.role
-                });
+            const admin = await createAdminAccount(name, email, username, hashedPassword);
 
-            // Log successful setup
-            console.log(`Admin account created successfully: ${admin.email}`);
+            console.log(`[Setup] Admin account created successfully: ${admin.email} (ID: ${admin.id})`);
 
-            // Redirect to login page after successful setup
-            throw redirect(303, '/login?setup=success');
+            // Return success response - let the client handle redirect
+            return {
+                success: true,
+                message: 'Admin account created successfully',
+                admin: {
+                    id: admin.id,
+                    name: admin.name,
+                    email: admin.email,
+                    username: admin.username,
+                    role: admin.role
+                }
+            };
 
         } catch (error) {
-            // IMPORTANT: Re-throw redirect errors - they are not actual errors!
-            if (error instanceof Response && error.status >= 300 && error.status < 400) {
+            // Re-throw redirect responses (they're not errors)
+            if (error instanceof Response) {
                 throw error;
             }
 
-            console.error('Setup action error:', error);
-            
-            return fail(500, { 
-                errorMsg: 'An internal error occurred. Please try again later.' 
+            console.error('[Setup] Unexpected error:', error instanceof Error ? error.message : error);
+
+            return fail(500, {
+                errorMsg: 'An unexpected error occurred. Please try again.',
+                name: formFields.name,
+                email: formFields.email,
+                username: formFields.username
             });
         }
     }

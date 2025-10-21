@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { account, securityLog } from '$lib/server/db/schema/schema.js';
+import { staffAccount, securityLog } from '$lib/server/db/schema/schema.js'; // updated import
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt, { type Secret } from 'jsonwebtoken';
@@ -108,17 +108,16 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         // Find user in database by username or email
         const [user] = await db
             .select()
-            .from(account)
-            .where(eq(account.username, username))
+            .from(staffAccount)
+            .where(eq(staffAccount.username, username))
             .limit(1);
 
-        // If not found by username, try email
         let userByEmail = null;
         if (!user) {
             [userByEmail] = await db
                 .select()
-                .from(account)
-                .where(eq(account.email, username))
+                .from(staffAccount)
+                .where(eq(staffAccount.email, username))
                 .limit(1);
         }
 
@@ -131,10 +130,24 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         // Verify password
         const isValidPassword = await bcrypt.compare(password, targetHash);
 
+        // Get browser type from user-agent
+        const userAgent = request.headers.get('user-agent');
+        const browserType = getBrowserType(userAgent);
+
         // Check if user exists and password is correct and account is active
         if (!foundUser || !isValidPassword || !foundUser.isActive) {
             recordFailedAttempt(clientIP);
-            
+
+            // --- LOG FAILED LOGIN ATTEMPT ---
+            await db.insert(securityLog).values({
+                staffAccountId: foundUser?.id ?? null,
+                userId: null,
+                eventType: 'failed_login',
+                eventTime: new Date(),
+                browser: browserType,
+                ipAddress: clientIP
+            });
+
             // Generic error message to prevent user enumeration
             return new Response(
                 JSON.stringify({
@@ -150,14 +163,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
         // Create JWT token
         const tokenPayload = {
-            id: foundUser.id,
+            userId: foundUser.id, // use userId for consistency
             username: foundUser.username,
             role: foundUser.role
         };
-        const token = jwt.sign(tokenPayload, JWT_SECRET, {
+        const token = jwt.sign(tokenPayload, JWT_SECRET as Secret, {
             expiresIn: JWT_EXPIRES_IN,
             issuer: 'kalibro-library',
-            subject: foundUser.id.toString()
+            subject: String(foundUser.id)
         });
 
         // Set cookie for dashboard access
@@ -173,12 +186,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         console.log(`Successful login: ${foundUser.username} (${foundUser.role}) from ${clientIP}`);
 
         // Log security event
-        const userAgent = request.headers.get('user-agent');
-        const browserType = getBrowserType(userAgent);
-
         await db.insert(securityLog).values({
-            accountId: foundUser.id, // Use accountId for admin/staff
-            userId: null,            // No userId for admin/staff login
+            staffAccountId: foundUser.id,
+            userId: null,
             eventType: 'login',
             eventTime: new Date(),
             browser: browserType,
@@ -205,7 +215,8 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         return new Response(
             JSON.stringify({
                 success: false,
-                message: 'An internal server error occurred. Please try again later.'
+                message: 'An internal server error occurred. Please try again later.',
+                error: error instanceof Error ? error.message : String(error) // <-- Add this line for debugging
             }),
             { status: 500, headers: { 'Content-Type': 'application/json' } }
         );
@@ -229,15 +240,15 @@ export const GET: RequestHandler = async ({ request }) => {
         // Optionally verify user still exists and is active
         const [user] = await db
             .select({
-                id: account.id,
-                name: account.name,
-                username: account.username,
-                email: account.email,
-                role: account.role,
-                isActive: account.isActive
+                id: staffAccount.id, // changed from account
+                name: staffAccount.name,
+                username: staffAccount.username,
+                email: staffAccount.email,
+                role: staffAccount.role,
+                isActive: staffAccount.isActive
             })
-            .from(account)
-            .where(eq(account.id, decoded.userId))
+            .from(staffAccount) // changed from account
+            .where(eq(staffAccount.id, decoded.userId)) // changed from account
             .limit(1);
 
         if (!user || !user.isActive) {

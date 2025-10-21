@@ -1,11 +1,11 @@
-// src/routes/api/books/+server.ts - Enhanced version with full field support
+// src/routes/api/books/+server.ts - Updated for originPlace field
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
 import { eq, like, and, or, gt, count, not } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
-import { book, account, category, bookBorrowing } from '$lib/server/db/schema/schema.js'; // remove bookTransaction
+import { book, staffAccount, category, bookBorrowing } from '$lib/server/db/schema/schema.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -14,21 +14,6 @@ interface AuthenticatedUser {
   role: string;
   username: string;
   email: string;
-}
-
-interface CreateBookRequest {
-  title: string;
-  author: string;
-  category?: string;
-  publisher?: string;
-  publishedYear: number;
-  edition?: string;
-  language?: string;
-  copiesAvailable: number;
-  location?: string;
-  description?: string;
-  tags?: string[];
-  supplier?: string;
 }
 
 async function authenticateUser(request: Request): Promise<AuthenticatedUser | null> {
@@ -59,20 +44,17 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
 
     const [user] = await db
       .select({
-        id: account.id,
-        username: account.username,
-        email: account.email,
-        role: account.role,
-        isActive: account.isActive
-        // REMOVED: tokenVersion
+        id: staffAccount.id,
+        username: staffAccount.username,
+        email: staffAccount.email,
+        role: staffAccount.role,
+        isActive: staffAccount.isActive
       })
-      .from(account)
-      .where(eq(account.id, userId))
+      .from(staffAccount)
+      .where(eq(staffAccount.id, userId))
       .limit(1);
 
     if (!user || !user.isActive) return null;
-
-    // REMOVED: tokenVersion check
 
     return {
       id: user.id,
@@ -86,18 +68,9 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
   }
 }
 
-// Validation functions
 function validateYear(year: number): boolean {
   const currentYear = new Date().getFullYear();
   return year >= 1000 && year <= currentYear;
-}
-
-function generateQRCode(isbn: string, title: string): string {
-  // In a real application, you might use a QR code library
-  // For now, we'll generate a unique identifier
-  const timestamp = Date.now();
-  const hash = Buffer.from(`${isbn}-${title}-${timestamp}`).toString('base64').substring(0, 16);
-  return `QR-${hash}`;
 }
 
 // GET - Fetch books with enhanced filtering
@@ -165,11 +138,15 @@ export const GET: RequestHandler = async ({ request, url }) => {
         bookId: book.bookId,
         title: book.title,
         author: book.author,
-        qrCode: book.qrCode,
         publishedYear: book.publishedYear,
         copiesAvailable: book.copiesAvailable,
         categoryId: book.categoryId,
-        category: category.name
+        category: category.name,
+        language: book.language,
+        originPlace: book.originPlace,
+        publisher: book.publisher,
+        location: book.location,
+        description: book.description
       })
       .from(book)
       .leftJoin(category, eq(book.categoryId, category.id))
@@ -206,7 +183,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
   }
 };
 
-// POST - Create new book with full field support
+// POST - Create new book with originPlace support
 export const POST: RequestHandler = async ({ request }) => {
   try {
     const user = await authenticateUser(request);
@@ -227,9 +204,14 @@ export const POST: RequestHandler = async ({ request }) => {
       throw error(400, { message: `Missing required fields: ${missingFields.join(', ')}` });
     }
 
-    // Validate bookId format (example: FIC-PBS-2002)
+    // Validate bookId format
     if (!/^[A-Z0-9\-]+$/i.test(body.bookId.trim())) {
       throw error(400, { message: 'Book ID must be alphanumeric and may include dashes.' });
+    }
+
+    // Validate year
+    if (!validateYear(body.publishedYear)) {
+      throw error(400, { message: `Published year must be between 1000 and ${new Date().getFullYear()}` });
     }
 
     // Check if bookId already exists
@@ -238,8 +220,20 @@ export const POST: RequestHandler = async ({ request }) => {
       .from(book)
       .where(eq(book.bookId, body.bookId.trim()))
       .limit(1);
+    
     if (existingBookId.length > 0) {
       throw error(409, { message: `A book with Book ID "${body.bookId}" already exists.` });
+    }
+
+    // Verify category exists
+    const [categoryExists] = await db
+      .select({ id: category.id })
+      .from(category)
+      .where(eq(category.id, body.categoryId))
+      .limit(1);
+
+    if (!categoryExists) {
+      throw error(400, { message: 'Invalid category ID' });
     }
 
     // Prepare book data for insertion (only fields in schema)
@@ -248,13 +242,13 @@ export const POST: RequestHandler = async ({ request }) => {
       title: body.title.trim(),
       author: body.author.trim(),
       language: body.language ? body.language.trim() : null,
-      qrCode: generateQRCode(body.bookId, body.title),
+      originPlace: body.originPlace ? body.originPlace.trim() : null,
       publishedYear: body.publishedYear,
       copiesAvailable: body.copiesAvailable,
       categoryId: body.categoryId,
       publisher: body.publisher ? body.publisher.trim() : null,
-      location: body.location ? body.location.trim() : null
-      // REMOVED: edition, description, tags, supplier
+      location: body.location ? body.location.trim() : null,
+      description: body.description ? body.description.trim() : null
     };
 
     // Insert the book
@@ -267,13 +261,13 @@ export const POST: RequestHandler = async ({ request }) => {
         title: book.title,
         author: book.author,
         language: book.language,
-        qrCode: book.qrCode,
+        originPlace: book.originPlace,
         publishedYear: book.publishedYear,
         copiesAvailable: book.copiesAvailable,
         categoryId: book.categoryId,
         publisher: book.publisher,
-        location: book.location
-        // REMOVED: edition, description, tags, supplier
+        location: book.location,
+        description: book.description
       });
 
     // Get category name for response
@@ -287,8 +281,7 @@ export const POST: RequestHandler = async ({ request }) => {
       success: true,
       data: { 
         book: { ...newBook, category: cat?.name },
-        message: `Book "${newBook.title}" has been successfully added to the library.`,
-        qrCode: newBook.qrCode
+        message: `Book "${newBook.title}" has been successfully added to the library.`
       },
       message: 'Book created successfully'
     }, { status: 201 });
@@ -302,7 +295,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 };
 
-// PUT - Update book with full field support
+// PUT - Update book with originPlace support
 export const PUT: RequestHandler = async ({ request, url }) => {
   try {
     const user = await authenticateUser(request);
@@ -330,9 +323,12 @@ export const PUT: RequestHandler = async ({ request, url }) => {
       const conflict = await db
         .select({ id: book.id })
         .from(book)
-        .where(eq(book.bookId, body.bookId.trim()))
-        .where(not(eq(book.id, parseInt(bookId))))
+        .where(and(
+          eq(book.bookId, body.bookId.trim()),
+          not(eq(book.id, parseInt(bookId)))
+        ))
         .limit(1);
+      
       if (conflict.length > 0) {
         throw error(409, { message: `A book with Book ID "${body.bookId}" already exists.` });
       }
@@ -378,7 +374,7 @@ export const PUT: RequestHandler = async ({ request, url }) => {
 
     if (body.author !== undefined) {
       if (typeof body.author !== 'string' || body.author.trim().length === 0) {
-        validationErrors.push('Author cannot be.empty');
+        validationErrors.push('Author cannot be empty');
       } else if (body.author.length > 100) {
         validationErrors.push('Author must be less than 100 characters');
       }
@@ -392,19 +388,11 @@ export const PUT: RequestHandler = async ({ request, url }) => {
       validationErrors.push('Number of copies must be non-negative');
     }
 
-    if (body.pages !== undefined && body.pages < 1) {
-      validationErrors.push('Number of pages must be positive');
-    }
-
-    if (body.price !== undefined && body.price < 0) {
-      validationErrors.push('Price cannot be negative');
-    }
-
     if (validationErrors.length > 0) {
       throw error(400, { message: validationErrors.join('; ') });
     }
 
-    // Build update object
+    // Build update object (only schema fields)
     const updateData: any = {};
     if (body.title !== undefined) updateData.title = body.title.trim();
     if (body.author !== undefined) updateData.author = body.author.trim();
@@ -412,6 +400,13 @@ export const PUT: RequestHandler = async ({ request, url }) => {
     if (body.copiesAvailable !== undefined) updateData.copiesAvailable = body.copiesAvailable;
     if (body.categoryId !== undefined) updateData.categoryId = body.categoryId;
     if (body.bookId !== undefined) updateData.bookId = body.bookId.trim();
+    if (body.language !== undefined) updateData.language = body.language ? body.language.trim() : null;
+    if (body.originPlace !== undefined) updateData.originPlace = body.originPlace ? body.originPlace.trim() : null;
+    if (body.publisher !== undefined) updateData.publisher = body.publisher ? body.publisher.trim() : null;
+    if (body.location !== undefined) updateData.location = body.location ? body.location.trim() : null;
+    if (body.description !== undefined) updateData.description = body.description ? body.description.trim() : null;
+
+    updateData.updatedAt = new Date();
 
     const [updatedBook] = await db
       .update(book)
@@ -419,16 +414,25 @@ export const PUT: RequestHandler = async ({ request, url }) => {
       .where(eq(book.id, parseInt(bookId)))
       .returning({
         id: book.id,
+        bookId: book.bookId,
         title: book.title,
         author: book.author,
-        qrCode: book.qrCode,
+        language: book.language,
+        originPlace: book.originPlace,
         publishedYear: book.publishedYear,
         copiesAvailable: book.copiesAvailable,
-        categoryId: book.categoryId
+        categoryId: book.categoryId,
+        publisher: book.publisher,
+        location: book.location,
+        description: book.description
       });
 
     // Get category name for response
-    const [cat] = await db.select({ name: category.name }).from(category).where(eq(category.id, updatedBook.categoryId)).limit(1);
+    const [cat] = await db
+      .select({ name: category.name })
+      .from(category)
+      .where(eq(category.id, updatedBook.categoryId))
+      .limit(1);
 
     return json({
       success: true,
@@ -485,6 +489,7 @@ export const DELETE: RequestHandler = async ({ request, url }) => {
         eq(bookBorrowing.bookId, parseInt(bookId)),
         eq(bookBorrowing.status, 'borrowed')
       ));
+    
     if (issuedCount[0]?.count > 0) {
       throw error(400, { message: 'Cannot delete book: It is currently borrowed.' });
     }

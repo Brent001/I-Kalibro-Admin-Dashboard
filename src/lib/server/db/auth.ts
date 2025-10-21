@@ -2,7 +2,7 @@
 import jwt from 'jsonwebtoken';
 import { randomBytes, createHash } from 'crypto';
 import { db } from '$lib/server/db/index.js';
-import { account } from '$lib/server/db/schema/schema.js';
+import { staffAccount } from '$lib/server/db/schema/schema.js'; // <-- updated import
 import { eq, and, gte, desc } from 'drizzle-orm';
 import { redisClient } from '$lib/server/db/cache.js';
 
@@ -81,15 +81,15 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
         // Fetch current user data from database
         const [user] = await db
             .select({
-                id: account.id,
-                name: account.name,
-                username: account.username,
-                email: account.email,
-                role: account.role,
-                isActive: account.isActive
+                id: staffAccount.id, // <-- changed from account
+                name: staffAccount.name,
+                username: staffAccount.username,
+                email: staffAccount.email,
+                role: staffAccount.role,
+                isActive: staffAccount.isActive
             })
-            .from(account)
-            .where(eq(account.id, decoded.userId))
+            .from(staffAccount) // <-- changed from account
+            .where(eq(staffAccount.id, decoded.userId)) // <-- changed from account
             .limit(1);
 
         if (!user || !user.isActive) {
@@ -211,15 +211,15 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
         // Get fresh user data
         const [user] = await db
             .select({
-                id: account.id,
-                name: account.name,
-                username: account.username,
-                email: account.email,
-                role: account.role,
-                isActive: account.isActive
+                id: staffAccount.id, // <-- changed from account
+                name: staffAccount.name,
+                username: staffAccount.username,
+                email: staffAccount.email,
+                role: staffAccount.role,
+                isActive: staffAccount.isActive
             })
-            .from(account)
-            .where(eq(account.id, decoded.userId))
+            .from(staffAccount) // <-- changed from account
+            .where(eq(staffAccount.id, decoded.userId)) // <-- changed from account
             .limit(1);
 
         if (!user || !user.isActive) {
@@ -330,11 +330,21 @@ export async function getUserSessions(userId: number): Promise<UserSession[]> {
 export async function revokeAllUserSessions(userId: number): Promise<void> {
     try {
         const sessionIds = await redisClient.smembers(`user:${userId}:sessions`);
-        
         for (const sessionId of sessionIds) {
+            const sessionData = await redisClient.get(`session:${sessionId}`);
+            if (sessionData) {
+                const session: UserSession = JSON.parse(sessionData);
+                // Blacklist access token (if present)
+                if (session.token) {
+                    await redisClient.setex(`blacklist:${session.token}`, 7 * 24 * 60 * 60, 'revoked');
+                }
+                // Blacklist refresh token
+                if (session.refreshToken) {
+                    await redisClient.setex(`blacklist:refresh:${session.refreshToken}`, 7 * 24 * 60 * 60, 'revoked');
+                }
+            }
             await redisClient.del(`session:${sessionId}`);
         }
-        
         await redisClient.del(`user:${userId}:sessions`);
     } catch (error) {
         console.error('Failed to revoke all user sessions:', error);

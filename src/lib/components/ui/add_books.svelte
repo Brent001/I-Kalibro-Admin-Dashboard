@@ -11,14 +11,12 @@
     categoryId: '',
     publisher: '',
     publishedYear: '',
-    edition: '',
     language: 'English',
     copiesAvailable: 1,
     location: '',
-    description: '',
-    tags: '',
-    supplier: '',
-    bookId: ''
+    originPlace: '',
+    bookId: '',
+    description: ''
   };
 
   let errors: {[key: string]: string} = {};
@@ -28,7 +26,6 @@
   let categories: { id: number, name: string }[] = [];
   let categoriesLoading = false;
 
-  // Always fetch categories when modal opens
   $: if (isOpen) {
     fetchCategories();
   }
@@ -41,7 +38,7 @@
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        categories = data.data.categories; // [{ id, name }]
+        categories = data.data.categories;
       } else {
         categories = [];
       }
@@ -72,12 +69,10 @@
 
   function validateForm() {
     const newErrors: {[key: string]: string} = {};
-    
     if (!formData.title.trim()) newErrors.title = 'Title is required';
     if (!formData.author.trim()) newErrors.author = 'Author is required';
     if (!formData.categoryId) newErrors.category = 'Category is required';
     if (!formData.publisher.trim()) newErrors.publisher = 'Publisher is required';
-    
     if (!formData.publishedYear) {
       newErrors.publishedYear = 'Published year is required';
     } else {
@@ -87,15 +82,12 @@
         newErrors.publishedYear = `Year must be between 1000 and ${currentYear}`;
       }
     }
-    
     if (formData.copiesAvailable < 1) newErrors.copiesAvailable = 'Number of copies must be at least 1';
-    
     if (!formData.bookId.trim()) {
       newErrors.bookId = 'Book ID is required';
     } else if (!/^[A-Z0-9\-]+$/i.test(formData.bookId.trim())) {
       newErrors.bookId = 'Book ID must be alphanumeric and may include dashes';
     }
-    
     errors = newErrors;
     return Object.keys(newErrors).length === 0;
   }
@@ -103,11 +95,8 @@
   async function handleSubmit(e: Event) {
     e.preventDefault();
     if (!validateForm()) return;
-    
     isSubmitting = true;
-    
     try {
-      // Transform data to match your API expectations
       const bookData = {
         bookId: formData.bookId.trim(),
         title: formData.title.trim(),
@@ -116,16 +105,12 @@
         copiesAvailable: parseInt(formData.copiesAvailable.toString()),
         categoryId: parseInt(formData.categoryId),
         publisher: formData.publisher.trim(),
-        edition: formData.edition.trim() || null,
         language: formData.language,
         location: formData.location.trim() || null,
-        description: formData.description.trim() || null,
-        tags: formData.tags ? formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag) : [],
-        supplier: formData.supplier.trim() || null,
-        dateAdded: new Date().toISOString(),
+        originPlace: formData.originPlace.trim() || null,
+        description: formData.description.trim() || null
       };
 
-      // Make API call
       const response = await fetch('/api/books', {
         method: 'POST',
         credentials: 'include',
@@ -138,11 +123,9 @@
       const data = await response.json();
       
       if (response.ok && data.success) {
-        // Dispatch success event with the created book data
         dispatch('success', { book: data.data.book, message: data.message });
         handleClose();
       } else {
-        // Handle API errors
         if (response.status === 401) {
           dispatch('error', { message: 'Authentication required. Please log in again.' });
         } else if (response.status === 403) {
@@ -162,32 +145,24 @@
   }
 
   function handleClose() {
-    // Reset form
     formData = {
       title: '',
       author: '',
       categoryId: '',
       publisher: '',
       publishedYear: '',
-      edition: '',
       language: 'English',
       copiesAvailable: 1,
       location: '',
-      description: '',
-      tags: '',
-      supplier: '',
-      bookId: ''
+      originPlace: '',
+      bookId: '',
+      description: ''
     };
     errors = {};
     isSubmitting = false;
     dispatch('close');
   }
 
-  function handleISBNScan() {
-    alert('ISBN Scanner feature coming soon!');
-  }
-
-  // Close modal on Escape key
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && isOpen && !isSubmitting) {
       handleClose();
@@ -320,7 +295,7 @@
                   />
                   {#if errors.publisher}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.publisher}</p>{/if}
                 </div>
-              </div> <!-- Closing div for Basic Information -->
+              </div>
 
               <!-- Additional Details -->
               <div class="space-y-6">
@@ -329,57 +304,33 @@
                   <h4 class="text-lg font-semibold text-slate-900">Additional Details</h4>
                 </div>
                 
-                <!-- Published Year and Edition -->
-                <div class="grid grid-cols-2 gap-4">
-                  <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-2">Published Year *</label>
-                    <input 
-                      type="number" 
-                      bind:value={formData.publishedYear} 
-                      disabled={isSubmitting}
-                      class="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 {errors.publishedYear ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white/50'}" 
-                      placeholder="2024" 
-                      min="1000" 
-                      max={new Date().getFullYear()} 
-                    />
-                    {#if errors.publishedYear}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.publishedYear}</p>{/if}
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-2">Edition</label>
-                    <input 
-                      type="text" 
-                      bind:value={formData.edition} 
-                      disabled={isSubmitting}
-                      class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50" 
-                      placeholder="1st, 2nd, etc." 
-                    />
-                  </div>
+                <!-- Published Year -->
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Published Year *</label>
+                  <input 
+                    type="number" 
+                    bind:value={formData.publishedYear} 
+                    disabled={isSubmitting}
+                    class="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 {errors.publishedYear ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white/50'}" 
+                    placeholder="2024" 
+                    min="1000" 
+                    max={new Date().getFullYear()} 
+                  />
+                  {#if errors.publishedYear}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.publishedYear}</p>{/if}
                 </div>
 
-                <!-- Language & Tags side by side -->
-                <div class="grid grid-cols-2 gap-4">
-                  <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-2">Language</label>
-                    <select 
-                      bind:value={formData.language} 
-                      disabled={isSubmitting}
-                      class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50"
-                    >
-                      {#each languages as language}
-                        <option value={language}>{language}</option>
-                      {/each}
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-2">Tags</label>
-                    <input 
-                      type="text" 
-                      bind:value={formData.tags} 
-                      disabled={isSubmitting}
-                      class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50" 
-                      placeholder="programming, computer science, beginner (comma separated)" 
-                    />
-                  </div>
+                <!-- Language -->
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Language</label>
+                  <select 
+                    bind:value={formData.language} 
+                    disabled={isSubmitting}
+                    class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50"
+                  >
+                    {#each languages as language}
+                      <option value={language}>{language}</option>
+                    {/each}
+                  </select>
                 </div>
                 
                 <!-- Number of Copies -->
@@ -396,7 +347,7 @@
                   {#if errors.copiesAvailable}<p class="text-red-600 text-xs mt-1 flex items-center"><svg class="h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>{errors.copiesAvailable}</p>{/if}
                 </div>
                 
-                <!-- Location -->
+                <!-- Location/Shelf -->
                 <div>
                   <label class="block text-sm font-medium text-slate-700 mb-2">Location/Shelf</label>
                   <input 
@@ -408,16 +359,17 @@
                   />
                 </div>
                 
-                <!-- Supplier -->
+                <!-- Origin Place (NEW FIELD) -->
                 <div>
-                  <label class="block text-sm font-medium text-slate-700 mb-2">Supplier</label>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">Origin Place</label>
                   <input 
                     type="text" 
-                    bind:value={formData.supplier} 
+                    bind:value={formData.originPlace} 
                     disabled={isSubmitting}
                     class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-100 bg-white/50" 
-                    placeholder="Book supplier" 
+                    placeholder="e.g., Manila, Philippines" 
                   />
+                  <p class="text-xs text-slate-500 mt-1">Where the book was published or originated</p>
                 </div>
               </div>
             </div>
@@ -426,12 +378,12 @@
             <div class="border-t border-slate-200/50 pt-8">
               <div class="flex items-center space-x-2 mb-6">
                 <div class="h-1 w-8 bg-slate-700 rounded-full"></div>
-                <h4 class="text-lg font-semibold text-slate-900">Description & Summary</h4>
+                <h4 class="text-lg font-semibold text-slate-900">Description</h4>
               </div>
               
               <!-- Description -->
               <div>
-                <label class="block text-sm font-medium text-slate-700 mb-2">Description</label>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Book Description</label>
                 <textarea 
                   bind:value={formData.description} 
                   rows="4" 

@@ -4,7 +4,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
 import { db } from '$lib/server/db/index.js';
-import { account, category, book } from '$lib/server/db/schema/schema.js';
+import { staffAccount, category, book } from '$lib/server/db/schema/schema.js';
 import { eq, not, count } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
@@ -66,14 +66,14 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
 
     const [user] = await db
       .select({
-        id: account.id,
-        username: account.username,
-        email: account.email,
-        role: account.role,
-        isActive: account.isActive
+        id: staffAccount.id,
+        username: staffAccount.username,
+        email: staffAccount.email,
+        role: staffAccount.role,
+        isActive: staffAccount.isActive
       })
-      .from(account)
-      .where(eq(account.id, userId))
+      .from(staffAccount)
+      .where(eq(staffAccount.id, userId))
       .limit(1);
 
     if (!user || !user.isActive) return null;

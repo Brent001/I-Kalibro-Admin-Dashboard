@@ -1,7 +1,7 @@
 import { pgTable, serial, integer, varchar, boolean, date, timestamp } from 'drizzle-orm/pg-core';
 
-// Keep existing tables unchanged
-export const account = pgTable('account', {
+// Rename account table to staffAccount
+export const staffAccount = pgTable('staff_account', {
     id: serial('id').primaryKey(),
     name: varchar('name', { length: 100 }),
     email: varchar('email', { length: 100 }).unique(),
@@ -13,6 +13,7 @@ export const account = pgTable('account', {
     updatedAt: timestamp('updated_at').defaultNow()
 });
 
+// User table: authentication and common info for students/faculty
 export const user = pgTable('user', {
     id: serial('id').primaryKey(),
     name: varchar('name', { length: 100 }).notNull(),
@@ -21,15 +22,31 @@ export const user = pgTable('user', {
     username: varchar('username', { length: 50 }).unique().notNull(),
     password: varchar('password', { length: 255 }).notNull(),
     role: varchar('role', { length: 20 }).notNull(), // 'student' or 'faculty'
+    isActive: boolean('is_active').default(true),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow()
+});
+
+// Student table: student-specific info
+export const student = pgTable('student', {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').references(() => user.id).unique().notNull(),
+    gender: varchar('gender', { length: 20 }),
     age: integer('age'),
     enrollmentNo: varchar('enrollment_no', { length: 30 }).unique(),
     course: varchar('course', { length: 50 }),
     year: varchar('year', { length: 20 }),
+    department: varchar('department', { length: 100 })
+});
+
+// Faculty table: faculty-specific info
+export const faculty = pgTable('faculty', {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').references(() => user.id).unique().notNull(),
+    gender: varchar('gender', { length: 20 }),
+    age: integer('age'),
     department: varchar('department', { length: 100 }),
-    designation: varchar('designation', { length: 50 }),
-    isActive: boolean('is_active').default(true),
-    createdAt: timestamp('created_at').defaultNow(),
-    updatedAt: timestamp('updated_at').defaultNow()
+    facultyNumber: varchar('faculty_number', { length: 30 }).unique()
 });
 
 export const category = pgTable('category', {
@@ -45,12 +62,13 @@ export const book = pgTable('book', {
     title: varchar('title', { length: 200 }).notNull(),
     author: varchar('author', { length: 100 }),
     language: varchar('language', { length: 50 }),
-    qrCode: varchar('qr_code', { length: 255 }).unique(),
+    originPlace: varchar('origin_place', { length: 100 }),
     publishedYear: integer('published_year'),
     copiesAvailable: integer('copies_available').default(0),
     categoryId: integer('category_id').references(() => category.id),
     publisher: varchar('publisher', { length: 100 }),
     location: varchar('location', { length: 100 }),
+    description: varchar('description', { length: 1000 }), // <-- Book description is now optional
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow()
 });
@@ -92,7 +110,8 @@ export const libraryVisit = pgTable('library_visit', {
 
 export const qrCodeToken = pgTable('qr_code_token', {
     id: serial('id').primaryKey(),
-    token: varchar('token', { length: 255 }).unique().notNull()
+    token: varchar('token', { length: 255 }).unique().notNull(),
+    type: varchar('type', { length: 30 }).notNull() // e.g. 'library_visit', 'book'
 });
 
 export const userActivity = pgTable('user_activity', {
@@ -127,11 +146,11 @@ export const paymentInfo = pgTable('payment_info', {
 
 export const securityLog = pgTable('security_log', {
     id: serial('id').primaryKey(),
-    accountId: integer('account_id').references(() => account.id), // <-- add this
-    userId: integer('user_id').references(() => user.id),         // <-- keep this
-    eventType: varchar('event_type', { length: 20 }).notNull(),
+    staffAccountId: integer('staff_account_id').references(() => staffAccount.id), // <-- Add this line
+    userId: integer('user_id').references(() => user.id),
+    eventType: varchar('event_type', { length: 20 }).notNull(), // 'login' or 'logout'
     eventTime: timestamp('event_time').defaultNow().notNull(),
     browser: varchar('browser', { length: 100 }),
-    ipAddress: varchar('ip_address', { length: 45 }),
+    ipAddress: varchar('ip_address', { length: 45 }), // optional: for IPv4/IPv6
     createdAt: timestamp('created_at').defaultNow()
 });

@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { account } from '$lib/server/db/schema/schema.js';
+import { staffAccount } from '$lib/server/db/schema/schema.js'; // updated import
 import { eq, count } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
@@ -62,8 +62,8 @@ export const POST: RequestHandler = async ({ request }) => {
         // Check if setup is already completed
         const [{ count: accountCount }] = await db
             .select({ count: count() })
-            .from(account);
-            
+            .from(staffAccount); // updated
+
         if (accountCount > 0) {
             return new Response(
                 JSON.stringify({ 
@@ -77,14 +77,14 @@ export const POST: RequestHandler = async ({ request }) => {
         // Check for duplicate email or username (additional safety check)
         const existingAccount = await db
             .select()
-            .from(account)
-            .where(eq(account.email, email))
+            .from(staffAccount) // updated
+            .where(eq(staffAccount.email, email)) // updated
             .limit(1);
 
         const existingUsername = await db
             .select()
-            .from(account)
-            .where(eq(account.username, username))
+            .from(staffAccount) // updated
+            .where(eq(staffAccount.username, username)) // updated
             .limit(1);
 
         if (existingAccount.length > 0) {
@@ -113,7 +113,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
         // Create admin account
         const [admin] = await db
-            .insert(account)
+            .insert(staffAccount) // updated
             .values({
                 name,
                 email,
@@ -123,12 +123,12 @@ export const POST: RequestHandler = async ({ request }) => {
                 isActive: true
             })
             .returning({
-                id: account.id,
-                name: account.name,
-                email: account.email,
-                username: account.username,
-                role: account.role,
-                isActive: account.isActive
+                id: staffAccount.id, // updated
+                name: staffAccount.name,
+                email: staffAccount.email,
+                username: staffAccount.username,
+                role: staffAccount.role,
+                isActive: staffAccount.isActive
             });
 
         // Log successful setup (consider using a proper logging library)
@@ -163,7 +163,7 @@ export const GET: RequestHandler = async () => {
     try {
         const [{ count: accountCount }] = await db
             .select({ count: count() })
-            .from(account);
+            .from(staffAccount); // updated
             
         return new Response(
             JSON.stringify({ 

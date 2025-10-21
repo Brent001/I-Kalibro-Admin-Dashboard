@@ -2,10 +2,10 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { user, bookBorrowing, book, bookReturn } from '$lib/server/db/schema/schema.js';
+import { user, student, faculty, bookBorrowing, book, bookReturn } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
 
-// GET: Return specific user details with issued and returned books
+// GET: Return specific user details with issued and returned books, using new schema
 export const GET: RequestHandler = async ({ params }) => {
   try {
     const userId = parseInt(params.id);
@@ -15,28 +15,58 @@ export const GET: RequestHandler = async ({ params }) => {
     }
 
     // Get user basic info
-    const userInfo = await db
+    const userInfoArr = await db
       .select()
       .from(user)
       .where(eq(user.id, userId))
       .limit(1);
 
-    if (userInfo.length === 0) {
+    if (userInfoArr.length === 0) {
       throw error(404, { message: 'User not found' });
     }
 
-    const u = userInfo[0];
+    const u = userInfoArr[0];
     let memberDetails: any = {
       ...u,
       type: u.role === 'student' ? 'Student' : 'Faculty'
     };
 
+    // Get extra info from student/faculty table
+    if (u.role === 'student') {
+      const [studentInfo] = await db
+        .select()
+        .from(student)
+        .where(eq(student.userId, userId))
+        .limit(1);
+      if (studentInfo) {
+        memberDetails.gender = studentInfo.gender;
+        memberDetails.age = studentInfo.age;
+        memberDetails.enrollmentNo = studentInfo.enrollmentNo;
+        memberDetails.course = studentInfo.course;
+        memberDetails.year = studentInfo.year;
+        memberDetails.department = studentInfo.department;
+      }
+    } else if (u.role === 'faculty') {
+      const [facultyInfo] = await db
+        .select()
+        .from(faculty)
+        .where(eq(faculty.userId, userId))
+        .limit(1);
+      if (facultyInfo) {
+        memberDetails.gender = facultyInfo.gender;
+        memberDetails.age = facultyInfo.age;
+        memberDetails.department = facultyInfo.department;
+        memberDetails.facultyNumber = facultyInfo.facultyNumber;
+      }
+    }
+
     // Get issued books count
-    const issuedBooksCount = await db
+    const issuedBooksCountResult = await db
       .select({ count: count() })
       .from(bookBorrowing)
       .where(eq(bookBorrowing.userId, userId))
       .where(eq(bookBorrowing.status, 'borrowed'));
+    const issuedBooksCount = issuedBooksCountResult[0]?.count ?? 0;
 
     // Get active borrowings
     const issuedBooksRaw = await db

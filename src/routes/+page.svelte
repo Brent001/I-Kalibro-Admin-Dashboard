@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
+  import { goto } from '$app/navigation';
+  
+  export let data;
   export let dbError = false;
 
   let showPassword = false;
@@ -8,22 +11,28 @@
   let errorMsg = '';
   const dispatch = createEventDispatcher();
 
+  onMount(async () => {
+      if (data.redirect) {
+          await goto(data.redirect);
+      }
+  });
+
   async function handleSubmit(e: Event) {
     e.preventDefault();
     errorMsg = '';
     if (username && password) {
       try {
+        // Only staff accounts can log in here (admin/staff)
         const res = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
         });
-        const data = await res.json();
-        if (data.success) {
-          // Optionally: redirect or reload
-          window.location.href = '/dashboard'; // or your dashboard route
+        const result = await res.json();
+        if (result.success) {
+          await goto('/dashboard', { replaceState: true });
         } else {
-          errorMsg = data.message || 'Login failed';
+          errorMsg = result.message || 'Login failed';
         }
       } catch (err) {
         errorMsg = 'Network error. Please try again.';

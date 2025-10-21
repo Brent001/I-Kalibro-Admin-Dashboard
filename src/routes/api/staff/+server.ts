@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { account } from '$lib/server/db/schema/schema.js';
+import { staffAccount } from '$lib/server/db/schema/schema.js'; // updated import
 import { eq, count } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 
@@ -10,7 +10,7 @@ export const GET: RequestHandler = async () => {
   try {
     const staffList = await db
       .select()
-      .from(account);
+      .from(staffAccount); // updated
 
     const staff = staffList
       .filter(a => a.role === 'admin' || a.role === 'staff')
@@ -53,9 +53,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
     // Check for existing email/username
     const existingEmail = await db
-      .select({ id: account.id })
-      .from(account)
-      .where(eq(account.email, email))
+      .select({ id: staffAccount.id })
+      .from(staffAccount) // updated
+      .where(eq(staffAccount.email, email)) // updated
       .limit(1);
 
     if (existingEmail.length > 0) {
@@ -63,9 +63,9 @@ export const POST: RequestHandler = async ({ request }) => {
     }
 
     const existingUsername = await db
-      .select({ id: account.id })
-      .from(account)
-      .where(eq(account.username, username))
+      .select({ id: staffAccount.id })
+      .from(staffAccount) // updated
+      .where(eq(staffAccount.username, username)) // updated
       .limit(1);
 
     if (existingUsername.length > 0) {
@@ -88,7 +88,7 @@ export const POST: RequestHandler = async ({ request }) => {
     };
 
     const [newStaff] = await db
-      .insert(account)
+      .insert(staffAccount) // updated
       .values(insertData)
       .returning();
 
@@ -125,9 +125,9 @@ export const PUT: RequestHandler = async ({ request }) => {
 
     // Check if staff exists
     const existingStaff = await db
-      .select({ id: account.id, role: account.role })
-      .from(account)
-      .where(eq(account.id, id))
+      .select({ id: staffAccount.id, role: staffAccount.role, tokenVersion: staffAccount.tokenVersion })
+      .from(staffAccount) // updated
+      .where(eq(staffAccount.id, id)) // updated
       .limit(1);
 
     if (existingStaff.length === 0) {
@@ -159,9 +159,9 @@ export const PUT: RequestHandler = async ({ request }) => {
     });
 
     const [updatedStaff] = await db
-      .update(account)
+      .update(staffAccount) // updated
       .set(updateData)
-      .where(eq(account.id, id))
+      .where(eq(staffAccount.id, id)) // updated
       .returning();
 
     return json({
@@ -189,16 +189,16 @@ export const DELETE: RequestHandler = async ({ request }) => {
 
     // Check if staff exists
     const existingStaff = await db
-      .select({ id: account.id })
-      .from(account)
-      .where(eq(account.id, id))
+      .select({ id: staffAccount.id })
+      .from(staffAccount) // updated
+      .where(eq(staffAccount.id, id)) // updated
       .limit(1);
 
     if (existingStaff.length === 0) {
       throw error(404, { message: 'Staff not found' });
     }
 
-    await db.delete(account).where(eq(account.id, id));
+    await db.delete(staffAccount).where(eq(staffAccount.id, id)); // updated
     return json({
       success: true,
       message: 'Staff permanently deleted'
