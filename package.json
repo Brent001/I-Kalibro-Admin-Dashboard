@@ -2,7 +2,7 @@
 	"name": "library-dash-admin",
 	"version": "0.0.1",
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "vite dev --host",
 		"build": "vite build && npm run prepack",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -61,6 +61,7 @@
 		"bcrypt": "^6.0.0",
 		"chart.js": "^4.5.0",
 		"drizzle-orm": "^0.40.0",
+		"html5-qrcode": "^2.3.8",
 		"jsonwebtoken": "^9.0.2",
 		"nanoid": "^5.1.5",
 		"pdfkit": "^0.17.2",
