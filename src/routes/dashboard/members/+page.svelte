@@ -88,6 +88,20 @@
     }
   }
 
+  // Add a helper for type icons:
+  function getTypeIcon(type: string) {
+    if (type === 'Student') {
+      // Person icon
+      return `<svg class="h-4 w-4 mr-1 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/></svg>`;
+    }
+    if (type === 'Faculty') {
+      // Briefcase icon
+      return `<svg class="h-4 w-4 mr-1 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M16 3v4M8 3v4"/></svg>`;
+    }
+    // Default person icon
+    return `<svg class="h-4 w-4 mr-1 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/></svg>`;
+  }
+
   function resetForm() {
     formData = {
       type: 'Student',
@@ -327,6 +341,7 @@
       <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
           <div class="p-3 bg-slate-100 rounded-xl">
+            <!-- Total: Group/People Icon -->
             <svg class="h-6 w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
             </svg>
@@ -340,8 +355,10 @@
       <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
           <div class="p-3 bg-emerald-100 rounded-xl">
+            <!-- Active: Check Circle Icon -->
             <svg class="h-6 w-6 text-emerald-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              <circle cx="12" cy="12" r="10"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/>
             </svg>
           </div>
           <div class="ml-4">
@@ -353,8 +370,10 @@
       <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
           <div class="p-3 bg-slate-100 rounded-xl">
+            <!-- Students: Person Icon -->
             <svg class="h-6 w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 14l9-5-9-5-9 5 9 5z"/>
+              <circle cx="12" cy="8" r="4"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/>
             </svg>
           </div>
           <div class="ml-4">
@@ -366,8 +385,10 @@
       <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
           <div class="p-3 bg-purple-100 rounded-xl">
+            <!-- Faculty & Staff: Briefcase Icon -->
             <svg class="h-6 w-6 text-purple-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+              <rect x="2" y="7" width="20" height="14" rx="2"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16 3v4M8 3v4"/>
             </svg>
           </div>
           <div class="ml-4">
@@ -542,6 +563,7 @@
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap">
                     <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getTypeColor(member.type)}`}>
+                      {@html getTypeIcon(member.type)}
                       {member.type}
                     </span>
                     <div class="text-xs text-slate-400 mt-1">
@@ -607,6 +629,7 @@
                 <h3 class="text-base font-semibold text-slate-900 truncate">{member.name}</h3>
                 <div class="flex items-center space-x-2 mt-1">
                   <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getTypeColor(member.type)}`}>
+                    {@html getTypeIcon(member.type)}
                     {member.type}
                   </span>
                   <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(member.isActive)}`}>

@@ -10,9 +10,10 @@
   let successMsg = "";
   let qrCodeDataUrl: string = "";
   let showQrModal = false;
+  let showTypeSelectionModal = false;
   let generatedToken: string = "";
-  let existingQRCodes: { id: number; token: string }[] = [];
-  let selectedQr: { id: number; token: string } | null = null;
+  let existingQRCodes: { id: number; token: string; type: string }[] = [];
+  let selectedQr: { id: number; token: string; type: string } | null = null;
   let selectedQrDataUrl: string = "";
 
   // Filter state
@@ -29,11 +30,13 @@
     { value: "all", label: "All Time" }
   ];
 
-  let selectedQrType = "library_visit"; // NEW: default type
+  let selectedQrType = "library_visit";
   const qrTypeOptions = [
-    { value: "library_visit", label: "Library Visit" },
-    { value: "book", label: "Book" }
+    { value: "library_visit", label: "Library Visit", icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z", description: "For tracking library check-ins and check-outs" },
+    { value: "book_qr", label: "Book QR Code", icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253", description: "For identifying specific books in the library" }
   ];
+
+  let filterType = "all";
 
   onMount(async () => {
     await loadVisits();
@@ -65,13 +68,13 @@
 
   async function loadExistingQRCodes() {
     try {
-      const res = await fetch(`/api/qrcode/gen_qrcode?type=${selectedQrType}`);
+      const res = await fetch(`/api/qrcode/gen_qrcode`);
       const data = await res.json();
       if (res.ok && data.success) {
         existingQRCodes = data.qrCodes;
       }
     } catch (err) {
-      // ignore for now
+      console.error("Failed to load QR codes:", err);
     }
   }
 
@@ -87,15 +90,21 @@
     await loadVisits();
   }
 
-  async function generateQrCode() {
+  function openTypeSelectionModal() {
+    showTypeSelectionModal = true;
+  }
+
+  async function generateQrCode(type: string) {
+    showTypeSelectionModal = false;
     const res = await fetch("/api/qrcode/gen_qrcode", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: selectedQrType })
+      body: JSON.stringify({ type })
     });
     const data = await res.json();
     if (res.ok && data.success) {
       generatedToken = data.token;
+      selectedQrType = data.type;
       const QRCode = await import("qrcode");
       qrCodeDataUrl = await QRCode.toDataURL(generatedToken, { width: 256 });
       showQrModal = true;
@@ -107,7 +116,7 @@
     }
   }
 
-  function downloadQrCode(dataUrl: string, filename = "library-visit-qrcode.png") {
+  function downloadQrCode(dataUrl: string, filename = "library-qrcode.png") {
     const link = document.createElement("a");
     link.href = dataUrl;
     link.download = filename;
@@ -139,7 +148,7 @@
     }
   }
 
-  async function viewQrCode(qr: { id: number; token: string }) {
+  async function viewQrCode(qr: { id: number; token: string; type: string }) {
     selectedQr = qr;
     const QRCode = await import("qrcode");
     selectedQrDataUrl = await QRCode.toDataURL(qr.token, { width: 256 });
@@ -164,6 +173,10 @@
            purpose.toLowerCase().includes(search);
   });
 
+  $: filteredQRCodes = filterType === "all" 
+    ? existingQRCodes 
+    : existingQRCodes.filter(qr => qr.type === filterType);
+
   function getStatusColor(status: string) {
     return status === 'checked_in'
       ? 'bg-blue-100 text-blue-800'
@@ -181,9 +194,14 @@
     }
   }
 
-  // Reload QR codes when type changes
-  $: if (selectedQrType) {
-    loadExistingQRCodes();
+  function getQrTypeLabel(type: string) {
+    return qrTypeOptions.find(opt => opt.value === type)?.label || type;
+  }
+
+  function getQrTypeBadgeColor(type: string) {
+    return type === 'library_visit' 
+      ? 'bg-blue-100 text-blue-800' 
+      : 'bg-purple-100 text-purple-800';
   }
 </script>
 
@@ -195,29 +213,19 @@
         <h2 class="text-2xl font-bold text-slate-900">Library Visit Management</h2>
         <p class="text-slate-600">Track visitor check-ins and manage QR codes</p>
       </div>
-      <div class="flex gap-2">
-        <select
-          bind:value={selectedQrType}
-          class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-700"
-        >
-          {#each qrTypeOptions as opt}
-            <option value={opt.value}>{opt.label}</option>
-          {/each}
-        </select>
-        <button
-          on:click={generateQrCode}
-          class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
-        >
-          <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <rect x="3" y="3" width="6" height="6" rx="1" />
-            <rect x="15" y="3" width="6" height="6" rx="1" />
-            <rect x="3" y="15" width="6" height="6" rx="1" />
-            <rect x="15" y="15" width="6" height="6" rx="1" />
-            <path d="M9 9h6v6H9z" />
-          </svg>
-          Generate QR Code
-        </button>
-      </div>
+      <button
+        on:click={openTypeSelectionModal}
+        class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+      >
+        <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="6" height="6" rx="1" />
+          <rect x="15" y="3" width="6" height="6" rx="1" />
+          <rect x="3" y="15" width="6" height="6" rx="1" />
+          <rect x="15" y="15" width="6" height="6" rx="1" />
+          <path d="M9 9h6v6H9z" />
+        </svg>
+        Generate QR Code
+      </button>
     </div>
 
     <!-- Success/Error Messages -->
@@ -376,13 +384,63 @@
       </div>
     </div>
 
-    <!-- QR Code Modal -->
+    <!-- QR Type Selection Modal -->
+    {#if showTypeSelectionModal}
+      <div class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full">
+          <div class="flex items-center justify-between mb-6">
+            <h3 class="text-2xl font-bold text-slate-900">Select QR Code Type</h3>
+            <button 
+              on:click={() => showTypeSelectionModal = false}
+              class="text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          
+          <p class="text-slate-600 mb-6">Choose the type of QR code you want to generate:</p>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {#each qrTypeOptions as option}
+              <button
+                on:click={() => generateQrCode(option.value)}
+                class="group relative p-6 border-2 border-slate-200 rounded-xl hover:border-slate-900 hover:shadow-lg transition-all duration-200 text-left"
+              >
+                <div class="flex items-start space-x-4">
+                  <div class="p-3 bg-slate-100 rounded-lg group-hover:bg-slate-900 transition-colors duration-200">
+                    <svg class="h-8 w-8 text-slate-700 group-hover:text-white transition-colors duration-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d={option.icon}/>
+                    </svg>
+                  </div>
+                  <div class="flex-1">
+                    <h4 class="text-lg font-semibold text-slate-900 mb-2">{option.label}</h4>
+                    <p class="text-sm text-slate-600">{option.description}</p>
+                  </div>
+                </div>
+                <div class="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <svg class="h-5 w-5 text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                  </svg>
+                </div>
+              </button>
+            {/each}
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Generated QR Code Modal -->
     {#if showQrModal}
       <div class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
         <div class="bg-white rounded-xl shadow-2xl p-6 flex flex-col items-center max-w-md w-full">
-          <h3 class="text-xl font-bold text-slate-900 mb-4">
-            New {qrTypeOptions.find(opt => opt.value === selectedQrType)?.label} QR Code
+          <h3 class="text-xl font-bold text-slate-900 mb-2">
+            QR Code Generated
           </h3>
+          <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium mb-4 ${getQrTypeBadgeColor(selectedQrType)}`}>
+            {getQrTypeLabel(selectedQrType)}
+          </span>
           {#if qrCodeDataUrl}
             <div class="bg-slate-50 p-4 rounded-lg mb-4">
               <img src={qrCodeDataUrl} alt="QR Code" class="w-64 h-64" />
@@ -394,7 +452,7 @@
           <div class="flex space-x-3 w-full">
             <button 
               class="flex-1 px-4 py-3 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors duration-200" 
-              on:click={() => downloadQrCode(qrCodeDataUrl)}
+              on:click={() => downloadQrCode(qrCodeDataUrl, `${selectedQrType}-${Date.now()}.png`)}
             >
               Download
             </button>
@@ -411,18 +469,42 @@
 
     <!-- Existing QR Codes -->
     <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-      <div class="flex items-center justify-between mb-4">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
         <h3 class="text-lg font-semibold text-slate-900">Active QR Codes</h3>
-        <select
-          bind:value={selectedQrType}
-          class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-700"
-        >
-          {#each qrTypeOptions as opt}
-            <option value={opt.value}>{opt.label}</option>
-          {/each}
-        </select>
+        <div class="flex gap-2">
+          <button
+            on:click={() => filterType = "all"}
+            class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
+              filterType === "all" 
+                ? "bg-slate-900 text-white" 
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            }`}
+          >
+            All ({existingQRCodes.length})
+          </button>
+          <button
+            on:click={() => filterType = "library_visit"}
+            class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
+              filterType === "library_visit" 
+                ? "bg-blue-600 text-white" 
+                : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+            }`}
+          >
+            Library Visit ({existingQRCodes.filter(qr => qr.type === 'library_visit').length})
+          </button>
+          <button
+            on:click={() => filterType = "book_qr"}
+            class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
+              filterType === "book_qr" 
+                ? "bg-purple-600 text-white" 
+                : "bg-purple-100 text-purple-700 hover:bg-purple-200"
+            }`}
+          >
+            Book QR ({existingQRCodes.filter(qr => qr.type === 'book_qr').length})
+          </button>
+        </div>
       </div>
-      {#if existingQRCodes.length === 0}
+      {#if filteredQRCodes.length === 0}
         <div class="text-center py-8">
           <svg class="h-12 w-12 text-slate-300 mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <rect x="3" y="3" width="6" height="6" rx="1" />
@@ -430,17 +512,19 @@
             <rect x="3" y="15" width="6" height="6" rx="1" />
             <rect x="15" y="15" width="6" height="6" rx="1" />
           </svg>
-          <p class="text-slate-500">No QR codes generated yet.</p>
+          <p class="text-slate-500">No {filterType === "all" ? "" : getQrTypeLabel(filterType)} QR codes found.</p>
         </div>
       {:else}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {#each existingQRCodes as qr}
+          {#each filteredQRCodes as qr}
             <div class="border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow duration-200">
+              <div class="flex items-center justify-between mb-3">
+                <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getQrTypeBadgeColor(qr.type)}`}>
+                  {getQrTypeLabel(qr.type)}
+                </span>
+              </div>
               <div class="font-mono text-xs mb-3 break-all bg-slate-50 p-2 rounded text-slate-600">
                 {qr.token}
-              </div>
-              <div class="mb-2 text-xs text-slate-500">
-                Type: {qrTypeOptions.find(opt => opt.value === selectedQrType)?.label}
               </div>
               <div class="flex space-x-2 mb-3">
                 <button
@@ -473,7 +557,7 @@
                   </div>
                   <button 
                     class="w-full px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors duration-200"
-                    on:click={() => downloadQrCode(selectedQrDataUrl, `library-visit-qrcode-${qr.id}.png`)}
+                    on:click={() => downloadQrCode(selectedQrDataUrl, `${qr.type}-${qr.id}.png`)}
                   >
                     Download
                   </button>

@@ -2,6 +2,7 @@
   import Layout from "$lib/components/ui/layout.svelte";
   import ConfirmBorrowModal from "$lib/components/ui/ConfirmBorrowModal.svelte";
   import ReturnBookModal from "$lib/components/ui/ReturnBookModal.svelte";
+  import { onMount } from "svelte";
   export let data;
 
   let searchTerm = "";
@@ -14,6 +15,9 @@
   let showReturnModal = false;
   let selectedTransaction: Transaction | null = null;
   let customDueDate = "";
+
+  // Track modal verification
+  let returnVerification = { method: "password", password: "", qrData: "" };
 
   // Use transactions from server data
   const transactions = data.transactions ?? [];
@@ -127,7 +131,8 @@
     if (!confirm("Are you sure you want to delete this transaction?")) return;
     try {
       const res = await fetch(`/api/transactions/${transactionId}`, { 
-        method: "DELETE" 
+        method: "DELETE",
+        credentials: 'include' // <-- Always send credentials!
       });
       if (res.ok) {
         alert("Transaction deleted successfully!");
@@ -143,25 +148,45 @@
   function openReturnModal(transaction: Transaction) {
     selectedTransaction = transaction;
     showReturnModal = true;
+    returnVerification = { method: "password", password: "", qrData: "" }; // Reset verification
   }
 
   function closeReturnModal() {
     showReturnModal = false;
     selectedTransaction = null;
+    returnVerification = { method: "password", password: "", qrData: "" };
+  }
+
+  function handleReturnModalConfirm(e) {
+    returnVerification = e.detail;
+    confirmReturn();
   }
 
   async function confirmReturn() {
     if (!selectedTransaction) return;
     try {
       const res = await fetch(`/api/transactions/${selectedTransaction.id}/return`, { 
-        method: "POST"
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: returnVerification.method,
+          password: returnVerification.password,
+          qrData: returnVerification.qrData
+        }),
+        credentials: 'include'
       });
       if (res.ok) {
         alert("Book returned successfully!");
         closeReturnModal();
         location.reload();
       } else {
-        alert("Failed to return book.");
+        const data = await res.json();
+        if (res.status === 401) {
+          alert("Session expired or not authenticated. Please log in again.");
+          window.location.href = '/';
+          return;
+        }
+        alert(data.message || "Failed to return book.");
       }
     } catch (err) {
       alert("Error returning book.");
@@ -170,7 +195,6 @@
 
   function openConfirmBorrowModal(transaction: Transaction) {
     selectedTransaction = transaction;
-    // Set default due date to 24 hours from now
     const defaultDue = new Date();
     defaultDue.setHours(defaultDue.getHours() + 24);
     customDueDate = formatDateForInput(defaultDue);
@@ -191,7 +215,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           dueDate: customDueDate
-        })
+        }),
+        credentials: 'include'
       });
       if (res.ok) {
         alert("Reservation confirmed as borrow!");
@@ -205,6 +230,15 @@
       alert("Error confirming borrow.");
     }
   }
+
+  // Optional: Check session on mount
+  onMount(async () => {
+    const res = await fetch('/api/auth/session', { credentials: 'include' });
+    if (!res.ok) {
+      alert("Session expired. Please log in again.");
+      window.location.href = '/';
+    }
+  });
 
   // Calculate stats
   $: stats = {
@@ -645,6 +679,6 @@
     open={showReturnModal}
     transaction={selectedTransaction}
     on:close={closeReturnModal}
-    on:confirm={() => confirmReturn()}
+    on:confirm={handleReturnModalConfirm}
   />
 </Layout>

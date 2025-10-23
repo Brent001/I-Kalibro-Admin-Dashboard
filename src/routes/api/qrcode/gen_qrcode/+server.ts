@@ -8,7 +8,7 @@ import { customAlphabet } from 'nanoid';
 // Nanoid alphabet for unique, library-only tokens
 const nanoid = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 12);
 
-const ALLOWED_TYPES = ['library_visit', 'book'];
+const ALLOWED_TYPES = ['library_visit', 'book_qr'];
 
 // GET: Optionally filter by type
 export const GET: RequestHandler = async ({ url }) => {
@@ -35,14 +35,18 @@ export const POST: RequestHandler = async ({ request }) => {
   try {
     const { type } = await request.json();
     if (!type || !ALLOWED_TYPES.includes(type)) {
-      return json({ success: false, message: "Valid QR code type is required ('library_visit' or 'book')." }, { status: 400 });
+      return json({ success: false, message: "Valid QR code type is required ('library_visit' or 'book_qr')." }, { status: 400 });
     }
     // Generate a unique token (not based on date)
     let token: string;
     let exists = true;
     // Ensure uniqueness
     do {
-      token = `LIBVISIT-${nanoid()}`;
+      if (type === 'book_qr') {
+        token = `BOOKQR-${nanoid()}`;
+      } else {
+        token = `LIBVISIT-${nanoid()}`;
+      }
       const found = await db.select().from(qrCodeToken).where(eq(qrCodeToken.token, token)).limit(1);
       exists = found.length > 0;
     } while (exists);

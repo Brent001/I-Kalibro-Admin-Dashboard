@@ -51,7 +51,18 @@
     { id: 'notifications', name: 'Notifications', icon: 'bell' },
     { id: 'security', name: 'Security', icon: 'shield' },
     { id: 'system', name: 'System', icon: 'database' },
+    { id: 'profile', name: 'Profile', icon: 'users' }, // Added Profile tab
   ];
+
+  let profile = {
+    fullName: 'Admin User',
+    username: 'admin',
+    email: 'admin@mdc.edu.ph',
+    phone: '',
+    avatarUrl: '',
+    password: '',
+    confirmPassword: ''
+  };
 
   // SVG icon helper
   function getTabIcon(icon: string) {
@@ -497,6 +508,86 @@
                         View Logs
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+            {/if}
+
+            <!-- Profile Settings -->
+            {#if activeTab === 'profile'}
+              <div class="space-y-6">
+                <div>
+                  <h3 class="text-lg font-medium text-gray-900 mb-4">Profile Settings</h3>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Full Name
+                      </label>
+                      <input
+                        type="text"
+                        bind:value={profile.fullName}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        bind:value={profile.username}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        bind:value={profile.email}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Phone
+                      </label>
+                      <input
+                        type="tel"
+                        bind:value={profile.phone}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                        New Password
+                      </label>
+                      <input
+                        type="password"
+                        bind:value={profile.password}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        autocomplete="new-password"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Confirm Password
+                      </label>
+                      <input
+                        type="password"
+                        bind:value={profile.confirmPassword}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        autocomplete="new-password"
+                      />
+                    </div>
+                  </div>
+                  <div class="mt-6">
+                    <button
+                      class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      Save Profile
+                    </button>
                   </div>
                 </div>
               </div>
