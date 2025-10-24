@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { writable } from "svelte/store";
+  import { writable, get, derived } from "svelte/store";
   import { browser } from "$app/environment";
 
   export let onLogout: () => void = () => {};
@@ -11,69 +11,95 @@
   let isLoggingOut = false;
   let showLogoutOptions = false;
   
-  // User session state
-  let user: {
+  // Create a persistent user store that survives navigation
+  const userStore = writable<{
     id?: string;
     name?: string;
     username?: string;
     email?: string;
     role?: string;
     isActive?: boolean;
-  } | null = null;
+  } | null>(null);
+  
+  const isLoadingStore = writable(true);
+  const sessionErrorStore = writable(false);
+  
+  // Subscribe to stores for reactivity
+  type UserType = {
+    id?: string;
+    name?: string;
+    username?: string;
+    email?: string;
+    role?: string;
+    isActive?: boolean;
+  } | null;
+
+  let user: UserType = null;
   let isLoadingUser = true;
   let sessionError = false;
+  
+  $: user = $userStore;
+  $: isLoadingUser = $isLoadingStore;
+  $: sessionError = $sessionErrorStore;
 
-  const navigation = [
+  const allNavigation = [
     { 
       name: "Dashboard", 
       href: "/dashboard", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2 2z"/>
         <path stroke-linecap="round" stroke-linejoin="round" d="M8 5a2 2 0 012-2h4a2 2 0 012 2v4H8V5z"/>
-      </svg>` 
+      </svg>`,
+      roles: ["admin", "staff"]
     },
     { 
       name: "Books", 
       href: "/dashboard/books", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-      </svg>` 
+      </svg>`,
+      roles: ["admin", "staff"]
     },
     { 
       name: "Members", 
       href: "/dashboard/members", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
-      </svg>` 
+      </svg>`,
+      roles: ["admin", "staff"]
     },
     { 
       name: "Staff", 
       href: "/dashboard/staff", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-      </svg>` 
+      </svg>`,
+      roles: ["admin"]
     },
     { 
       name: "Transactions", 
       href: "/dashboard/transactions", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
-      </svg>` 
+      </svg>`,
+      roles: ["admin", "staff"]
     },
     { 
       name: "Reports", 
       href: "/dashboard/reports", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-      </svg>` 
+      </svg>`,
+      roles: ["admin", "staff"]
     },
     { 
       name: "Logs", 
       href: "/dashboard/logs", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <rect x="4" y="4" width="16" height="16" rx="2"/>
-        <path stroke-linecap="round" stroke-linejoin="round" d="M8 9h8M8 13h6M8 17h4"/>
-      </svg>` 
+      <rect x="4" y="4" width="16" height="16" rx="2"/>
+      <path stroke-linecap="round" stroke-linejoin="round" d="M8 9h8M8 13h6M8 17h4"/>
+    </svg>`,
+      roles: ["admin"] // <-- Only admin can see Logs now
     },
     { 
       name: "Settings", 
@@ -81,9 +107,16 @@
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-      </svg>` 
+      </svg>`,
+      roles: ["admin"]
     },
   ];
+
+  // Create a derived store for filtered navigation based on user role
+  const navigation = derived(userStore, ($user) => {
+    if (!$user) return allNavigation;
+    return allNavigation.filter(item => item.roles.includes($user.role));
+  });
 
   let currentPath = "";
   $: currentPath = $page.url.pathname;
@@ -92,9 +125,15 @@
   async function fetchUserSession() {
     if (!browser) return;
     
+    // If we already have user data, don't refetch
+    if (get(userStore) !== null) {
+      isLoadingStore.set(false);
+      return;
+    }
+    
     try {
-      isLoadingUser = true;
-      sessionError = false;
+      isLoadingStore.set(true);
+      sessionErrorStore.set(false);
       
       const response = await fetch('/api/auth/session', {
         method: 'GET',
@@ -107,26 +146,26 @@
       if (response.ok) {
         const result = await response.json();
         if (result.success && result.data?.user) {
-          user = result.data.user;
+          userStore.set(result.data.user);
         } else {
           console.warn('Invalid session response:', result);
-          sessionError = true;
+          sessionErrorStore.set(true);
         }
       } else if (response.status === 401) {
         // Not authenticated, redirect to login
-        user = null;
+        userStore.set(null);
         if (browser) {
           window.location.href = '/';
         }
       } else {
         console.error('Session fetch failed:', response.status);
-        sessionError = true;
+        sessionErrorStore.set(true);
       }
     } catch (error) {
       console.error('Error fetching user session:', error);
-      sessionError = true;
+      sessionErrorStore.set(true);
     } finally {
-      isLoadingUser = false;
+      isLoadingStore.set(false);
     }
   }
 
@@ -161,7 +200,7 @@
         }
         
         // Clear user data
-        user = null;
+        userStore.set(null);
         
         // Call the parent logout handler
         onLogout();
@@ -248,7 +287,7 @@
 
   function isNavActive(href: string) {
     // Find the deepest matching nav item
-    const matching = navigation
+    const matching = $navigation
       .filter(nav => currentPath === nav.href || currentPath.startsWith(nav.href + "/"))
       .sort((a, b) => b.href.length - a.href.length);
     return matching.length > 0 && matching[0].href === href;
@@ -267,17 +306,14 @@
       >
         <div class="flex items-center space-x-2">
           {#if notification.type === 'success'}
-            <!-- Changed from checkmark to thumbs up -->
             <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
             </svg>
           {:else if notification.type === 'error'}
-            <!-- Changed from X to alert triangle -->
             <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M12 2L2 22h20L12 2z"/>
             </svg>
           {:else}
-            <!-- Changed from warning triangle to info circle -->
             <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
@@ -327,21 +363,35 @@
     <!-- Navigation -->
     <nav class="mt-6 px-4">
       <ul class="space-y-1">
-        {#each navigation as item}
+        {#each $navigation as item}
           <li>
-            <a
-              href={item.href}
-              class="flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200
-                {isNavActive(item.href)
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}"
-              on:click|preventDefault={() => { goto(item.href); sidebarOpen.set(false); }}
-            >
-              <span class="flex-shrink-0">
-                {@html item.icon}
-              </span>
-              <span>{item.name}</span>
-            </a>
+            {#if !item.roles.includes(user?.role)}
+              <!-- Hide or disable if not permitted (shouldn't happen with filter, but for safety) -->
+              <div
+                class="flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded-lg opacity-50 pointer-events-none bg-gray-100 text-gray-400"
+                aria-disabled="true"
+                tabindex="-1"
+              >
+                <span class="flex-shrink-0">
+                  {@html item.icon}
+                </span>
+                <span>{item.name}</span>
+              </div>
+            {:else}
+              <a
+                href={item.href}
+                class="flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200
+                  {isNavActive(item.href)
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}"
+                on:click|preventDefault={() => { goto(item.href); sidebarOpen.set(false); }}
+              >
+                <span class="flex-shrink-0">
+                  {@html item.icon}
+                </span>
+                <span>{item.name}</span>
+              </a>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -351,29 +401,20 @@
     <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200">
       <div class="flex items-center space-x-3 mb-3">
         <div class="w-8 h-8 bg-slate-900 rounded-full flex items-center justify-center">
-          {#if isLoadingUser}
-            <div class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-          {:else}
-            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-          {/if}
+          <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
         </div>
         <div class="flex-1 min-w-0">
-          {#if isLoadingUser}
-            <div class="animate-pulse">
-              <div class="h-3 bg-gray-200 rounded w-20 mb-1"></div>
-              <div class="h-2 bg-gray-200 rounded w-24"></div>
-            </div>
-          {:else if sessionError}
+          {#if sessionError}
             <p class="text-sm font-medium text-red-600">Session Error</p>
             <p class="text-xs text-red-500">Unable to load user data</p>
           {:else if user}
-            <p class="text-sm font-medium text-gray-900 truncate" title={user.name || user.username}>
-              {user.name || user.username}
+            <p class="text-sm font-medium text-gray-900 truncate" title={user?.name ?? user?.username ?? ""}>
+              {user?.name ?? user?.username}
             </p>
-            <p class="text-xs text-gray-500 truncate" title={user.email}>
-              {user.email}
+            <p class="text-xs text-gray-500 truncate" title={user?.email ?? ""}>
+              {user?.email}
             </p>
           {:else}
             <p class="text-sm font-medium text-gray-900">Guest User</p>
@@ -388,7 +429,7 @@
           on:click|stopPropagation={() => showLogoutOptions = !showLogoutOptions}
           class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-lg transition-colors duration-200
             {isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}"
-          disabled={isLoggingOut || isLoadingUser}
+          disabled={isLoggingOut}
         >
           {#if isLoggingOut}
             <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
@@ -397,7 +438,6 @@
             </svg>
             <span>Signing out...</span>
           {:else}
-            <!-- Changed logout icon from arrow to power button -->
             <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M8 12v6a2 2 0 002 2h4a2 2 0 002-2v-6M12 2v10"/>
               <path stroke-linecap="round" stroke-linejoin="round" d="M16 6a4 4 0 10-8 0"/>
@@ -410,13 +450,12 @@
         </button>
 
         <!-- Logout Options Dropdown -->
-        {#if showLogoutOptions && !isLoggingOut && !isLoadingUser}
+        {#if showLogoutOptions && !isLoggingOut}
           <div class="absolute bottom-full left-0 right-0 mb-2 bg-white border border-gray-200 rounded-lg shadow-lg py-1">
             <button
               on:click={() => handleLogout(false)}
               class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              <!-- Changed from arrow to monitor icon -->
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <rect x="2" y="4" width="20" height="12" rx="2"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 20h8M12 16v4"/>
@@ -427,7 +466,6 @@
               on:click={() => handleLogout(true)}
               class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
             >
-              <!-- Changed to multiple monitors icon -->
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <rect x="8" y="2" width="12" height="8" rx="1"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16 12h4a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6a1 1 0 011-1h4"/>
@@ -456,7 +494,7 @@
             {#if currentPath === "/dashboard" && user?.role}
               {capitalize(user.role)} Dashboard
             {:else}
-              {navigation.find(nav => nav.href === currentPath)?.name || "Dashboard"}
+              {$navigation.find(nav => nav.href === currentPath)?.name || "Dashboard"}
             {/if}
           </h1>
         </div>
@@ -469,13 +507,9 @@
             <span class="absolute top-1 right-1 h-3 w-3 bg-red-500 rounded-full"></span>
           </button>
           <div class="w-8 h-8 bg-slate-900 rounded-full flex items-center justify-center">
-            {#if isLoadingUser}
-              <div class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-            {:else}
-              <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-              </svg>
-            {/if}
+            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
           </div>
         </div>
       </div>

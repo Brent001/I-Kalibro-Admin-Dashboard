@@ -36,6 +36,19 @@
   let showPassword = false;
   let showConfirmPassword = false;
 
+  // Comment out permissions and selectedPermissions
+  // const permissions = [
+  //   { key: 'view_books', label: 'Books' },
+  //   { key: 'view_members', label: 'Members' },
+  //   { key: 'view_transactions', label: 'Transactions' },
+  //   { key: 'view_visits', label: 'Visits' },
+  //   { key: 'view_logs', label: 'Logs' },
+  //   { key: 'view_reports', label: 'Reports' },
+  //   { key: 'view_staff', label: 'Staff' },
+  //   { key: 'view_settings', label: 'Settings' }
+  // ];
+  // let selectedPermissions: Record<string, boolean> = {};
+
   function validateForm() {
     errors = {};
     if (!formData.name.trim()) {
@@ -71,38 +84,6 @@
     return Object.keys(errors).length === 0;
   }
 
-  async function handleSubmit() {
-    if (!validateForm()) return;
-    isLoading = true;
-    try {
-      // Send POST request to API
-      const res = await fetch('/api/staff', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          email: formData.email.trim().toLowerCase(),
-          username: formData.username.trim().toLowerCase(),
-          password: formData.password,
-          role: formData.role
-        })
-      });
-      const result = await res.json();
-      if (!res.ok) {
-        errors.email = result.message || 'Failed to add staff';
-        isLoading = false;
-        return;
-      }
-      dispatch('staffAdded', result.data);
-      resetForm();
-      closeModal();
-    } catch (error) {
-      errors.email = 'Network error';
-    } finally {
-      isLoading = false;
-    }
-  }
-
   function resetForm() {
     formData = {
       name: '',
@@ -113,8 +94,29 @@
       role: 'staff'
     };
     errors = {};
+    // selectedPermissions = {};
+    isLoading = false;
     showPassword = false;
     showConfirmPassword = false;
+  }
+
+  $: if (!isOpen) {
+    resetForm();
+  }
+
+  async function handleSubmit() {
+    if (!validateForm()) return;
+    isLoading = true;
+    // const allowedKeys = Object.entries(selectedPermissions)
+    //   .filter(([_, allowed]) => allowed)
+    //   .map(([key]) => key);
+
+    dispatch('addStaff', {
+      formData
+      // permissionKeys: allowedKeys
+    });
+    isLoading = false;
+    resetForm();
   }
 
   function closeModal() {
@@ -122,7 +124,7 @@
     resetForm();
   }
 
-  function handleBackdropClick(event) {
+  function handleBackdropClick(event: MouseEvent) {
     if (event.target === event.currentTarget) {
       closeModal();
     }
@@ -152,41 +154,43 @@
 </script>
 
 {#if isOpen}
-  <!-- Modal Backdrop with Blur Effect -->
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4" on:click={handleBackdropClick} role="dialog" aria-modal="true" aria-labelledby="add-staff-title">
-    <!-- Blurred Background Overlay -->
     <div class="fixed inset-0 bg-black/50 backdrop-blur-sm transition-all duration-300"></div>
-    <!-- Modal Container -->
-    <div class="relative w-full max-w-4xl max-h-[90vh] transform transition-all duration-300 scale-100">
-      <!-- Modal Panel - Floating Card -->
-      <div class="bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-slate-200/50 overflow-hidden">
-        <form on:submit|preventDefault={handleSubmit}>
-          <!-- Header -->
-          <div class="px-6 py-4 border-b border-slate-200/50 bg-white/80">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="text-xl font-bold text-slate-900" id="add-staff-title">Add New Staff Member</h3>
-                <p class="text-sm text-slate-600">Create a new staff account for the library management system</p>
-              </div>
-              <button
-                type="button"
-                class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100/50 transition-colors duration-200"
-                on:click={closeModal}
-                disabled={isLoading}
-              >
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+    
+    <div class="relative w-full max-w-5xl max-h-[95vh] transform transition-all duration-300 scale-100">
+      <div class="bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-slate-200/50 overflow-hidden flex flex-col max-h-[95vh]">
+        
+        <!-- Header - Fixed -->
+        <div class="px-6 py-4 border-b border-slate-200/50 bg-white/80 flex-shrink-0">
+          <div class="flex items-start justify-between">
+            <div>
+              <h3 class="text-xl font-bold text-slate-900" id="add-staff-title">Add New Staff Member</h3>
+              <p class="text-sm text-slate-600 mt-0.5">Create a new staff account for the library management system</p>
             </div>
+            <button
+              type="button"
+              class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100/50 transition-colors duration-200 flex-shrink-0"
+              on:click={closeModal}
+              disabled={isLoading}
+            >
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-          <!-- Form Content with Scroll and Desktop Grid -->
-          <div class="px-6 py-6 max-h-[60vh] overflow-y-auto">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <!-- Left Column -->
-              <div class="space-y-6">
+        </div>
+
+        <!-- Form Content - Scrollable -->
+        <form on:submit|preventDefault={handleSubmit} class="flex flex-col flex-1 min-h-0">
+          <div class="flex-1 overflow-y-auto px-6 py-4">
+            
+            <!-- Account Information Section -->
+            <div class="mb-6">
+              <h4 class="text-sm font-medium text-gray-700 mb-3 uppercase tracking-wide">Account Information</h4>
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                
                 <!-- Name -->
-                <div>
+                <div class="lg:col-span-2">
                   <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
                     Full Name <span class="text-red-500">*</span>
                   </label>
@@ -215,6 +219,7 @@
                     <p class="mt-1 text-sm text-red-600">{errors.name}</p>
                   {/if}
                 </div>
+
                 <!-- Email -->
                 <div>
                   <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
@@ -254,6 +259,7 @@
                     <p class="mt-1 text-sm text-red-600">{errors.email}</p>
                   {/if}
                 </div>
+
                 <!-- Username -->
                 <div>
                   <label for="username" class="block text-sm font-medium text-gray-700 mb-1">
@@ -288,8 +294,9 @@
                     <p class="mt-1 text-sm text-gray-500">Username must be unique and contain only letters, numbers, dots, underscores, and hyphens</p>
                   {/if}
                 </div>
+
                 <!-- Role -->
-                <div>
+                <div class="lg:col-span-2">
                   <label for="role" class="block text-sm font-medium text-gray-700 mb-1">
                     Role <span class="text-red-500">*</span>
                   </label>
@@ -307,8 +314,13 @@
                   </p>
                 </div>
               </div>
-              <!-- Right Column -->
-              <div class="space-y-6">
+            </div>
+
+            <!-- Security Section -->
+            <div class="mb-6">
+              <h4 class="text-sm font-medium text-gray-700 mb-3 uppercase tracking-wide">Security</h4>
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                
                 <!-- Password -->
                 <div>
                   <label for="password" class="block text-sm font-medium text-gray-700 mb-1">
@@ -347,6 +359,7 @@
                     <p class="mt-1 text-sm text-red-600">{errors.password}</p>
                   {/if}
                 </div>
+
                 <!-- Confirm Password -->
                 <div>
                   <label for="confirmPassword" class="block text-sm font-medium text-gray-700 mb-1">
@@ -385,67 +398,102 @@
                     <p class="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
                   {/if}
                 </div>
+
                 <!-- Password Requirements -->
-                <div class="bg-gray-50 rounded-md p-4">
+                <div class="lg:col-span-2 bg-gray-50 rounded-md p-3">
                   <h4 class="text-sm font-medium text-gray-900 mb-2">Password Requirements:</h4>
-                  <ul class="text-sm text-gray-600 space-y-1">
-                    <li class="flex items-center">
-                      <svg class="h-4 w-4 mr-2" class:text-green-500={formData.password.length >= 8} class:text-gray-400={formData.password.length < 8} fill="currentColor" viewBox="0 0 20 20">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <div class="flex items-center text-sm text-gray-600">
+                      <svg class="h-4 w-4 mr-2 flex-shrink-0" class:text-green-500={formData.password.length >= 8} class:text-gray-400={formData.password.length < 8} fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
                       </svg>
                       At least 8 characters
-                    </li>
-                    <li class="flex items-center">
-                      <svg class="h-4 w-4 mr-2" class:text-green-500={/[A-Z]/.test(formData.password)} class:text-gray-400={!/[A-Z]/.test(formData.password)} fill="currentColor" viewBox="0 0 20 20">
+                    </div>
+                    <div class="flex items-center text-sm text-gray-600">
+                      <svg class="h-4 w-4 mr-2 flex-shrink-0" class:text-green-500={/[A-Z]/.test(formData.password)} class:text-gray-400={!/[A-Z]/.test(formData.password)} fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
                       </svg>
                       One uppercase letter
-                    </li>
-                    <li class="flex items-center">
-                      <svg class="h-4 w-4 mr-2" class:text-green-500={/[a-z]/.test(formData.password)} class:text-gray-400={!/[a-z]/.test(formData.password)} fill="currentColor" viewBox="0 0 20 20">
+                    </div>
+                    <div class="flex items-center text-sm text-gray-600">
+                      <svg class="h-4 w-4 mr-2 flex-shrink-0" class:text-green-500={/[a-z]/.test(formData.password)} class:text-gray-400={!/[a-z]/.test(formData.password)} fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
                       </svg>
                       One lowercase letter
-                    </li>
-                    <li class="flex items-center">
-                      <svg class="h-4 w-4 mr-2" class:text-green-500={/\d/.test(formData.password)} class:text-gray-400={!/\d/.test(formData.password)} fill="currentColor" viewBox="0 0 20 20">
+                    </div>
+                    <div class="flex items-center text-sm text-gray-600">
+                      <svg class="h-4 w-4 mr-2 flex-shrink-0" class:text-green-500={/\d/.test(formData.password)} class:text-gray-400={!/\d/.test(formData.password)} fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
                       </svg>
                       One number
-                    </li>
-                  </ul>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-          <!-- Footer -->
-          <div class="px-6 py-4 border-t border-slate-200/50 bg-white/80 flex flex-col sm:flex-row-reverse gap-3">
-            <button
-              type="submit"
-              class="flex-1 sm:flex-initial sm:min-w-[120px] inline-flex justify-center items-center rounded-xl border border-transparent shadow-lg px-6 py-3 bg-slate-900 text-base font-medium text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={isLoading}
-            >
-              {#if isLoading}
-                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Creating...
-              {:else}
-                <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-                </svg>
-                Create Staff Account
+
+            <!-- Permissions Section Removed -->
+            {#if false}
+              <!--
+              {#if formData.role !== 'admin'}
+                <div class="mb-4">
+                  <h4 class="text-sm font-medium text-gray-700 mb-3 uppercase tracking-wide">Dashboard Access Permissions</h4>
+                  <div class="bg-slate-50 rounded-md p-3">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {#each permissions as perm}
+                        <label class="flex items-center space-x-2 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            bind:checked={selectedPermissions[perm.key]}
+                            class="h-4 w-4 text-slate-600 border-gray-300 rounded focus:ring-slate-500"
+                            disabled={isLoading}
+                          />
+                          <span class="text-sm text-gray-700 group-hover:text-gray-900">
+                            {perm.label}
+                          </span>
+                        </label>
+                      {/each}
+                    </div>
+                    {#if Object.keys(selectedPermissions).length === 0}
+                      <p class="mt-3 text-sm text-red-600">At least one permission must be selected</p>
+                    {/if}
+                  </div>
+                </div>
               {/if}
-            </button>
-            <button
-              type="button"
-              on:click={closeModal}
-              disabled={isLoading}
-              class="flex-1 sm:flex-initial sm:min-w-[120px] inline-flex justify-center items-center rounded-xl border border-slate-300 shadow-sm px-6 py-3 bg-white/80 text-base font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
+              -->
+            {/if}
+          </div>
+
+          <!-- Footer - Fixed -->
+          <div class="px-6 py-4 border-t border-slate-200/50 bg-white/80 flex-shrink-0">
+            <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+              <button
+                type="button"
+                on:click={closeModal}
+                disabled={isLoading}
+                class="inline-flex justify-center items-center rounded-xl border border-slate-300 shadow-sm px-6 py-2.5 bg-white/80 text-base font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="inline-flex justify-center items-center rounded-xl border border-transparent shadow-lg px-6 py-2.5 bg-slate-900 text-base font-medium text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isLoading}
+              >
+                {#if isLoading}
+                  <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Creating...
+                {:else}
+                  <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                  </svg>
+                  Create Staff Account
+                {/if}
+              </button>
+            </div>
           </div>
         </form>
       </div>
