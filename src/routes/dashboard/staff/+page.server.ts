@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
-export const load: PageServerLoad = async ({ cookies, url }) => {
+export const load: PageServerLoad = async ({ cookies }) => {
     const token = cookies.get('token');
     
     if (!token) {
@@ -19,6 +19,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
         const userId = decoded.userId || decoded.id;
         
         if (!userId) {
+            // Only delete token if invalid, not for staff
             cookies.delete('token', { path: '/' });
             throw redirect(302, '/');
         }
@@ -41,6 +42,11 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
             throw redirect(302, '/');
         }
 
+        // Redirect staff to dashboard (do NOT delete token)
+        if (user.role === 'staff') {
+            throw redirect(302, '/dashboard');
+        }
+
         return {
             user: {
                 id: user.id,
@@ -52,6 +58,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
         };
 
     } catch (error) {
+        // Only delete token if invalid, not for staff
         cookies.delete('token', { path: '/' });
         throw redirect(302, '/');
     }

@@ -4,6 +4,7 @@
   import Layout from "$lib/components/ui/layout.svelte";
   import AddBooks from "$lib/components/ui/add_books.svelte";
   import AddCategory from "$lib/components/ui/add_category.svelte";
+  import ViewBook from "$lib/components/ui/view_book.svelte";
 
   let searchTerm = "";
   let selectedCategory = "all";
@@ -56,9 +57,10 @@
     hasPrevPage: false
   };
 
-  // Categories - you may want to fetch these from API too
-  let categories = ['all'];
+  // Categories - fetch from API
+  let categories: { id: number, name: string }[] = [];
   let categoryMap: Record<number, string> = {};
+
   let stats = {
     totalBooks: 0,
     availableCopies: 0,
@@ -77,38 +79,32 @@
 
   // Function to fetch books from API
   async function fetchBooks(page = 1, search = "", category = "") {
-    if (!browser) return; // Skip during SSR
-    
+    if (!browser) return;
     loading = true;
     error = "";
-    
     try {
       const params = new URLSearchParams();
       params.set('page', page.toString());
-      params.set('limit', '20'); // Adjust as needed
-      
+      params.set('limit', '20');
       if (search) params.set('search', search);
-      if (category && category !== 'all') params.set('category', category);
-      
+      if (category && category !== 'all') {
+        // Find categoryId by name
+        const catObj = categories.find(c => c.name === category);
+        if (catObj) params.set('categoryId', catObj.id.toString());
+      }
       const response = await fetch(`/api/books?${params.toString()}`, {
         method: 'GET',
-        credentials: 'include', // Include cookies for authentication
-        headers: {
-          'Content-Type': 'application/json',
-        }
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
       });
-
       if (!response.ok) {
         if (response.status === 401) {
-          // Handle unauthorized - redirect to login
           window.location.href = '/';
           return;
         }
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-
       const data: ApiResponse = await response.json();
-      
       if (data.success) {
         // Transform API data to match your frontend expectations
         books = data.data.books.map(book => ({
@@ -118,8 +114,7 @@
           published: book.publishedYear?.toString() || 'Unknown',
           status: book.copiesAvailable > 5 ? 'Available' : 
                   book.copiesAvailable > 0 ? 'Limited' : 'Unavailable',
-          // Use category name from categoryMap, fallback to 'General'
-          category: categoryMap[book.categoryId] || 'General'
+          category: book.categoryId !== undefined ? categoryMap[book.categoryId] || book.category || 'General' : book.category || 'General'
         }));
         pagination = data.data.pagination;
       } else {
@@ -167,10 +162,10 @@
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          categories = ['all', ...data.data.categories.map((cat: any) => cat.name)];
+          categories = data.data.categories;
           // Build categoryMap for ID -> name lookup
           categoryMap = {};
-          for (const cat of data.data.categories) {
+          for (const cat of categories) {
             categoryMap[cat.id] = cat.name;
           }
         }
@@ -230,13 +225,13 @@
   }
 
   // Event handlers for the modal
-  function handleAddBookSuccess(event) {
+  function handleAddBookSuccess(event: CustomEvent) {
     console.log('Book added successfully:', event.detail);
     // Refresh the book list and stats
     Promise.all([fetchBooks(), fetchStats()]);
   }
 
-  function handleAddBookError(event) {
+  function handleAddBookError(event: CustomEvent) {
     console.error('Error adding book:', event.detail);
     error = event.detail.message;
   }
@@ -321,12 +316,45 @@
     showAddCategoryModal = false;
     fetchCategories();
   }
-  function handleAddCategoryError(event) {
+  function handleAddCategoryError(event: CustomEvent) {
     categoryError = event.detail.message;
   }
   function handleAddCategoryClose() {
     showAddCategoryModal = false;
   }
+
+  let showViewBookModal = false;
+  let showEditBookModal = false;
+  let selectedBook: Book | null = null;
+
+  function openViewBookModal(book: Book) {
+    selectedBook = book;
+    showViewBookModal = true;
+    showEditBookModal = false;
+  }
+
+  function openEditBookModal(book: Book) {
+    selectedBook = book;
+    showEditBookModal = true;
+    showViewBookModal = false;
+  }
+
+  function closeBookModal() {
+    showViewBookModal = false;
+    showEditBookModal = false;
+    selectedBook = null;
+  }
+
+  function handleBookSave(event: CustomEvent) {
+    // You can implement save logic here
+    closeBookModal();
+    fetchBooks();
+  }
+
+  // Update category dropdown for filters
+  let categoryDropdownOptions = ['all', ...categories.map(c => c.name)];
+
+  $: categoryDropdownOptions = ['all', ...categories.map(c => c.name)];
 </script>
 
 <Layout>
@@ -489,7 +517,7 @@
             class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200"
             disabled={loading}
           >
-            {#each categories as category}
+            {#each categoryDropdownOptions as category}
               <option value={category}>
                 {category === 'all' ? 'All Categories' : category}
               </option>
@@ -657,18 +685,28 @@
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div class="flex space-x-3">
-                      <button class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
+                      <button
+                        aria-label="View Details"
+                        class="text-slate-600 hover:text-slate-900 transition-colors duration-200"
+                        title="View Details"
+                        on:click={() => openViewBookModal(book)}
+                      >
                         <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                           <circle cx="12" cy="12" r="3"/>
                           <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                         </svg>
                       </button>
-                      <button class="text-emerald-600 hover:text-emerald-700 transition-colors duration-200" title="Edit Book">
+                      <button
+                        aria-label="Edit Book"
+                        class="text-emerald-600 hover:text-emerald-700 transition-colors duration-200"
+                        title="Edit Book"
+                        on:click={() => openEditBookModal(book)}
+                      >
                         <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
                         </svg>
                       </button>
-                      <button 
+                      <button aria-label="Delete Book" 
                         class="text-red-600 hover:text-red-700 transition-colors duration-200" 
                         title="Delete Book"
                         on:click={() => deleteBook(book.id, book.title)}
@@ -732,18 +770,28 @@
             </div>
 
             <div class="flex justify-end space-x-3">
-              <button class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors duration-200" title="View Details">
+              <button
+                aria-label="View Details"
+                class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors duration-200"
+                title="View Details"
+                on:click={() => openViewBookModal(book)}
+              >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <circle cx="12" cy="12" r="3"/>
                   <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                 </svg>
               </button>
-              <button class="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors duration-200" title="Edit Book">
+              <button
+                aria-label="Edit Book"
+                class="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors duration-200"
+                title="Edit Book"
+                on:click={() => openEditBookModal(book)}
+              >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
                 </svg>
               </button>
-              <button 
+              <button aria-label="Delete Book" 
                 class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" 
                 title="Delete Book"
                 on:click={() => deleteBook(book.id, book.title)}
@@ -822,5 +870,20 @@
       on:error={handleAddCategoryError}
       on:close={handleAddCategoryClose}
     />
+
+    <!-- Book View/Edit Modal -->
+    {#if showViewBookModal || showEditBookModal}
+      <ViewBook
+        isOpen={showViewBookModal || showEditBookModal}
+        book={selectedBook}
+        isEditMode={showEditBookModal}
+        on:close={closeBookModal}
+        on:save={handleBookSave}
+        on:edit={() => {
+          showEditBookModal = true;
+          showViewBookModal = false;
+        }}
+      />
+    {/if}
   </div>
 </Layout>

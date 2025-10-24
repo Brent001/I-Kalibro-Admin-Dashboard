@@ -4,6 +4,10 @@
   import { slide } from 'svelte/transition';
   import { quintOut } from 'svelte/easing';
 
+  // Add this to get user role from SSR data (if available)
+  export let data: { user?: { role?: string } };
+  $: userRole = data?.user?.role || "";
+
   let visits: any[] = [];
   let loading = true;
   let errorMsg = "";
@@ -95,6 +99,10 @@
   }
 
   async function generateQrCode(type: string) {
+    if (userRole === "staff") {
+      errorMsg = "Only admin can generate QR codes.";
+      return;
+    }
     showTypeSelectionModal = false;
     const res = await fetch("/api/qrcode/gen_qrcode", {
       method: "POST",
@@ -124,6 +132,10 @@
   }
 
   async function deleteQrCode(qrId: number) {
+    if (userRole === "staff") {
+      errorMsg = "Only admin can delete QR codes.";
+      return;
+    }
     if (!confirm("Are you sure you want to delete this QR code?")) return;
     try {
       const res = await fetch(`/api/qrcode/gen_qrcode`, {
@@ -213,6 +225,7 @@
         <h2 class="text-2xl font-bold text-slate-900">Library Visit Management</h2>
         <p class="text-slate-600">Track visitor check-ins and manage QR codes</p>
       </div>
+      {#if userRole !== 'staff'}
       <button
         on:click={openTypeSelectionModal}
         class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
@@ -226,6 +239,7 @@
         </svg>
         Generate QR Code
       </button>
+      {/if}
     </div>
 
     <!-- Success/Error Messages -->
@@ -407,6 +421,8 @@
               <button
                 on:click={() => generateQrCode(option.value)}
                 class="group relative p-6 border-2 border-slate-200 rounded-xl hover:border-slate-900 hover:shadow-lg transition-all duration-200 text-left"
+                disabled={userRole === 'staff'}
+                style={userRole === 'staff' ? 'opacity:0.5;cursor:not-allowed;' : ''}
               >
                 <div class="flex items-start space-x-4">
                   <div class="p-3 bg-slate-100 rounded-lg group-hover:bg-slate-900 transition-colors duration-200">
@@ -427,6 +443,11 @@
               </button>
             {/each}
           </div>
+          {#if userRole === 'staff'}
+            <div class="mt-4 text-red-600 text-sm font-medium text-center">
+              Only admin can generate QR codes.
+            </div>
+          {/if}
         </div>
       </div>
     {/if}
@@ -543,6 +564,8 @@
                 <button
                   class="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors duration-200"
                   on:click={() => deleteQrCode(qr.id)}
+                  disabled={userRole === 'staff'}
+                  style={userRole === 'staff' ? 'opacity:0.5;cursor:not-allowed;' : ''}
                 >
                   Delete
                 </button>

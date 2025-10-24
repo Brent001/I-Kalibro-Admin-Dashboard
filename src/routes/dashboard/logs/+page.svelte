@@ -291,9 +291,6 @@
                 Event Type
               </th>
               <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                User Type
-              </th>
-              <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 IP Address
               </th>
               <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
@@ -324,11 +321,6 @@
                 <td class="px-6 py-4 whitespace-nowrap">
                   <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getEventTypeColor(log.eventType)}`}>
                     {log.eventType.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                  </span>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                  <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getUserTypeColor(log)}`}>
-                    {getUserTypeLabel(log)}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">

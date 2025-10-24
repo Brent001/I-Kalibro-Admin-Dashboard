@@ -3,7 +3,12 @@
   import AddMemberModal from "$lib/components/ui/add_member.svelte";
   import DeleteMember from "$lib/components/ui/delete_member.svelte";
   import EditMemberModal from "$lib/components/ui/edit_member_modal.svelte";
+  import ViewMember from "$lib/components/ui/view_member.svelte";
   import { onMount } from 'svelte';
+
+  // Get user from SSR data
+  export let data: { user: { role: string } };
+  $: userRole = data?.user?.role || '';
 
   let members: any[] = [];
   let loading = true;
@@ -287,6 +292,8 @@
         <h2 class="text-2xl font-bold text-slate-900">Member Management</h2>
         <p class="text-slate-600">Manage library members and their accounts</p>
       </div>
+      <!-- Header Add Button -->
+      {#if userRole === 'admin'}
       <button
         on:click={openAddModal}
         class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
@@ -296,6 +303,7 @@
         </svg>
         Add New Member
       </button>
+      {/if}
     </div>
 
     <!-- Success/Error Messages -->
@@ -308,7 +316,7 @@
           </div>
           <button on:click={() => successMsg = ""} class="text-green-400 hover:text-green-600">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
             </svg>
           </button>
         </div>
@@ -329,7 +337,7 @@
           </div>
           <button on:click={() => errorMsg = ""} class="text-red-400 hover:text-red-600">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
             </svg>
           </button>
         </div>
@@ -556,7 +564,7 @@
                 <tr class="hover:bg-slate-50 transition-colors duration-200">
                   <td class="px-6 py-4 whitespace-nowrap">
                     <div>
-                      <div class="text-sm font-semibold text-slate-900">{member.name}</div>
+                      <div class="text-sm font-semibold text-slate-900">{member.username}</div>
                       <div class="text-sm text-slate-600">{member.email}</div>
                       <div class="text-xs text-slate-400">{member.phone}</div>
                     </div>
@@ -598,12 +606,15 @@
                       <button on:click={() => openViewModal(member.id)} class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
                         View
                       </button>
-                      <button on:click={() => openEditModal(member)} class="text-emerald-600 hover:text-emerald-700 transition-colors duration-200" title="Edit Member">
-                        Edit
-                      </button>
-                      <button on:click={() => openDeleteModal(member)} class="text-red-600 hover:text-red-700 transition-colors duration-200" title="Remove Member">
-                        Remove
-                      </button>
+                      {#if userRole === 'admin'}
+                        <button on:click={() => openEditModal(member)} class="text-emerald-600 hover:text-emerald-700 transition-colors duration-200" title="Edit Member">
+                          Edit
+                        </button>
+                        <button on:click={() => openDeleteModal(member)} class="text-red-600 hover:text-red-700 transition-colors duration-200" title="Remove Member">
+                          Remove
+                        </button>
+                      {/if}
+                      <!-- Staff accounts only see "View" button, no edit/remove -->
                     </div>
                   </td>
                 </tr>
@@ -644,16 +655,18 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                   </svg>
                 </button>
-                <button on:click={() => openEditModal(member)} class="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors duration-200" title="Edit Member">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
-                  </svg>
-                </button>
-                <button on:click={() => openDeleteModal(member)} class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" title="Remove Member">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                  </svg>
-                </button>
+                {#if userRole === 'admin'}
+                  <button on:click={() => openEditModal(member)} class="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors duration-200" title="Edit Member">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
+                    </svg>
+                  </button>
+                  <button on:click={() => openDeleteModal(member)} class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" title="Remove Member">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                  </button>
+                {/if}
               </div>
             </div>
             <div class="space-y-2 text-xs text-slate-600">
@@ -775,8 +788,11 @@
       />
     {/if}
     {#if showViewModal}
-      <!-- You can keep your existing view modal or refactor for consistency -->
-      <!-- ... -->
+      <ViewMember
+        isOpen={showViewModal}
+        member={selectedMember}
+        on:close={closeModals}
+      />
     {/if}
     {#if showDeleteModal && selectedMember}
       <DeleteMember

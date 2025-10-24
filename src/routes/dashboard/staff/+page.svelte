@@ -1,6 +1,7 @@
 <script lang="ts">
   import Layout from "$lib/components/ui/layout.svelte";
   import AddStaff from "$lib/components/ui/add_staff.svelte";
+  import EditStaff from "$lib/components/ui/edit_staff.svelte";
   import { onMount } from "svelte";
 
   let searchTerm = "";
@@ -17,13 +18,26 @@
   const roleTypes = ['all', 'admin', 'staff'];
   const statusTypes = ['all', 'active', 'inactive'];
 
+  // Permissions list for both add/edit modals
+  const permissionsList = [
+    { key: 'view_books', label: 'Books' },
+    { key: 'view_members', label: 'Members' },
+    { key: 'view_transactions', label: 'Transactions' },
+    { key: 'view_visits', label: 'Visits' },
+    { key: 'view_logs', label: 'Logs' },
+    { key: 'view_reports', label: 'Reports' },
+    { key: 'view_staff', label: 'Staff' },
+    { key: 'view_settings', label: 'Settings' }
+  ];
+
   // Fetch staff from API
   async function fetchStaff() {
     loading = true;
+    errorMsg = "";
     try {
       const res = await fetch('/api/staff');
       const data = await res.json();
-      staff = data.data.staff.map(s => ({
+      staff = data.data.staff.map((s: any) => ({
         ...s,
         tokenVersion: s.tokenVersion ?? 0,
         createdAt: s.joined ?? s.createdAt,
@@ -31,6 +45,7 @@
       }));
     } catch (err) {
       errorMsg = "Failed to load staff.";
+      console.error(err);
     } finally {
       loading = false;
     }
@@ -89,25 +104,97 @@
   }
 
   // Add Staff Handler
-  async function handleStaffAdded(event) {
-    await fetchStaff();
-    isAddStaffOpen = false;
+  async function handleStaffAdded(event: CustomEvent) {
+    loading = true;
+    errorMsg = "";
+    try {
+      const res = await fetch('/api/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...event.detail.formData,
+          permissionKeys: event.detail.permissionKeys
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchStaff();
+        isAddStaffOpen = false;
+      } else {
+        errorMsg = data.message || 'Failed to add staff.';
+      }
+    } catch (err) {
+      errorMsg = "Failed to add staff.";
+      console.error(err);
+    } finally {
+      loading = false;
+    }
   }
 
   // Edit Staff Handler
-  async function handleEditStaff(staffMember) {
+  async function handleEditStaff(staffMember: any) {
     selectedStaff = staffMember;
     isEditStaffOpen = true;
   }
 
-  async function handleStaffUpdated(event) {
-    await fetchStaff();
-    isEditStaffOpen = false;
-    selectedStaff = null;
+  async function handleStaffUpdated(event: CustomEvent) {
+    loading = true;
+    errorMsg = "";
+    try {
+      const { id, username, password, permissionKeys, uniqueId } = event.detail;
+
+      // 1. Update username/password if changed
+      if (
+        (username && selectedStaff.username !== username) ||
+        (password && password.length >= 8)
+      ) {
+        const updateRes = await fetch('/api/staff', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, username, password })
+        });
+
+        if (!updateRes.ok) {
+          const data = await updateRes.json();
+          errorMsg = data.message || "Failed to update staff.";
+          loading = false;
+          return;
+        }
+      }
+
+      // 2. Update permissions for staff role only
+      if (
+        uniqueId &&
+        selectedStaff?.role === 'staff' &&
+        Array.isArray(permissionKeys)
+      ) {
+        const permRes = await fetch(`/api/staff/${uniqueId}/edit_permission`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ permissionKeys })
+        });
+
+        if (!permRes.ok) {
+          const data = await permRes.json();
+          errorMsg = data.message || "Failed to update permissions.";
+          loading = false;
+          return;
+        }
+      }
+
+      await fetchStaff();
+      isEditStaffOpen = false;
+      selectedStaff = null;
+    } catch (err) {
+      console.error('Error updating staff:', err);
+      errorMsg = "Failed to update staff.";
+    } finally {
+      loading = false;
+    }
   }
 
   // Delete Staff Handler
-  async function handleDeleteStaff(staffMember) {
+  async function handleDeleteStaff(staffMember: any) {
     selectedStaff = staffMember;
     isDeleteStaffOpen = true;
   }
@@ -115,34 +202,50 @@
   async function confirmDeleteStaff() {
     if (!selectedStaff) return;
     loading = true;
+    errorMsg = "";
     try {
-      await fetch('/api/staff', {
+      const res = await fetch('/api/staff', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: selectedStaff.id })
       });
-      await fetchStaff();
-      isDeleteStaffOpen = false;
-      selectedStaff = null;
+      
+      if (res.ok) {
+        await fetchStaff();
+        isDeleteStaffOpen = false;
+        selectedStaff = null;
+      } else {
+        const data = await res.json();
+        errorMsg = data.message || "Failed to delete staff.";
+      }
     } catch (err) {
       errorMsg = "Failed to delete staff.";
+      console.error(err);
     } finally {
       loading = false;
     }
   }
 
   // Toggle Active/Inactive
-  async function toggleStaffStatus(staffMember) {
+  async function toggleStaffStatus(staffMember: any) {
     loading = true;
+    errorMsg = "";
     try {
-      await fetch('/api/staff', {
+      const res = await fetch('/api/staff', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: staffMember.id, isActive: !staffMember.isActive })
       });
-      await fetchStaff();
+      
+      if (res.ok) {
+        await fetchStaff();
+      } else {
+        const data = await res.json();
+        errorMsg = data.message || "Failed to update status.";
+      }
     } catch (err) {
       errorMsg = "Failed to update status.";
+      console.error(err);
     } finally {
       loading = false;
     }
@@ -150,7 +253,19 @@
 </script>
 
 <Layout>
-  <div class={`space-y-6 transition-all duration-300 ${isAddStaffOpen ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
+  <div class={`space-y-6 transition-all duration-300 ${isAddStaffOpen || isEditStaffOpen ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
+    <!-- Error Message -->
+    {#if errorMsg}
+      <div class="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center justify-between">
+        <span>{errorMsg}</span>
+        <button on:click={() => errorMsg = ""} class="text-red-600 hover:text-red-800">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    {/if}
+
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
@@ -267,7 +382,7 @@
     </div>
 
     <!-- Skeleton Loading State -->
-    {#if loading}
+    {#if loading && staff.length === 0}
       <div class="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden">
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200">
@@ -298,7 +413,7 @@
     {/if}
 
     <!-- Desktop Table View -->
-    {#if !loading}
+    {#if !loading || staff.length > 0}
     <div class="hidden lg:block bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden">
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
@@ -351,9 +466,6 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <div class="flex space-x-3">
-                    <button class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
-                      View
-                    </button>
                     <button class="text-emerald-600 hover:text-emerald-700 transition-colors duration-200" title="Edit Staff" on:click={() => handleEditStaff(member)}>
                       Edit
                     </button>
@@ -394,20 +506,9 @@
               </div>
             </div>
             <div class="flex space-x-1 ml-2">
-              <button class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                </svg>
-              </button>
               <button class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Staff" on:click={() => handleEditStaff(member)}>
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                </svg>
-              </button>
-              <button class="p-1 text-blue-600 hover:text-blue-900 transition-colors duration-200" title="Reset Password">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 12H9v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.586l4.707-4.707A6.006 6.006 0 0118 9z"/>
                 </svg>
               </button>
               <button class="p-1 text-red-600 hover:text-red-900 transition-colors duration-200" title="Delete Staff" on:click={() => handleDeleteStaff(member)}>
@@ -437,9 +538,6 @@
           <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
             <div class="text-xs text-gray-600">
               <div class="font-medium">Joined {formatDateTimeMobile(member.createdAt)}</div>
-              <div>Token v{member.tokenVersion}</div>
-            </div>
-            <div class="text-xs text-gray-500">
             </div>
           </div>
         </div>
@@ -472,24 +570,50 @@
     </div>
   </div>
 
-  <!-- Add the modal component -->
+  <!-- Add Staff Modal -->
   <AddStaff
     isOpen={isAddStaffOpen}
     on:close={() => isAddStaffOpen = false}
     on:staffAdded={handleStaffAdded}
+    on:addStaff={handleStaffAdded}
   />
 
-  <!-- EditStaff Modal (implement similar to AddStaff, pass selectedStaff) -->
+  <!-- Edit Staff Modal -->
+  <EditStaff
+    isOpen={isEditStaffOpen}
+    staff={selectedStaff}
+    permissionsList={permissionsList}
+    on:close={() => { isEditStaffOpen = false; selectedStaff = null; }}
+    on:editStaff={handleStaffUpdated}
+  />
+
   <!-- Delete Confirmation Modal -->
   {#if isDeleteStaffOpen}
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div class="bg-white rounded-xl shadow-xl p-8 max-w-md w-full">
-        <h3 class="text-lg font-bold mb-2">Delete Staff</h3>
-        <p class="mb-4">Are you sure you want to permanently delete <span class="font-semibold">{selectedStaff?.name}</span>?</p>
-        <div class="flex justify-end space-x-2">
-          <button class="px-4 py-2 rounded bg-gray-200" on:click={() => isDeleteStaffOpen = false}>Cancel</button>
-          <button class="px-4 py-2 rounded bg-red-600 text-white" on:click={confirmDeleteStaff} disabled={loading}>
-            {loading ? 'Deleting...' : 'Delete'}
+      <div class="bg-white rounded-xl shadow-xl p-8 max-w-md w-full mx-4">
+        <div class="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
+          <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+        </div>
+        <h3 class="text-lg font-bold text-center mb-2">Delete Staff Member</h3>
+        <p class="text-gray-600 text-center mb-6">
+          Are you sure you want to permanently delete <span class="font-semibold text-gray-900">{selectedStaff?.name}</span>? This action cannot be undone.
+        </p>
+        <div class="flex justify-end gap-3">
+          <button 
+            class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium transition-colors duration-200" 
+            on:click={() => { isDeleteStaffOpen = false; selectedStaff = null; }}
+            disabled={loading}
+          >
+            Cancel
+          </button>
+          <button 
+            class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed" 
+            on:click={confirmDeleteStaff} 
+            disabled={loading}
+          >
+            {loading ? 'Deleting...' : 'Delete Staff'}
           </button>
         </div>
       </div>
