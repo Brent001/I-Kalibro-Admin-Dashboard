@@ -1,8 +1,10 @@
-import { pgTable, serial, integer, varchar, boolean, date, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, serial, integer, varchar, boolean, date, timestamp, text, jsonb } from 'drizzle-orm/pg-core';
+// Add this import for UUID
+import { sql } from 'drizzle-orm';
 
-// Rename account table to staffAccount
 export const staffAccount = pgTable('staff_account', {
     id: serial('id').primaryKey(),
+    uniqueId: varchar('unique_id', { length: 36 }).unique().default(sql`gen_random_uuid()`), // <-- new field
     name: varchar('name', { length: 100 }),
     email: varchar('email', { length: 100 }).unique(),
     username: varchar('username', { length: 50 }).unique(),
@@ -68,7 +70,7 @@ export const book = pgTable('book', {
     categoryId: integer('category_id').references(() => category.id),
     publisher: varchar('publisher', { length: 100 }),
     location: varchar('location', { length: 100 }),
-    description: varchar('description', { length: 1000 }), // <-- Book description is now optional
+    description: varchar('description', { length: 1000 }),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow()
 });
@@ -82,7 +84,7 @@ export const bookBorrowing = pgTable('book_borrowing', {
     dueDate: date('due_date').notNull(),
     returnDate: date('return_date'), // null if not returned yet
     status: varchar('status', { length: 20 }).default('borrowed'), // 'borrowed', 'returned', 'overdue'
-    fine: integer('fine').default(0), // <-- Add this line
+    fine: integer('fine').default(0),
     createdAt: timestamp('created_at').defaultNow()
 });
 
@@ -96,13 +98,14 @@ export const bookReservation = pgTable('book_reservation', {
     createdAt: timestamp('created_at').defaultNow()
 });
 
-// Keep other essential tables
+// Library visit table with purpose field
 export const libraryVisit = pgTable('library_visit', {
     id: serial('id').primaryKey(),
     userId: integer('user_id').references(() => user.id),
     username: varchar('username', { length: 50 }),
     fullName: varchar('full_name', { length: 100 }),
     visitorType: varchar('visitor_type', { length: 20 }),
+    purpose: text('purpose'), // Purpose of visit (for time in)
     timeIn: timestamp('time_in').notNull(),
     timeOut: timestamp('time_out'),
     createdAt: timestamp('created_at').defaultNow()
@@ -146,11 +149,18 @@ export const paymentInfo = pgTable('payment_info', {
 
 export const securityLog = pgTable('security_log', {
     id: serial('id').primaryKey(),
-    staffAccountId: integer('staff_account_id').references(() => staffAccount.id), // <-- Add this line
+    staffAccountId: integer('staff_account_id').references(() => staffAccount.id),
     userId: integer('user_id').references(() => user.id),
     eventType: varchar('event_type', { length: 20 }).notNull(), // 'login' or 'logout'
     eventTime: timestamp('event_time').defaultNow().notNull(),
     browser: varchar('browser', { length: 100 }),
     ipAddress: varchar('ip_address', { length: 45 }), // optional: for IPv4/IPv6
+    createdAt: timestamp('created_at').defaultNow()
+});
+
+export const staffPermission = pgTable('staff_permission', {
+    id: serial('id').primaryKey(),
+    staffUniqueId: varchar('staff_unique_id', { length: 36 }).references(() => staffAccount.uniqueId).unique().notNull(),
+    permissionKeys: jsonb('permission_keys').notNull(),
     createdAt: timestamp('created_at').defaultNow()
 });
