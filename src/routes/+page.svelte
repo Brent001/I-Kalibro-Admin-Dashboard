@@ -140,7 +140,7 @@
             </label>
           </div>
           <div class="text-sm">
-            <a href="#" class="font-medium text-slate-600 hover:text-slate-500">
+            <a href="/forget_password" class="font-medium text-slate-600 hover:text-slate-500">
               Forgot password?
             </a>
           </div>
