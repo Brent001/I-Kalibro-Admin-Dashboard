@@ -57,7 +57,26 @@
       const res = await fetch(url);
       const data = await res.json();
       if (res.ok && data.success && Array.isArray(data.visits)) {
-        visits = data.visits;
+        visits = data.visits.map((v: any) => {
+          let duration = "—";
+          if (v.timeIn && v.timeOut) {
+            const inDate = new Date(v.timeIn);
+            const outDate = new Date(v.timeOut);
+            const diffMs = outDate.getTime() - inDate.getTime();
+            if (diffMs > 0) {
+              const mins = Math.floor(diffMs / 60000);
+              const hours = Math.floor(mins / 60);
+              const remMins = mins % 60;
+              duration = hours > 0 ? `${hours}h ${remMins}m` : `${remMins} min`;
+            }
+          }
+          return {
+            ...v,
+            purpose: v.purpose ?? "",
+            status: v.status ?? (v.timeOut ? "checked_out" : "checked_in"), // <-- Ensure status is set
+            duration
+          };
+        });
       } else {
         errorMsg = data.message || "Failed to load visits.";
         visits = [];
@@ -225,21 +244,36 @@
         <h2 class="text-2xl font-bold text-slate-900">Library Visit Management</h2>
         <p class="text-slate-600">Track visitor check-ins and manage QR codes</p>
       </div>
-      {#if userRole !== 'staff'}
-      <button
-        on:click={openTypeSelectionModal}
-        class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
-      >
-        <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <rect x="3" y="3" width="6" height="6" rx="1" />
-          <rect x="15" y="3" width="6" height="6" rx="1" />
-          <rect x="3" y="15" width="6" height="6" rx="1" />
-          <rect x="15" y="15" width="6" height="6" rx="1" />
-          <path d="M9 9h6v6H9z" />
-        </svg>
-        Generate QR Code
-      </button>
-      {/if}
+      <div class="flex gap-2">
+        {#if userRole !== 'staff'}
+          <button
+            on:click={openTypeSelectionModal}
+            class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+          >
+            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <rect x="3" y="3" width="6" height="6" rx="1" />
+              <rect x="15" y="3" width="6" height="6" rx="1" />
+              <rect x="3" y="15" width="6" height="6" rx="1" />
+              <rect x="15" y="15" width="6" height="6" rx="1" />
+              <path d="M9 9h6v6H9z" />
+            </svg>
+            Generate QR Code
+          </button>
+        {/if}
+        <button
+          on:click={loadVisits}
+          class="inline-flex items-center justify-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-lg text-slate-700 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+          title="Refresh"
+          aria-label="Refresh"
+          type="button"
+        >
+          <!-- Updated refresh icon (Heroicons arrow-path) -->
+          <svg class="h-5 w-5 mr-2 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+          Refresh
+        </button>
+      </div>
     </div>
 
     <!-- Success/Error Messages -->
@@ -628,9 +662,6 @@
                   Time Out
                 </th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Duration
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Status
                 </th>
               </tr>
@@ -667,9 +698,6 @@
                     <div class="text-xs text-slate-500">
                       {visit.timeOut ? (new Date(visit.timeOut)).toLocaleTimeString() : ""}
                     </div>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm font-medium text-slate-900">{visit.duration || "—"}</div>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap">
                     <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(visit.status)}`}>
