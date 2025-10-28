@@ -7,7 +7,4 @@
   included_files = ["netlify/functions/**"]
 
 [functions.scheduled]
-  schedule = "@daily"
-
-[[plugins]]
-  package = "@netlify/plugin-scheduled-functions"
+  schedule = "@hourly"
