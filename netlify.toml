@@ -2,8 +2,12 @@
   command = "npm run build"
   publish = "build"
 
-[[plugins]]
-  package = "@netlify/plugin-scheduled-functions"
-
 [functions]
   directory = "netlify/functions"
+  included_files = ["netlify/functions/**"]
+
+[functions.scheduled]
+  schedule = "@daily"
+
+[[plugins]]
+  package = "@netlify/plugin-scheduled-functions"
