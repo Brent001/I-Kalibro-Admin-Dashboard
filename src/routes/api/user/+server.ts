@@ -93,7 +93,7 @@ export const POST: RequestHandler = async ({ request }) => {
       );
     }
 
-    const { type, name, email, phone, age, username, password, gender, enrollmentNo, course, year, department, facultyNumber } = body;
+    const { type, name, email, phone, age, username, password, gender, enrollmentNo, course, year, department, facultyNumber, designation } = body;
 
     if (!['Student', 'Faculty'].includes(type)) {
       throw error(400, { message: 'Invalid member type. Must be Student or Faculty' });
@@ -183,7 +183,8 @@ export const POST: RequestHandler = async ({ request }) => {
         gender,
         age: typeof age === 'number' ? age : null,
         department,
-        facultyNumber
+        facultyNumber,
+        designation
       });
     }
 
@@ -212,7 +213,7 @@ export const POST: RequestHandler = async ({ request }) => {
 export const PUT: RequestHandler = async ({ request }) => {
   try {
     const body = await request.json();
-    const { id, type, name, email, phone, age, username, password, gender, enrollmentNo, course, year, department, facultyNumber, isActive } = body;
+    const { id, type, name, email, phone, age, username, password, gender, enrollmentNo, course, year, department, facultyNumber, designation, isActive } = body;
 
     if (!id) {
       throw error(400, { message: 'Member ID is required' });
@@ -280,7 +281,8 @@ export const PUT: RequestHandler = async ({ request }) => {
           gender: gender ?? null,
           age: typeof age === 'number' ? age : null,
           department: department ?? null,
-          facultyNumber: facultyNumber ?? null
+          facultyNumber: facultyNumber ?? null,
+          designation: designation ?? null
         })
         .where(eq(faculty.userId, id));
     }

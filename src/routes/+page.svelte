@@ -48,17 +48,17 @@
 <!-- Main Layout -->
 <div class="min-h-screen flex">
   <!-- Left side - Login Form -->
-  <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8">
+  <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-[#FFF9E6]">
     <div class="max-w-md w-full space-y-8">
       <div class="text-center">
-        <div class="mx-auto h-16 w-16 bg-slate-900 rounded-full flex items-center justify-center">
-          <!-- Updated BookOpen SVG to match layout.svelte -->
+        <div class="mx-auto h-16 w-16 bg-[#0D5C29] rounded-full flex items-center justify-center">
+          <!-- BookOpen SVG -->
           <svg class="h-8 w-8 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
             <circle cx="12" cy="12" r="2"/>
           </svg>
         </div>
-        <h2 class="mt-6 text-3xl font-bold text-gray-900">
+        <h2 class="mt-6 text-3xl font-bold text-[#0D5C29]">
           i-Kalibro Admin Portal
         </h2>
         <p class="mt-2 text-sm text-gray-600">
@@ -69,10 +69,11 @@
         </p>
       </div>
 
+      <!-- Form inputs -->
       <form class="mt-8 space-y-6" on:submit|preventDefault={handleSubmit}>
         <div class="space-y-4">
           <div>
-            <label for="username" class="block text-sm font-medium text-gray-700">
+            <label for="username" class="block text-sm font-medium text-[#0D5C29]">
               Username
             </label>
             <input
@@ -81,12 +82,12 @@
               type="text"
               required
               bind:value={username}
-              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-slate-500 focus:border-slate-500"
+              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29]"
               placeholder="Enter your username"
             />
           </div>
           <div>
-            <label for="password" class="block text-sm font-medium text-gray-700">
+            <label for="password" class="block text-sm font-medium text-[#0D5C29]">
               Password
             </label>
             <div class="mt-1 relative">
@@ -96,7 +97,7 @@
                 type={showPassword ? 'text' : 'password'}
                 required
                 bind:value={password}
-                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-slate-500 focus:border-slate-500"
+                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29]"
                 placeholder="Enter your password"
               />
               <button
@@ -133,14 +134,14 @@
               id="remember-me"
               name="remember-me"
               type="checkbox"
-              class="h-4 w-4 text-slate-600 focus:ring-slate-500 border-gray-300 rounded"
+              class="h-4 w-4 text-[#0D5C29] focus:ring-[#0D5C29] border-gray-300 rounded"
             />
             <label for="remember-me" class="ml-2 block text-sm text-gray-900">
               Remember me
             </label>
           </div>
           <div class="text-sm">
-            <a href="/forget_password" class="font-medium text-slate-600 hover:text-slate-500">
+            <a href="/forget_password" class="font-medium text-[#0D5C29] hover:text-[#E8B923]">
               Forgot password?
             </a>
           </div>
@@ -149,7 +150,7 @@
         <div>
           <button
             type="submit"
-            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition duration-150 ease-in-out"
+            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-[#0D5C29] hover:bg-[#0D5C29]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0D5C29] transition-colors duration-200"
           >
             Sign in to Dashboard
           </button>
@@ -157,16 +158,16 @@
       </form>
 
       {#if dbError}
-        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 text-center">
+        <div class="bg-red-50 border border-red-500 text-red-700 px-4 py-3 rounded-lg relative mb-4 text-center">
           Unable to connect to the database. Please check your internet connection and try again.
-          <button class="ml-2 underline text-blue-700" on:click={() => location.reload()}>Reconnect</button>
+          <button class="ml-2 underline text-[#0D5C29]" on:click={() => location.reload()}>Reconnect</button>
         </div>
       {/if}
     </div>
   </div>
 
-  <!-- Right side - Feature showcase with solid background -->
-  <div class="hidden lg:block lg:flex-1 relative bg-slate-900">
+  <!-- Right side - Feature showcase -->
+  <div class="hidden lg:block lg:flex-1 relative bg-[#0D5C29]">
     <!-- Content overlay -->
     <div class="relative flex flex-col justify-center items-center h-full p-12 text-white z-10">
       <div class="max-w-md text-center">
@@ -178,7 +179,7 @@
         </p>
         <div class="space-y-6">
           <div class="flex items-center space-x-4">
-            <div class="bg-white bg-opacity-30 p-3 rounded-full">
+            <div class="bg-white/10 p-3 rounded-full">
               <!-- Library/Database Icon -->
               <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
@@ -190,7 +191,7 @@
             </div>
           </div>
           <div class="flex items-center space-x-4">
-            <div class="bg-white bg-opacity-30 p-3 rounded-full">
+            <div class="bg-white/10 p-3 rounded-full">
               <!-- ID Card/Badge Icon -->
               <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/>
@@ -202,7 +203,7 @@
             </div>
           </div>
           <div class="flex items-center space-x-4">
-            <div class="bg-white bg-opacity-30 p-3 rounded-full">
+            <div class="bg-white/10 p-3 rounded-full">
               <!-- Chart/Analytics Icon -->
               <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>

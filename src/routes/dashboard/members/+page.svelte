@@ -38,8 +38,10 @@
     year: '',
     department: '',
     designation: '',
+    facultyNumber: '',
     username: '',
-    password: ''
+    password: '',
+    gender: ''
   };
 
   // Fetch members from API on mount
@@ -119,8 +121,10 @@
       year: '',
       department: '',
       designation: '',
+      facultyNumber: '',
       username: '',
-      password: ''
+      password: '',
+      gender: ''
     };
   }
 
@@ -168,8 +172,10 @@
       year: member.year || '',
       department: member.department || '',
       designation: member.designation || '',
+      facultyNumber: member.facultyNumber || '',
       username: member.username || '',
-      password: ''
+      password: '',
+      gender: member.gender || ''
     };
     showEditModal = true;
   }

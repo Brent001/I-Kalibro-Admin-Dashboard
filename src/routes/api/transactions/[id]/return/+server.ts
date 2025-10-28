@@ -1,12 +1,13 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { bookBorrowing, bookReturn, book, staffAccount, qrCodeToken } from '$lib/server/db/schema/schema.js';
+import { bookBorrowing, bookReturn, book, staffAccount, qrCodeToken, paymentInfo } from '$lib/server/db/schema/schema.js';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const FINE_PER_HOUR = 5; // 5 pesos per hour
 
 // Extract token from request
 function extractToken(request: Request): string | null {
@@ -24,6 +25,25 @@ function extractToken(request: Request): string | null {
   }
 
   return null;
+}
+
+// Calculate fine based on overdue hours
+function calculateFine(dueDate: string): number {
+  const now = new Date();
+  const due = new Date(dueDate);
+  
+  // Calculate difference in milliseconds
+  const diffMs = now.getTime() - due.getTime();
+  
+  if (diffMs <= 0) {
+    return 0; // Not overdue
+  }
+  
+  // Convert to hours (rounded up)
+  const overdueHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  
+  // Calculate fine (5 pesos per hour)
+  return overdueHours * FINE_PER_HOUR;
 }
 
 export const POST: RequestHandler = async ({ params, request, cookies }) => {
@@ -115,24 +135,47 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
       throw error(400, { message: 'Book has already been returned.' });
     }
 
-    // Insert into bookReturn
+    // Allow return for both 'borrowed' and 'overdue' status
+    if (b.status !== 'borrowed' && b.status !== 'overdue') {
+      throw error(400, { message: 'Invalid borrowing status. Only borrowed or overdue books can be returned.' });
+    }
+
+    // Calculate fine server-side
+    const calculatedFine = calculateFine(b.dueDate);
+    
+    const currentDate = new Date().toISOString().split('T')[0]; // Date only
+
+    // Insert into bookReturn with fine information
     await db.insert(bookReturn).values({
       borrowingId: b.id,
       userId: b.userId,
       bookId: b.bookId,
-      returnDate: new Date().toISOString().split('T')[0], // Date only
-      finePaid: b.fine ?? 0,
-      remarks: `Returned via ${method === "password" ? "staff password" : "book QR"} by ${staff.username}`
+      returnDate: currentDate,
+      finePaid: calculatedFine,
+      remarks: `Returned via ${method === "password" ? "staff password" : "book QR"} by ${staff.username}${calculatedFine > 0 ? `. Fine: ₱${calculatedFine.toFixed(2)}` : ''}`
     });
 
-    // Update status in bookBorrowing
+    // Update status and fine in bookBorrowing
     await db
       .update(bookBorrowing)
       .set({ 
         status: 'returned', 
-        returnDate: new Date().toISOString().split('T')[0] // Date only
+        returnDate: currentDate,
+        fine: calculatedFine,
+        fineLastCalculated: new Date()
       })
       .where(eq(bookBorrowing.id, borrowingId));
+
+    // If there's a fine, create a payment record
+    if (calculatedFine > 0) {
+      await db.insert(paymentInfo).values({
+        userId: b.userId,
+        borrowingId: b.id,
+        totalAmount: calculatedFine,
+        fineAmount: calculatedFine,
+        paymentDate: new Date(),
+      });
+    }
 
     // Increment book availability
     const bookRecord = await db
@@ -150,11 +193,16 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
     return json({ 
       success: true, 
-      message: 'Book returned successfully.',
+      message: calculatedFine > 0 
+        ? `Book returned successfully. Fine of ₱${calculatedFine.toFixed(2)} recorded and payment logged.` 
+        : 'Book returned successfully.',
       data: {
         borrowingId: b.id,
         returnDate: new Date().toISOString(),
-        staffUsername: staff.username
+        staffUsername: staff.username,
+        fine: calculatedFine,
+        isOverdue: calculatedFine > 0,
+        paymentRecorded: calculatedFine > 0
       }
     });
   } catch (err: any) {

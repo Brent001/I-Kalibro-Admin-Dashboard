@@ -283,9 +283,9 @@
   function getStatusColor(status: string) {
     switch (status) {
       case 'Available':
-        return 'bg-emerald-100 text-emerald-800';
+        return 'bg-[#0D5C29]/10 text-[#0D5C29]';
       case 'Limited':
-        return 'bg-amber-100 text-amber-800';
+        return 'bg-[#E8B923]/10 text-[#E8B923]';
       case 'Unavailable':
         return 'bg-red-100 text-red-800';
       default:
@@ -368,7 +368,7 @@
       <div class="flex gap-2">
         <button
           on:click={() => showAddModal = true}
-          class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+          class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-[#0D5C29] hover:bg-[#0D5C29]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0D5C29] transition-colors duration-200"
         >
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
@@ -389,7 +389,7 @@
 
     <!-- Error Message -->
     {#if error}
-      <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+      <div class="bg-[#E8B923]/10 border border-[#E8B923] text-[#E8B923] px-4 py-3 rounded-lg">
         <div class="flex justify-between items-start">
           <div>
             <p class="font-medium">Error:</p>
@@ -434,8 +434,8 @@
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
           <div class="flex items-center">
-            <div class="p-3 bg-slate-100 rounded-xl">
-              <svg class="h-6 w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <div class="p-3 bg-[#0D5C29]/10 rounded-xl">
+              <svg class="h-6 w-6 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
               </svg>
             </div>
@@ -460,8 +460,8 @@
         </div>
         <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
           <div class="flex items-center">
-            <div class="p-3 bg-amber-100 rounded-xl">
-              <svg class="h-6 w-6 text-amber-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <div class="p-3 bg-[#E8B923]/10 rounded-xl">
+              <svg class="h-6 w-6 text-[#E8B923]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <circle cx="12" cy="12" r="10"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4"/>
               </svg>
@@ -654,7 +654,7 @@
             </thead>
             <tbody class="bg-white divide-y divide-slate-100">
               {#each filteredBooks as book}
-                <tr class="hover:bg-slate-50 transition-colors duration-200">
+                <tr class="hover:bg-[#FFF9E6] transition-colors duration-200">
                   <td class="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div class="text-sm font-semibold text-slate-900">{book.title}</div>
@@ -673,7 +673,7 @@
                     </div>
                     <div class="w-full bg-slate-200 rounded-full h-2">
                       <div
-                        class="bg-slate-600 h-2 rounded-full transition-all duration-300"
+                        class="bg-[#0D5C29] h-2 rounded-full transition-all duration-300"
                         style="width: {Math.min(book.copiesAvailable * 10, 100)}%"
                       ></div>
                     </div>
@@ -698,7 +698,7 @@
                       </button>
                       <button
                         aria-label="Edit Book"
-                        class="text-emerald-600 hover:text-emerald-700 transition-colors duration-200"
+                        class="text-[#0D5C29] hover:text-[#0D5C29]/80 transition-colors duration-200"
                         title="Edit Book"
                         on:click={() => openEditBookModal(book)}
                       >
@@ -763,7 +763,7 @@
             <div class="mb-4">
               <div class="w-full bg-slate-200 rounded-full h-2">
                 <div
-                  class="bg-slate-600 h-2 rounded-full transition-all duration-300"
+                  class="bg-[#0D5C29] h-2 rounded-full transition-all duration-300"
                   style="width: {Math.min(book.copiesAvailable * 10, 100)}%"
                 ></div>
               </div>
@@ -783,7 +783,7 @@
               </button>
               <button
                 aria-label="Edit Book"
-                class="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors duration-200"
+                class="p-2 text-[#0D5C29] hover:text-[#0D5C29]/80 hover:bg-[#0D5C29]/10 rounded-lg transition-colors duration-200"
                 title="Edit Book"
                 on:click={() => openEditBookModal(book)}
               >
@@ -826,7 +826,7 @@
           <button 
             on:click={prevPage}
             disabled={!pagination.hasPrevPage || loading}
-            class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-l-lg text-slate-500 bg-white hover:bg-slate-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-l-lg text-slate-500 bg-white hover:bg-[#FFF9E6] transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
@@ -844,7 +844,7 @@
           <button 
             on:click={nextPage}
             disabled={!pagination.hasNextPage || loading}
-            class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-r-lg text-slate-500 bg-white hover:bg-slate-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-r-lg text-slate-500 bg-white hover:bg-[#FFF9E6] transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span class="hidden sm:inline">Next</span>
             <svg class="h-4 w-4 ml-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

@@ -13,9 +13,11 @@
     year?: string;
     department?: string;
     designation?: string;
+    facultyNumber?: string;
     username?: string;
     password?: string;
     isActive?: boolean;
+    gender?: string;
   } | null = null;
   export let isLoading = false;
 
@@ -32,9 +34,11 @@
     year: '',
     department: '',
     designation: '',
+    facultyNumber: '',
     username: '',
     password: '',
-    isActive: true
+    isActive: true,
+    gender: ''
   };
 
   onMount(() => {
@@ -50,9 +54,11 @@
         year: member.year ?? '',
         department: member.department ?? '',
         designation: member.designation ?? '',
+        facultyNumber: member.facultyNumber ?? '',
         username: member.username ?? '',
         password: '',
-        isActive: member.isActive ?? true
+        isActive: member.isActive ?? true,
+        gender: member.gender ?? ''
       };
     }
   });
@@ -69,9 +75,11 @@
       year: member.year ?? '',
       department: member.department ?? '',
       designation: member.designation ?? '',
+      facultyNumber: member.facultyNumber ?? '',
       username: member.username ?? '',
       password: '',
-      isActive: member.isActive ?? true
+      isActive: member.isActive ?? true,
+      gender: member.gender ?? ''
     };
   }
 
@@ -133,6 +141,12 @@
             <input type="password" bind:value={formData.password} class="w-full px-3 py-2 border rounded-md">
           </div>
         </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Gender</label>
+            <input type="text" bind:value={formData.gender} class="w-full px-3 py-2 border rounded-md" required>
+          </div>
+        </div>
         {#if formData.type === 'Student'}
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -147,10 +161,14 @@
               <label class="block text-sm font-medium mb-1">Year</label>
               <input type="text" bind:value={formData.year} class="w-full px-3 py-2 border rounded-md" required>
             </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Department</label>
+              <input type="text" bind:value={formData.department} class="w-full px-3 py-2 border rounded-md" required>
+            </div>
           </div>
         {/if}
         {#if formData.type === 'Faculty'}
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label class="block text-sm font-medium mb-1">Department</label>
               <input type="text" bind:value={formData.department} class="w-full px-3 py-2 border rounded-md" required>
@@ -158,6 +176,10 @@
             <div>
               <label class="block text-sm font-medium mb-1">Designation</label>
               <input type="text" bind:value={formData.designation} class="w-full px-3 py-2 border rounded-md" required>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Faculty Number</label>
+              <input type="text" bind:value={formData.facultyNumber} class="w-full px-3 py-2 border rounded-md" required>
             </div>
           </div>
         {/if}

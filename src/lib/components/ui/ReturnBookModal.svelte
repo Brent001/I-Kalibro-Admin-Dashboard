@@ -9,6 +9,7 @@
     memberName?: string;
     memberId?: string | number;
     bookId?: string | number;
+    dueDate?: string;
   } | null = null;
   export let finePerDay: number = 5.00;
 
@@ -20,6 +21,38 @@
   let showPassword = false;
   let errorMessage = "";
   let isSubmitting = false;
+
+  // Fine calculation state
+  let fineAmount: number = 0;
+  let isOverdue = false;
+  let overdueHours = 0;
+  let overdueDays = 0;
+
+  // Function to calculate fine based on transaction details
+  function calculateFine() {
+    if (transaction && transaction.dueDate) {
+      const dueDate = new Date(transaction.dueDate);
+      const today = new Date();
+      const diffMs = today.getTime() - dueDate.getTime();
+      
+      if (diffMs > 0) {
+        isOverdue = true;
+        overdueHours = Math.ceil(diffMs / (1000 * 60 * 60));
+        overdueDays = Math.floor(overdueHours / 24);
+        fineAmount = overdueHours * finePerDay;
+      } else {
+        isOverdue = false;
+        overdueHours = 0;
+        overdueDays = 0;
+        fineAmount = 0;
+      }
+    }
+  }
+
+  // Call calculateFine when transaction changes
+  $: if (transaction) {
+    calculateFine();
+  }
 
   // QR Scanner state
   let showScanner = false;
@@ -142,7 +175,11 @@
       const data = await res.json();
       
       if (res.ok) {
-        alert("Book returned successfully!");
+        if (data.data?.fine > 0) {
+          alert(`Book returned successfully!\n\nOverdue Fine: ₱${data.data.fine.toFixed(2)}\nOverdue Hours: ${overdueHours}\n\nPlease collect the fine from the member.`);
+        } else {
+          alert("Book returned successfully!");
+        }
         close();
         location.reload();
       } else {
@@ -206,15 +243,15 @@
     <div class="bg-white rounded-t-2xl sm:rounded-lg shadow-xl w-full sm:max-w-3xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto scrollbar-hide">
       
       <!-- Header -->
-      <div class="bg-gradient-to-r from-green-600 to-green-700 px-4 py-4 sm:px-6 sm:py-5 rounded-t-2xl sm:rounded-t-lg sticky top-0 z-10">
+      <div class="bg-gradient-to-r from-green-600 to-green-700 px-4 py-3 sm:px-6 sm:py-3 rounded-t-2xl sm:rounded-t-lg sticky top-0 z-10">
         <div class="flex items-center justify-between">
           <div>
-            <h2 class="text-lg sm:text-xl font-semibold text-white">Return Book</h2>
-            <p class="text-xs sm:text-sm text-green-100 mt-1">Transaction #{transaction.id}</p>
+            <h2 class="text-base sm:text-lg font-semibold text-white">Return Book</h2>
+            <p class="text-xs text-green-100 mt-0.5">Transaction #{transaction.id}</p>
           </div>
           <button
             on:click={close}
-            class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors flex-shrink-0"
+            class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-1.5 transition-colors flex-shrink-0"
             aria-label="Close"
             disabled={isSubmitting}
           >
@@ -261,16 +298,62 @@
           </div>
         </div>
 
-        <!-- Library Policy -->
-        <div class="mb-4 sm:mb-6 bg-green-50 border border-green-200 rounded-lg p-3 sm:p-4">
+        <!-- Fine Information (if overdue) -->
+        {#if isOverdue}
+          <div class="mb-4 sm:mb-6 bg-red-50 border-2 border-red-300 rounded-lg p-4">
+            <div class="flex items-start">
+              <div class="h-10 w-10 bg-red-100 rounded-lg flex items-center justify-center mr-3 flex-shrink-0">
+                <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-3-2.036A11.959 11.959 0 013.598 6 11.99 11.99 0 013 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
+                </svg>
+              </div>
+              <div class="flex-1">
+                <p class="text-sm sm:text-base font-bold text-red-900 mb-2">Overdue Fine Required</p>
+                <div class="space-y-1.5">
+                  <div class="flex justify-between items-center text-xs sm:text-sm">
+                    <span class="text-gray-700">Overdue Time:</span>
+                    <span class="font-semibold text-red-700">{overdueHours} hours ({overdueDays} days)</span>
+                  </div>
+                  <div class="flex justify-between items-center text-xs sm:text-sm">
+                    <span class="text-gray-700">Rate:</span>
+                    <span class="font-semibold text-red-700">₱{finePerDay.toFixed(2)}/hour</span>
+                  </div>
+                  <div class="border-t-2 border-red-200 pt-2 mt-2">
+                    <div class="flex justify-between items-center">
+                      <span class="text-sm sm:text-base font-bold text-red-900">Total Fine:</span>
+                      <span class="text-lg sm:text-2xl font-bold text-red-700">₱{fineAmount.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+                <p class="text-xs text-red-600 mt-3 font-medium">⚠ Please collect this fine from the member before completing the return.</p>
+              </div>
+            </div>
+          </div>
+        {:else}
+          <!-- Library Policy -->
+          <div class="mb-4 sm:mb-6 bg-green-50 border border-green-200 rounded-lg p-3 sm:p-4">
+            <div class="flex items-start">
+              <svg class="h-5 w-5 text-green-600 mr-2 sm:mr-3 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <div class="flex-1 min-w-0">
+                <p class="text-xs sm:text-sm font-semibold text-gray-900 mb-1">On Time Return</p>
+                <p class="text-xs text-green-700">No fine applicable for this return.</p>
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        <!-- Return Policy Info -->
+        <div class="mb-4 sm:mb-6 bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
           <div class="flex items-start">
-            <svg class="h-5 w-5 text-green-600 mr-2 sm:mr-3 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="h-5 w-5 text-blue-600 mr-2 sm:mr-3 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/>
             </svg>
             <div class="flex-1 min-w-0">
               <p class="text-xs sm:text-sm font-semibold text-gray-900 mb-2">Return Policy</p>
               <div class="space-y-1 text-xs text-gray-700">
-                <div>• Late fee: <span class="font-semibold text-green-700">₱{finePerDay.toFixed(2)}/hour</span></div>
+                <div>• Late fee: <span class="font-semibold text-blue-700">₱{finePerDay.toFixed(2)}/hour</span></div>
                 <div>• Fees calculated automatically</div>
                 <div>• Report damaged books immediately</div>
               </div>
@@ -408,10 +491,10 @@
     <div class="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-hidden border border-green-200 flex flex-col">
       
       <!-- Scanner Header -->
-      <div class="bg-gradient-to-r from-green-700 to-green-500 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+      <div class="bg-gradient-to-r from-green-700 to-green-500 text-white px-4 py-2.5 flex items-center justify-between flex-shrink-0">
         <div class="flex items-center gap-2">
-          <div class="h-9 w-9 bg-white bg-opacity-20 rounded-lg flex items-center justify-center flex-shrink-0">
-            <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <div class="h-8 w-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <rect x="3" y="3" width="7" height="7" rx="2"/>
               <rect x="14" y="3" width="7" height="7" rx="2"/>
               <rect x="14" y="14" width="7" height="7" rx="2"/>
@@ -419,7 +502,7 @@
             </svg>
           </div>
           <div class="min-w-0">
-            <h3 class="text-sm sm:text-base font-semibold truncate">Scan QR Code</h3>
+            <h3 class="text-sm font-semibold truncate">Scan QR Code</h3>
             <p class="text-xs text-green-100">Position code in frame</p>
           </div>
         </div>

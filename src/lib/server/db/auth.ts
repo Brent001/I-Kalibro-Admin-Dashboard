@@ -2,7 +2,7 @@
 import jwt from 'jsonwebtoken';
 import { randomBytes, createHash } from 'crypto';
 import { db } from '$lib/server/db/index.js';
-import { staffAccount } from '$lib/server/db/schema/schema.js'; // <-- updated import
+import { staffAccount, staffPermission } from '$lib/server/db/schema/schema.js'; // <-- updated import
 import { eq, and, gte, desc } from 'drizzle-orm';
 import { redisClient } from '$lib/server/db/cache.js';
 
@@ -16,6 +16,7 @@ export interface AuthUser {
     email: string;
     role: 'admin' | 'staff';
     isActive: boolean;
+    permissions?: string[]; // <-- add this line
 }
 
 export interface JWTPayload {
@@ -81,19 +82,33 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
         // Fetch current user data from database
         const [user] = await db
             .select({
-                id: staffAccount.id, // <-- changed from account
+                id: staffAccount.id,
                 name: staffAccount.name,
                 username: staffAccount.username,
                 email: staffAccount.email,
                 role: staffAccount.role,
-                isActive: staffAccount.isActive
+                isActive: staffAccount.isActive,
+                uniqueId: staffAccount.uniqueId // <-- add this
             })
-            .from(staffAccount) // <-- changed from account
-            .where(eq(staffAccount.id, decoded.userId)) // <-- changed from account
+            .from(staffAccount)
+            .where(eq(staffAccount.id, decoded.userId))
             .limit(1);
 
         if (!user || !user.isActive) {
             return null;
+        }
+
+        // Fetch permissions
+        let permissions: string[] = [];
+        if (user.uniqueId) {
+            const [perm] = await db
+                .select({ keys: staffPermission.permissionKeys })
+                .from(staffPermission)
+                .where(eq(staffPermission.staffUniqueId, user.uniqueId))
+                .limit(1);
+            if (perm && Array.isArray(perm.keys)) {
+                permissions = perm.keys;
+            }
         }
 
         // Update session last used time
@@ -101,7 +116,15 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
             await updateSessionLastUsed(decoded.sessionId);
         }
 
-        return user as AuthUser;
+        return {
+            id: user.id,
+            name: user.name,
+            username: user.username,
+            email: user.email,
+            role: user.role,
+            isActive: user.isActive,
+            permissions // <-- add this
+        } as AuthUser;
     } catch (error) {
         console.error('Token verification failed:', error);
         return null;
@@ -129,6 +152,27 @@ export async function generateTokens(
     user: AuthUser, 
     sessionInfo: { userAgent: string; ipAddress: string }
 ): Promise<{ accessToken: string; refreshToken: string; sessionId: string }> {
+    // Fetch permissions if not present
+    let permissions = user.permissions;
+    if (!permissions) {
+        // Fetch uniqueId
+        const [staff] = await db
+            .select({ uniqueId: staffAccount.uniqueId })
+            .from(staffAccount)
+            .where(eq(staffAccount.id, user.id))
+            .limit(1);
+        if (staff && staff.uniqueId) {
+            const [perm] = await db
+                .select({ keys: staffPermission.permissionKeys })
+                .from(staffPermission)
+                .where(eq(staffPermission.staffUniqueId, staff.uniqueId))
+                .limit(1);
+            if (perm && Array.isArray(perm.keys)) {
+                permissions = perm.keys;
+            }
+        }
+    }
+
     const sessionId = generateSessionId();
     const jti = randomBytes(16).toString('hex');
     const refreshJti = randomBytes(16).toString('hex');
@@ -140,6 +184,7 @@ export async function generateTokens(
         role: user.role,
         sessionId,
         iat: Math.floor(Date.now() / 1000),
+        permissions // <-- add this
     };
 
     // Access token (short-lived)
@@ -446,6 +491,15 @@ export function hasRole(user: AuthUser, requiredRole: 'admin' | 'staff'): boolea
         return user.role === 'admin' || user.role === 'staff';
     }
     return false;
+}
+
+/**
+ * Check if user has a specific permission
+ */
+export function hasPermission(user: AuthUser, permission: string): boolean {
+    if (user.role === 'admin') return true; // Admins have all permissions
+    if (!user.permissions) return false;
+    return user.permissions.includes(permission);
 }
 
 /**

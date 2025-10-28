@@ -17,7 +17,7 @@
   let customDueDate = "";
 
   // Track modal verification
-  let returnVerification = { method: "password", password: "", qrData: "" };
+  let returnVerification = { method: "password", password: "", qrData: "", fine: 0 };
 
   // Use transactions from server data
   const transactions = data.transactions ?? [];
@@ -44,13 +44,14 @@
       (transaction.memberName?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
       (transaction.bookId?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
       (transaction.memberId?.toLowerCase() ?? '').includes(searchTerm.toLowerCase());
-    const matchesStatus = selectedStatus === 'all' || transaction.status === selectedStatus;
-    const matchesType = selectedType === 'all' || transaction.type === selectedType;
+    const matchesStatus = selectedStatus === 'all' || transaction.status?.toLowerCase() === selectedStatus.toLowerCase();
+    const matchesType = selectedType === 'all' || transaction.type?.toLowerCase() === selectedType.toLowerCase();
     return matchesSearch && matchesStatus && matchesType;
   });
 
   function getStatusColor(status: string) {
-    switch (status) {
+    const s = status?.toLowerCase() || '';
+    switch (s) {
       case 'borrowed':
         return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'returned':
@@ -69,7 +70,8 @@
   }
 
   function getStatusIcon(status: string) {
-    switch (status) {
+    const s = status?.toLowerCase() || '';
+    switch (s) {
       case 'borrowed':
         return 'book-open';
       case 'returned':
@@ -88,12 +90,13 @@
   }
 
   function getTypeColor(type: string) {
-    switch (type) {
-      case 'Borrow':
+    const t = type?.toLowerCase() || '';
+    switch (t) {
+      case 'borrow':
         return 'bg-slate-100 text-slate-800 border-slate-200';
-      case 'Return':
+      case 'return':
         return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      case 'Reserve':
+      case 'reserve':
         return 'bg-amber-100 text-amber-800 border-amber-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
@@ -132,7 +135,7 @@
     try {
       const res = await fetch(`/api/transactions/${transactionId}`, { 
         method: "DELETE",
-        credentials: 'include' // <-- Always send credentials!
+        credentials: 'include'
       });
       if (res.ok) {
         alert("Transaction deleted successfully!");
@@ -148,13 +151,13 @@
   function openReturnModal(transaction: Transaction) {
     selectedTransaction = transaction;
     showReturnModal = true;
-    returnVerification = { method: "password", password: "", qrData: "" }; // Reset verification
+    returnVerification = { method: "password", password: "", qrData: "", fine: 0 };
   }
 
   function closeReturnModal() {
     showReturnModal = false;
     selectedTransaction = null;
-    returnVerification = { method: "password", password: "", qrData: "" };
+    returnVerification = { method: "password", password: "", qrData: "", fine: 0 };
   }
 
   function handleReturnModalConfirm(e) {
@@ -171,16 +174,23 @@
         body: JSON.stringify({
           method: returnVerification.method,
           password: returnVerification.password,
-          qrData: returnVerification.qrData
+          qrData: returnVerification.qrData,
+          fine: returnVerification.fine
         }),
         credentials: 'include'
       });
+      
+      const data = await res.json();
+      
       if (res.ok) {
-        alert("Book returned successfully!");
+        if (data.data?.fine > 0) {
+          alert(`Book returned successfully!\n\nOverdue Fine: ₱${data.data.fine}\n\nPlease collect the fine from the member.`);
+        } else {
+          alert("Book returned successfully!");
+        }
         closeReturnModal();
         location.reload();
       } else {
-        const data = await res.json();
         if (res.status === 401) {
           alert("Session expired or not authenticated. Please log in again.");
           window.location.href = '/';
@@ -189,7 +199,8 @@
         alert(data.message || "Failed to return book.");
       }
     } catch (err) {
-      alert("Error returning book.");
+      console.error('Return error:', err);
+      alert("Error returning book. Please try again.");
     }
   }
 
@@ -242,16 +253,15 @@
 
   // Calculate stats
   $: stats = {
-    active: transactions.filter((t: Transaction) => t.status === 'borrowed').length,
-    returned: transactions.filter((t: Transaction) => t.status === 'returned').length,
+    active: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'borrowed').length,
+    returned: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'returned').length,
     overdue: transactions.filter((t: Transaction) => {
       if (!t.dueDate) return false;
       const due = new Date(t.dueDate);
       const now = new Date();
-      // Only count if dueDate is in the past and not returned
-      return due < now && (t.status === 'borrowed' || t.status === 'overdue');
+      return due < now && (t.status?.toLowerCase() === 'borrowed' || t.status?.toLowerCase() === 'overdue');
     }).length,
-    reserved: transactions.filter((t: Transaction) => t.status === 'active' && t.type === 'Reserve').length,
+    reserved: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'active' && t.type?.toLowerCase() === 'reserve').length,
   };
 </script>
 
@@ -475,7 +485,7 @@
                       </svg>
                       <span class="text-gray-600 font-medium">Due:</span>
                       <span class="ml-1 text-gray-900">{formatDate(transaction.dueDate)}</span>
-                      {#if transaction.status === 'borrowed'}
+                      {#if transaction.status?.toLowerCase() === 'borrowed'}
                         {@const daysLeft = calculateDaysRemaining(transaction.dueDate)}
                         {#if daysLeft !== null}
                           <span class={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium
@@ -500,12 +510,12 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <span class={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${getStatusColor(transaction.status)}`}>
-                    {transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1)}
+                    {transaction.status?.charAt(0).toUpperCase() + transaction.status?.slice(1)}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div class="flex gap-2">
-                    {#if transaction.type === 'Borrow' && transaction.status === 'borrowed'}
+                    {#if transaction.type?.toLowerCase() === 'borrow' && (transaction.status?.toLowerCase() === 'borrowed' || transaction.status?.toLowerCase() === 'overdue')}
                       <button
                         class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-xs font-medium"
                         on:click={() => openReturnModal(transaction)}
@@ -513,7 +523,7 @@
                         Return
                       </button>
                     {/if}
-                    {#if transaction.type === 'Reserve' && transaction.status === 'active'}
+                    {#if transaction.type?.toLowerCase() === 'reserve' && transaction.status?.toLowerCase() === 'active'}
                       <button
                         class="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium"
                         on:click={() => openConfirmBorrowModal(transaction)}
@@ -553,7 +563,7 @@
               <p class="text-xs text-gray-500">Book ID: {transaction.bookId || 'N/A'}</p>
             </div>
             <span class={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${getStatusColor(transaction.status)}`}>
-              {transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1)}
+              {transaction.status?.charAt(0).toUpperCase() + transaction.status?.slice(1)}
             </span>
           </div>
 
@@ -586,7 +596,7 @@
               <span class="text-gray-600 font-medium">Due:</span>
               <span class="ml-1 text-gray-900">{formatDate(transaction.dueDate)}</span>
             </div>
-            {#if transaction.status === 'borrowed'}
+            {#if transaction.status?.toLowerCase() === 'borrowed'}
               {@const daysLeft = calculateDaysRemaining(transaction.dueDate)}
               {#if daysLeft !== null}
                 <div class="flex items-center">
@@ -612,7 +622,7 @@
 
           <!-- Action Buttons -->
           <div class="flex flex-col gap-2">
-            {#if transaction.type === 'Borrow' && transaction.status === 'borrowed'}
+            {#if transaction.type?.toLowerCase() === 'borrow' && transaction.status?.toLowerCase() === 'borrowed'}
               <button
                 class="w-full px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors duration-200 text-sm font-medium shadow-sm"
                 on:click={() => openReturnModal(transaction)}
@@ -620,7 +630,7 @@
                 Return Book
               </button>
             {/if}
-            {#if transaction.type === 'Reserve' && transaction.status === 'active'}
+            {#if transaction.type?.toLowerCase() === 'reserve' && transaction.status?.toLowerCase() === 'active'}
               <button
                 class="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm font-medium shadow-sm"
                 on:click={() => openConfirmBorrowModal(transaction)}

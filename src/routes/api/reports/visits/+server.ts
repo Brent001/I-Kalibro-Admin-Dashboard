@@ -77,6 +77,7 @@ export const GET: RequestHandler = async ({ url }) => {
         username: libraryVisit.username,
         fullName: libraryVisit.fullName,
         visitorType: libraryVisit.visitorType,
+        purpose: libraryVisit.purpose, // <-- Add this line
         timeIn: libraryVisit.timeIn,
         timeOut: libraryVisit.timeOut,
         createdAt: libraryVisit.createdAt

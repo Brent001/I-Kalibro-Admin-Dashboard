@@ -132,6 +132,32 @@
     }
   }
 
+  /**
+   * Returns number of hours overdue (rounded up). If due date is in future or invalid, returns 0.
+   */
+  function getHoursOverdue(dueDate: string): number {
+     if (!dueDate) return 0;
+     try {
+       const due = new Date(dueDate).getTime();
+       if (isNaN(due)) return 0;
+       const diffMs = Date.now() - due;
+       if (diffMs <= 0) return 0;
+       const hours = diffMs / (1000 * 60 * 60);
+       return Math.ceil(hours);
+     } catch {
+       return 0;
+     }
+  }
+
+  /**
+   * Calculates fine at ₱5 per hour overdue and returns a formatted string with two decimals.
+   */
+  function getOverdueFine(dueDate: string): string {
+   const hours = getHoursOverdue(dueDate);
+   const fine = hours * 5; // 5 pesos per hour
+   return fine.toFixed(2);
+  }
+
   async function refreshData(): Promise<void> {
     await loadDashboardData();
   }
@@ -149,18 +175,18 @@
 </script>
 
 <Layout>
-  <div class="min-h-screen bg-gray-50">
+  <div class="min-h-screen bg-[#FFF9E6]">
     <div class="px-0 sm:px-2 lg:px-4 pb-4">
       {#if error}
         <!-- Error State -->
-        <div class="bg-red-50 border border-red-200 rounded-lg p-3 lg:p-4 mb-4 lg:mb-6">
+        <div class="bg-[#E8B923]/10 border border-[#E8B923] rounded-lg p-3 lg:p-4 mb-4 lg:mb-6">
           <div class="flex items-start">
-            <svg class="w-5 h-5 text-red-400 mr-2 lg:mr-3 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-5 h-5 text-[#E8B923] mr-2 lg:mr-3 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
             </svg>
             <div class="flex-1">
-              <h3 class="text-sm font-medium text-red-800">Error loading dashboard</h3>
-              <p class="text-xs lg:text-sm text-red-700 mt-1">{error}</p>
+              <h3 class="text-sm font-medium text-[#E8B923]">Error loading dashboard</h3>
+              <p class="text-xs lg:text-sm text-[#E8B923] mt-1">{error}</p>
             </div>
           </div>
         </div>
@@ -173,8 +199,8 @@
               <div class="flex flex-col lg:flex-row lg:items-center">
                 <div class="flex items-center justify-between lg:justify-start mb-2 lg:mb-0">
                   <div class="flex-shrink-0">
-                    <div class="w-9 h-9 lg:w-12 lg:h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <svg class="w-5 h-5 lg:w-6 lg:h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div class="w-9 h-9 lg:w-12 lg:h-12 bg-[#0D5C29]/10 rounded-lg flex items-center justify-center">
+                      <svg class="w-5 h-5 lg:w-6 lg:h-6 text-[#0D5C29]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
                       </svg>
                     </div>
@@ -310,11 +336,11 @@
                 </div>
               {:else}
                 {#each dashboardData.recentActivity as activity}
-                  <div class="px-4 py-3 lg:px-6 lg:py-4 hover:bg-gray-50 transition-colors duration-150">
+                  <div class="px-4 py-3 lg:px-6 lg:py-4 hover:bg-[#FFF9E6] transition-colors duration-150">
                     <div class="flex items-start lg:items-center space-x-3 lg:space-x-4">
                       <div class="flex-shrink-0 mt-0.5 lg:mt-0">
-                        <div class="w-8 h-8 rounded-full bg-{activity.type === 'borrowed' ? 'blue' : activity.type === 'returned' ? 'green' : 'red'}-100 flex items-center justify-center">
-                          <svg class="w-4 h-4 text-{activity.type === 'borrowed' ? 'blue' : activity.type === 'returned' ? 'green' : 'red'}-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div class="w-8 h-8 rounded-full bg-{activity.type === 'borrowed' ? '[#0D5C29]/10' : activity.type === 'returned' ? '[#0D5C29]/10' : 'red'}-100 flex items-center justify-center">
+                          <svg class="w-4 h-4 text-{activity.type === 'borrowed' ? '[#0D5C29]' : activity.type === 'returned' ? '[#0D5C29]' : '[#E8B923]'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{getActivityIcon(activity.type)}"></path>
                           </svg>
                         </div>
@@ -326,7 +352,9 @@
                             <p class="text-sm font-semibold text-gray-900 truncate flex-1">
                               {activity.bookTitle || 'Unknown Book'}
                             </p>
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-{activity.type === 'borrowed' ? 'blue' : activity.type === 'returned' ? 'green' : 'red'}-100 text-{activity.type === 'borrowed' ? 'blue' : activity.type === 'returned' ? 'green' : 'red'}-700 flex-shrink-0">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium 
+                              bg-{activity.type === 'borrowed' ? '[#0D5C29]/10' : activity.type === 'returned' ? '[#0D5C29]/10' : '[#E8B923]/10'} 
+                              text-{activity.type === 'borrowed' ? '[#0D5C29]' : activity.type === 'returned' ? '[#0D5C29]' : '[#E8B923]'}">
                               {getActivityTypeDisplay(activity.type)}
                             </span>
                           </div>
@@ -381,17 +409,20 @@
                 </div>
               {:else}
                 {#each dashboardData.overdueBooksList as book}
-                  <div class="px-4 py-3 lg:px-6 lg:py-4 hover:bg-red-50 transition-colors duration-150">
+                  <div class="px-4 py-3 lg:px-6 lg:py-4 hover:bg-[#E8B923]/10 transition-colors duration-150">
                     <div class="flex items-start lg:items-center space-x-3 lg:space-x-4">
-                      <div class="w-2 h-2 bg-red-500 rounded-full flex-shrink-0 mt-1.5 lg:mt-0"></div>
+                      <div class="w-2 h-2 bg-[#E8B923] rounded-full flex-shrink-0 mt-1.5 lg:mt-0"></div>
                       <div class="flex-1 min-w-0">
                         <p class="text-sm font-semibold text-gray-900 mb-1 truncate">{book.bookTitle || 'Unknown Book'}</p>
                         <p class="text-xs lg:text-sm text-gray-600 mb-2 truncate">{book.memberName || 'Unknown Member'}</p>
                         <div class="flex items-center justify-between flex-wrap gap-2">
-                          <span class="inline-flex items-center px-2 lg:px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          <span class="inline-flex items-center px-2 lg:px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E8B923]/10 text-[#E8B923]">
                             {book.daysOverdue} {book.daysOverdue === 1 ? 'day' : 'days'} overdue
                           </span>
-                          <span class="text-xs text-gray-500">Due: {formatDate(book.dueDate)}</span>
+                          <div class="flex items-center gap-3">
+                            <span class="text-sm font-semibold text-red-600">Fine: ₱{getOverdueFine(book.dueDate)}</span>
+                            <span class="text-xs text-gray-500">Due: {formatDate(book.dueDate)}</span>
+                          </div>
                         </div>
                       </div>
                     </div>

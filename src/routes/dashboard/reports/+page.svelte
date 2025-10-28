@@ -47,13 +47,10 @@
     tables: { topBooks: [], overdueList: [] }
   });
 
-  // Add this computed array after your stores and before your chart functions
   const transactionTypesForChart = derived(dashboardData, $dashboardData => {
-    // Get counts from API for Borrowed, Returned, Reserved
     const apiTypes = $dashboardData.charts.transactionTypes.filter(
       t => t.type !== 'Overdue'
     );
-    // Overdue count from overdueList table
     const overdueCount = $dashboardData.tables.overdueList.length;
     return [
       ...apiTypes,
@@ -195,13 +192,11 @@
       });
     }
 
-    // Use transactionTypesForChart for the chart
     let transactionTypesData: Array<{type: string; count: number}> = [];
     transactionTypesForChart.subscribe(types => {
       transactionTypesData = types;
     })();
 
-    // If all counts are zero, show a single light gray segment
     const allZero = transactionTypesData.every(d => d.count === 0);
 
     createChart('transactionsChart', {
@@ -211,13 +206,13 @@
         datasets: [{
           data: allZero ? [1] : transactionTypesData.map(d => d.count),
           backgroundColor: allZero
-            ? ['#E5E7EB'] // Tailwind gray-200
+            ? ['#E5E7EB']
             : transactionTypesData.map(d =>
-                d.type === 'Overdue' ? '#EF4444' :      // red-500
-                d.type === 'Reserved' ? '#F59E42' :     // orange-400
-                d.type === 'Borrowed' ? '#10B981' :     // green-500
-                d.type === 'Returned' ? '#3B82F6' :     // blue-500
-                '#A855F7' // violet-500 fallback
+                d.type === 'Overdue' ? '#EF4444' :
+                d.type === 'Reserved' ? '#F59E42' :
+                d.type === 'Borrowed' ? '#10B981' :
+                d.type === 'Returned' ? '#3B82F6' :
+                '#A855F7'
               ),
           borderWidth: 0
         }]
@@ -263,11 +258,11 @@
           datasets: [{
             label: 'Penalties (₱)',
             data: data.charts.penaltyTrends.map(d => d.amount / 100),
-            borderColor: '#F59E0B', // Changed from '#EF4444' (red) to orange
+            borderColor: '#F59E0B',
             backgroundColor: createGradient(
               penaltiesCanvas,
               [
-                [0, 'rgba(245, 158, 11, 0.3)'],   // orange-400
+                [0, 'rgba(245, 158, 11, 0.3)'],
                 [1, 'rgba(245, 158, 11, 0.05)']
               ]
             ),
@@ -345,7 +340,7 @@
         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
           <div>
             <h1 class="text-3xl font-bold text-gray-900">Library Analytics</h1>
-            <p class="mt-0.5 text-sm text-gray-600">Comprehensive overview of library operations and statistics</p>
+            <p class="mt-0.5 text-sm text-gray-600">Real-time fine calculations at ₱5/hour • Auto-updated every hour</p>
           </div>
           
           <div class="flex flex-col sm:flex-row gap-2">
@@ -403,11 +398,8 @@
             <div class="flex gap-2 min-w-[400px] sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {#each METRIC_CONFIGS as config}
                 <div class="min-w-[120px] bg-white rounded-xl shadow-sm border border-gray-200 p-2 flex flex-col items-center justify-center animate-pulse">
-                  <!-- Icon Skeleton -->
                   <div class="p-1.5 bg-gray-200 rounded-full mb-1 w-9 h-9 sm:w-11 sm:h-11"></div>
-                  <!-- Value Skeleton -->
                   <div class="h-5 sm:h-6 bg-gray-200 rounded w-16 mb-1"></div>
-                  <!-- Label Skeleton (mobile) -->
                   <div class="block sm:hidden h-3 bg-gray-200 rounded w-20 mt-0.5"></div>
                 </div>
               {/each}
@@ -565,7 +557,7 @@
           <div class="overflow-x-auto pb-2">
             <div class="flex gap-2 min-w-[400px] sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {#each METRIC_CONFIGS as config}
-                <div class="group min-w-[120px] bg-white rounded-xl shadow-sm border border-gray-200 p-2 flex flex-col items-center justify-center hover:shadow-md transition-all duration-200 hover:-translate-y-0.5">
+                <div class="group relative min-w-[120px] bg-white rounded-xl shadow-sm border border-gray-200 p-2 flex flex-col items-center justify-center hover:shadow-md transition-all duration-200 hover:-translate-y-0.5">
                   <!-- Icon -->
                   <div class="p-1.5 bg-gradient-to-br {config.gradient} rounded-full shadow-sm mb-1">
                     <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -580,7 +572,7 @@
                   <div class="block sm:hidden text-[11px] text-gray-500 mt-0.5 text-center">
                     {config.label}
                   </div>
-                  <div class="hidden sm:block absolute bottom-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 pointer-events-none transition bg-gray-900 text-white text-xs rounded px-2 py-1 z-10 whitespace-nowrap">
+                  <div class="hidden sm:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 pointer-events-none transition bg-gray-900 text-white text-xs rounded px-2 py-1 z-10 whitespace-nowrap">
                     {config.label}
                   </div>
                 </div>
@@ -714,7 +706,7 @@
                 <div class="flex items-center justify-between">
                   <div>
                     <h3 class="text-lg font-bold text-gray-900">Overdue Books</h3>
-                    <p class="text-sm text-gray-600 mt-1">Requires immediate attention</p>
+                    <p class="text-sm text-gray-600 mt-1">Requires immediate attention • ₱5/hour</p>
                   </div>
                   <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
                     {$dashboardData.tables.overdueList.length} items
@@ -757,7 +749,9 @@
                           </span>
                         </td>
                         <td class="px-6 py-4 text-right">
-                          <span class="text-sm font-bold text-gray-900">{formatCurrency(overdue.fine)}</span>
+                          <span class="text-sm font-bold text-gray-900">
+                            {formatCurrency(overdue.fine)}
+                          </span>
                         </td>
                       </tr>
                     {/each}
