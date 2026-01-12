@@ -95,6 +95,7 @@
     book: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
     clock: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
     dollar: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1",
+    peso: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M9 4h6m-6 4h6",
     library: "M8 14v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
   } as const;
 
@@ -115,7 +116,7 @@
 
   // Reactive selected period label
   $: selectedPeriodLabel = PERIOD_OPTIONS.find(option => option.value === $selectedPeriod)?.label || 'Select Period';
-  const formatCurrency = (amount: number) => `₱${(amount / 100).toFixed(2)}`;
+  const formatCurrency = (amount: number) => `₱${(amount / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const formatNumber = (num: number) => num.toLocaleString();
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -319,53 +320,139 @@
     createChart('categoriesChart', {
       type: 'bar',
       data: {
-        labels: data.charts.categoryDistribution.map(d => d.category.length > 12 ? d.category.slice(0, 12) + '...' : d.category),
+        labels: data.charts.categoryDistribution.map(d => {
+          // Better label truncation - show more characters and handle word boundaries
+          if (d.category.length <= 15) return d.category;
+          const words = d.category.split(' ');
+          let result = '';
+          for (const word of words) {
+            if ((result + ' ' + word).length <= 12) {
+              result += (result ? ' ' : '') + word;
+            } else {
+              break;
+            }
+          }
+          return result || d.category.slice(0, 12) + '...';
+        }),
         datasets: [{
             label: 'Books',
             data: data.charts.categoryDistribution.map(d => d.count),
-            backgroundColor: '#6366F1',
-            borderRadius: 6,
-            barThickness: 20
+            backgroundColor: data.charts.categoryDistribution.map((_, i) => {
+              const colors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#EF4444', '#6B7280'];
+              return colors[i % colors.length];
+            }),
+            borderRadius: 4,
+            borderSkipped: false,
+            barThickness: Math.max(15, Math.min(35, (window.innerWidth < 640 ? window.innerWidth * 0.8 : 400) / data.charts.categoryDistribution.length))
         }]
       },
       options: {
-        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
         scales: {
-            x: { beginAtZero: true, grid: { display: false } },
-            y: { grid: { display: false } }
+            x: {
+              grid: { display: false },
+              ticks: {
+                maxRotation: 45,
+                minRotation: 0,
+                font: { size: window.innerWidth < 640 ? 9 : 11 },
+                padding: window.innerWidth < 640 ? 5 : 10
+              }
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: '#f1f5f9' },
+              ticks: { 
+                precision: 0,
+                font: { size: window.innerWidth < 640 ? 9 : 11 },
+                padding: window.innerWidth < 640 ? 5 : 10
+              }
+            }
         },
-        plugins: { legend: { display: false } }
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            titleFont: { size: window.innerWidth < 640 ? 12 : 13 },
+            bodyFont: { size: window.innerWidth < 640 ? 11 : 12 },
+            padding: window.innerWidth < 640 ? 8 : 10,
+            callbacks: {
+              title: (context: any) => {
+                // Show full category name in tooltip
+                return data.charts.categoryDistribution[context[0].dataIndex].category;
+              },
+              label: (context: any) => {
+                const item = data.charts.categoryDistribution[context.dataIndex];
+                return `${item.count} books (${item.percentage}%)`;
+              }
+            }
+          }
+        }
       }
     });
 
     // 4. Penalties Area
     const penaltiesCanvas = document.getElementById('penaltiesChart') as HTMLCanvasElement;
     if (penaltiesCanvas) {
+      const penaltyData = data.charts.penaltyTrends.map(d => d.amount / 100);
+      const hasData = penaltyData.some(value => value > 0);
+      
       createChart('penaltiesChart', {
         type: 'line',
         data: {
           labels: data.charts.penaltyTrends.map(d => formatDate(d.date)),
           datasets: [{
             label: 'Penalties (₱)',
-            data: data.charts.penaltyTrends.map(d => d.amount / 100),
-            borderColor: '#8B5CF6',
-            backgroundColor: createGradient(penaltiesCanvas, [[0, 'rgba(139, 92, 246, 0.3)'], [1, 'rgba(139, 92, 246, 0.05)']]),
-            borderWidth: 3,
-            pointRadius: 0,
-            pointHoverRadius: 5,
+            data: penaltyData,
+            borderColor: hasData ? '#8B5CF6' : '#E5E7EB',
+            backgroundColor: hasData 
+              ? createGradient(penaltiesCanvas, [[0, 'rgba(139, 92, 246, 0.3)'], [1, 'rgba(139, 92, 246, 0.05)']])
+              : 'rgba(229, 231, 235, 0.1)',
+            borderWidth: hasData ? 2 : 1,
+            pointRadius: hasData ? 2 : 0,
+            pointHoverRadius: hasData ? 4 : 2,
+            pointBackgroundColor: '#8B5CF6',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1,
             tension: 0.4,
             fill: true
           }]
         },
         options: {
+          responsive: true,
+          maintainAspectRatio: false,
           scales: {
-            x: { grid: { display: false } },
+            x: { 
+              grid: { display: false },
+              ticks: {
+                font: { size: window.innerWidth < 640 ? 8 : 10 },
+                padding: window.innerWidth < 640 ? 3 : 5,
+                maxTicksLimit: window.innerWidth < 640 ? 5 : 7
+              }
+            },
             y: { 
               beginAtZero: true,
-              ticks: { callback: (value: any) => '₱' + value }
+              grid: { color: '#f1f5f9' },
+              ticks: { 
+                callback: (value: any) => {
+                  if (value >= 1000) return `₱${(value / 1000).toFixed(1)}k`;
+                  return `₱${value}`;
+                },
+                font: { size: window.innerWidth < 640 ? 8 : 10 },
+                padding: window.innerWidth < 640 ? 3 : 5
+              }
             }
           },
-          plugins: { legend: { display: false } }
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              titleFont: { size: window.innerWidth < 640 ? 11 : 12 },
+              bodyFont: { size: window.innerWidth < 640 ? 10 : 11 },
+              padding: window.innerWidth < 640 ? 6 : 8,
+              callbacks: {
+                label: (context: any) => `₱${context.parsed.y.toFixed(2)}`
+              }
+            }
+          }
         }
       });
     }
@@ -400,10 +487,20 @@
       }
     };
     
+    // Add resize handler for responsive chart updates
+    const handleResize = () => {
+      if ($dashboardData && typeof window !== 'undefined' && (window as any).Chart) {
+        // Re-initialize charts with new responsive settings
+        setTimeout(() => initializeCharts($dashboardData), 100);
+      }
+    };
+    
     document.addEventListener('click', handleClickOutside);
+    window.addEventListener('resize', handleResize);
     
     return () => {
       document.removeEventListener('click', handleClickOutside);
+      window.removeEventListener('resize', handleResize);
     };
   });
 
@@ -608,7 +705,7 @@
       <!-- Categories -->
       <div class="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-3">
         <h3 class="text-lg font-bold text-gray-900 mb-4">Book Categories</h3>
-        <div class="h-56">
+        <div class="h-48 sm:h-56 md:h-64">
           {#if $loading}
             <div class="h-full bg-gray-100 animate-pulse rounded-lg"></div>
           {:else}
@@ -629,8 +726,10 @@
                <p class="text-sm text-gray-500">Total fines collected</p>
              {/if}
          </div>
-         <div class="h-24 mt-4">
-           {#if !$loading}
+         <div class="h-32 sm:h-28 md:h-24 mt-4">
+           {#if $loading}
+             <div class="h-full bg-gray-100 animate-pulse rounded-lg"></div>
+           {:else}
              <canvas id="penaltiesChart"></canvas>
            {/if}
          </div>

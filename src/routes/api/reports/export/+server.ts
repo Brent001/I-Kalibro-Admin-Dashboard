@@ -142,10 +142,16 @@ async function generatePDFReport(data: any, title: string, periodLabel: string, 
     }
 
     // ========== FOOTER ON ALL PAGES ==========
-    const pageCount = doc.bufferedPageRange().count;
-    for (let i = 1; i < pageCount; i++) { // Skip cover page (page 0), start from page 1
-      doc.switchToPage(i);
-      drawFooter(doc, i, pageCount - 1); // i is the page number (1-based), pageCount - 1 is total content pages
+    // Add footers to all pages after content is complete
+    const pageRange = doc.bufferedPageRange();
+    const totalPages = pageRange.count;
+    const startPage = pageRange.start;
+    
+    for (let pageNum = startPage; pageNum < startPage + totalPages; pageNum++) {
+      doc.switchToPage(pageNum);
+      const displayPageNum = pageNum === startPage ? 1 : pageNum - startPage + 1; // Cover page shows as page 1
+      const displayTotalPages = totalPages - 1; // Don't count cover page in total
+      drawFooter(doc, displayPageNum, displayTotalPages);
     }
 
     doc.end();
@@ -396,8 +402,8 @@ function drawDailyVisitsTable(doc: PDFKit.PDFDocument, visits: any[]) {
     
     const date = new Date(visit.date);
     const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
-    const trend = visit.count > avgVisits * 1.2 ? '↑ Above Average' :
-                 visit.count < avgVisits * 0.8 ? '↓ Below Average' : '→ Average';
+    const trend = visit.count > avgVisits * 1.2 ? 'Above Average' :
+                 visit.count < avgVisits * 0.8 ? 'Below Average' : 'Average';
 
     doc.rect(tableX, y, colWidths.reduce((a, b) => a + b), rowHeight)
        .fillAndStroke(bgColor, '#e2e8f0');
@@ -596,16 +602,16 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
     [`Period: ${periodLabel}`],
     [`Generated: ${generatedDate}`],
     [''],
-    ['📊 KEY METRICS'],
+    ['KEY METRICS'],
     ['Metric', 'Value', 'Status'],
-    ['Total Visits', data.overview.totalVisits.toString(), data.overview.totalVisits > 100 ? '↑ Active' : '→ Normal'],
+    ['Total Visits', data.overview.totalVisits.toString(), data.overview.totalVisits > 100 ? 'Active' : 'Normal'],
     ['Total Transactions', data.overview.totalTransactions.toString(), ''],
     ['Active Borrowings', data.overview.activeBorrowings.toString(), ''],
-    ['Overdue Books', data.overview.overdueBooks.toString(), data.overview.overdueBooks > 0 ? '⚠️ Attention Required' : '✅ Good'],
+    ['Overdue Books', data.overview.overdueBooks.toString(), data.overview.overdueBooks > 0 ? 'Attention Required' : 'Good'],
     ['Total Penalties', formatCurrency(data.overview.totalPenalties), ''],
     ['Available Books', data.overview.availableBooks.toString(), ''],
     [''],
-    ['📈 CATEGORY DISTRIBUTION'],
+    ['CATEGORY DISTRIBUTION'],
     ['Category', 'Book Count', 'Percentage', 'Status']
   ];
 
@@ -628,12 +634,20 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
     { wch: 20 }
   ];
 
+  // Add table formatting
+  overviewSheet['!tables'] = [{
+    ref: `A7:D${overviewData.length}`,
+    headerRow: true,
+    totalsRow: false,
+    name: 'OverviewTable'
+  }];
+
   XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Overview');
 
   // ========== TOP BOOKS SHEET ==========
   if (data.tables.topBooks.length > 0) {
     const booksData = [
-      ['📚 MOST POPULAR BOOKS'],
+      ['MOST POPULAR BOOKS'],
       [`Period: ${periodLabel}`],
       [''],
       ['Rank', 'Title', 'Author', 'Category', 'ISBN', 'Borrow Count', 'Popularity']
@@ -643,7 +657,7 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
 
     data.tables.topBooks.forEach((book: any, index: number) => {
       const rank = index + 1;
-      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank.toString();
+      const medal = rank === 1 ? '1st' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : rank.toString();
       const popularity = book.borrowCount >= maxBorrows * 0.7 ? 'Very High' :
                         book.borrowCount >= maxBorrows * 0.4 ? 'High' : 'Moderate';
       
@@ -675,13 +689,22 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
       { wch: 15 }
     ];
 
+    // Add table formatting for books data (excluding header rows)
+    const booksTableStart = 4; // After the 3 header rows
+    booksSheet['!tables'] = [{
+      ref: `A${booksTableStart}:G${booksData.length}`,
+      headerRow: true,
+      totalsRow: false,
+      name: 'TopBooksTable'
+    }];
+
     XLSX.utils.book_append_sheet(workbook, booksSheet, 'Top Books');
   }
 
   // ========== OVERDUE BOOKS SHEET ==========
   if (data.tables.overdueList.length > 0) {
     const overdueData = [
-      ['⚠️ OVERDUE BOOKS REPORT'],
+      ['OVERDUE BOOKS REPORT'],
       [`Period: ${periodLabel}`],
       [`Total Overdue: ${data.tables.overdueList.length}`],
       [''],
@@ -689,9 +712,9 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
     ];
 
     data.tables.overdueList.forEach((item: any) => {
-      const severity = item.daysOverdue > 30 ? '🔴 Critical' :
-                      item.daysOverdue > 14 ? '🟠 High' :
-                      item.daysOverdue > 7 ? '🟡 Medium' : '🟢 Low';
+      const severity = item.daysOverdue > 30 ? 'Critical' :
+                      item.daysOverdue > 14 ? 'High' :
+                      item.daysOverdue > 7 ? 'Medium' : 'Low';
       
       overdueData.push([
         item.bookTitle,
@@ -721,13 +744,22 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
       { wch: 15 }
     ];
 
+    // Add table formatting for overdue data (excluding header rows)
+    const overdueTableStart = 4; // After the 3 header rows
+    overdueSheet['!tables'] = [{
+      ref: `A${overdueTableStart}:G${overdueData.length}`,
+      headerRow: true,
+      totalsRow: false,
+      name: 'OverdueBooksTable'
+    }];
+
     XLSX.utils.book_append_sheet(workbook, overdueSheet, 'Overdue Books');
   }
 
   // ========== DAILY VISITS SHEET ==========
   if (data.charts.dailyVisits.length > 0) {
     const visitsData = [
-      ['📊 DAILY VISITS TREND'],
+      ['DAILY VISITS TREND'],
       [`Period: ${periodLabel}`],
       [''],
       ['Date', 'Visit Count', 'Day of Week', 'Trend']
@@ -738,8 +770,8 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
     data.charts.dailyVisits.forEach((visit: any) => {
       const date = new Date(visit.date);
       const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
-      const trend = visit.count > avgVisits * 1.2 ? '↑ Above Average' :
-                   visit.count < avgVisits * 0.8 ? '↓ Below Average' : '→ Average';
+      const trend = visit.count > avgVisits * 1.2 ? 'Above Average' :
+                   visit.count < avgVisits * 0.8 ? 'Below Average' : 'Average';
       
       visitsData.push([
         date.toLocaleDateString('en-US'),
@@ -764,12 +796,21 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
       { wch: 20 }
     ];
 
+    // Add table formatting for visits data (excluding header rows)
+    const visitsTableStart = 4; // After the 3 header rows
+    visitsSheet['!tables'] = [{
+      ref: `A${visitsTableStart}:D${visitsData.length}`,
+      headerRow: true,
+      totalsRow: false,
+      name: 'DailyVisitsTable'
+    }];
+
     XLSX.utils.book_append_sheet(workbook, visitsSheet, 'Daily Visits');
   }
 
   // ========== BORROWING ACTIVITY SHEET ==========
   const activityData = [
-    ['📖 BORROWING ACTIVITY SUMMARY'],
+    ['BORROWING ACTIVITY SUMMARY'],
     [`Period: ${periodLabel}`],
     [''],
     ['Activity Metric', 'Count', 'Percentage of Total'],
@@ -793,6 +834,15 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
     { wch: 15 },
     { wch: 20 }
   ];
+
+  // Add table formatting for activity data (excluding header rows)
+  const activityTableStart = 4; // After the 3 header rows
+  activitySheet['!tables'] = [{
+    ref: `A${activityTableStart}:C${activityData.length}`,
+    headerRow: true,
+    totalsRow: false,
+    name: 'ActivityTable'
+  }];
 
   XLSX.utils.book_append_sheet(workbook, activitySheet, 'Activity Summary');
 
