@@ -114,12 +114,20 @@
 
   // Create a derived store for filtered navigation based on user role
   const navigation = derived(userStore, ($user) => {
-    if (!$user) return allNavigation;
-    return allNavigation.filter(item => item.roles.includes($user.role));
+    if (!$user || !$user.role) return allNavigation;
+    return allNavigation.filter(item => item.roles.includes($user.role!));
   });
 
   let currentPath = "";
   $: currentPath = $page.url.pathname;
+
+  // Reactive computed active navigation item
+  $: activeNavHref = (() => {
+    const matching = $navigation
+      .filter(nav => currentPath === nav.href || currentPath.startsWith(nav.href + "/"))
+      .sort((a, b) => b.href.length - a.href.length);
+    return matching.length > 0 ? matching[0].href : "";
+  })();
 
   // Fetch user session data
   async function fetchUserSession() {
@@ -192,25 +200,23 @@
       const result = await response.json();
 
       if (result.success) {
-        // Show success message briefly
+        // Clear user data immediately
+        userStore.set(null);
+        
+        // Call the parent logout handler
+        onLogout();
+        
+        // Show success message and redirect immediately
         if (logoutAllDevices) {
           showNotification('Logged out from all devices successfully', 'success');
         } else {
           showNotification('Logged out successfully', 'success');
         }
         
-        // Clear user data
-        userStore.set(null);
-        
-        // Call the parent logout handler
-        onLogout();
-        
-        // Small delay to show the message, then redirect
-        setTimeout(() => {
-          if (browser) {
-            window.location.href = '/';
-          }
-        }, 1000);
+        // Redirect immediately without delay
+        if (browser) {
+          window.location.href = '/';
+        }
       } else {
         // Handle partial success or errors
         console.error('Logout error:', result.message);
@@ -281,63 +287,55 @@
   });
 
   // Add a helper to capitalize the role
-  function capitalize(str: string) {
+  function capitalize(str: string | undefined) {
     return str ? str.charAt(0).toUpperCase() + str.slice(1) : "";
-  }
-
-  function isNavActive(href: string) {
-    // Find the deepest matching nav item
-    const matching = $navigation
-      .filter(nav => currentPath === nav.href || currentPath.startsWith(nav.href + "/"))
-      .sort((a, b) => b.href.length - a.href.length);
-    return matching.length > 0 && matching[0].href === href;
   }
 </script>
 
-<div class="flex h-screen bg-gray-50">
+<div class="flex h-screen bg-[#4A7C59]/5">
   <!-- Sidebar -->
-  <div class="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg border-r border-gray-200 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0"
+  <div class="fixed inset-y-0 left-0 z-50 w-64 bg-[#0D5C29] shadow-lg border-r border-[#E8B923]/30 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0"
     class:translate-x-0={$sidebarOpen}
     class:-translate-x-full={!$sidebarOpen}
   >
-    <!-- Logo section - Dark Forest Green -->
-    <div class="flex items-center justify-between h-16 px-6 bg-[#0D5C29] text-white">
+    <!-- Logo section - Dark Forest Green with Bronze accents -->
+    <div class="flex items-center justify-between h-16 px-6 bg-[#0D5C29] text-white border-b border-[#B8860B]/30">
       <div class="flex items-center space-x-3">
-        <div class="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <div class="w-8 h-8 bg-[#B8860B] rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-[#0D5C29]" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
           </svg>
         </div>
-        <div>
+        <div class="pt-1">
           <h1 class="text-lg font-bold text-white">i-Kalibro</h1>
-          <p class="text-xs text-white/80">Library Management System</p>
+          <p class="text-xs text-[#E8B923] whitespace-nowrap">Library Management System</p>
         </div>
       </div>
-      <button class="lg:hidden p-1" on:click={() => sidebarOpen.set(false)}>
-        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <button class="lg:hidden p-1 hover:bg-[#B8860B]/20 rounded" on:click={() => sidebarOpen.set(false)} aria-label="Close sidebar">
+        <svg class="w-6 h-6 text-[#E8B923]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
       </button>
     </div>
 
-    <!-- Navigation section -->
-    <nav class="mt-6 px-4 flex-1 overflow-y-auto bg-white">
+    <!-- Navigation section - Academic green background with bronze accents -->
+    <nav class="mt-6 px-4 flex-1 overflow-y-auto bg-[#0D5C29]">
       <ul class="space-y-1">
         {#each $navigation as item}
           <li>
-            {#if !item.roles.includes(user?.role)}
+            {#if !(user?.role && item.roles.includes(user.role))}
               <!-- Hide or disable if not permitted -->
-              <div class="flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded-lg opacity-50 pointer-events-none bg-gray-100 text-gray-400">
+              <div class="flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded-lg opacity-50 pointer-events-none bg-[#4A7C59]/30 text-[#E8B923] border border-[#B8860B]/20">
                 {@html item.icon}
                 <span>{item.name}</span>
               </div>
             {:else}
               <a
                 href={item.href}
-                class="flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200
-                  {isNavActive(item.href)
-                    ? 'bg-[#0D5C29] text-white shadow-sm'
-                    : 'text-[#0D5C29] hover:bg-[#FFF9E6] hover:text-[#E8B923]'}"
+                class="flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200 border border-transparent
+                  {activeNavHref === item.href
+                    ? 'bg-[#E8B923] text-[#0D5C29] border-[#B8860B] shadow-sm'
+                    : 'text-white hover:bg-[#4A7C59]/30 hover:text-[#E8B923] hover:border-[#B8860B]/30'}"
                 on:click|preventDefault={() => {
                   goto(item.href);
                   sidebarOpen.set(false);
@@ -352,17 +350,17 @@
       </ul>
     </nav>
 
-    <!-- User info section -->
-    <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-white">
+    <!-- User info section - Academic green background with bronze accents -->
+    <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-[#B8860B]/30 bg-[#0D5C29]">
       <div class="flex items-center space-x-3 mb-3">
-        <div class="w-8 h-8 bg-[#0D5C29] text-white rounded-full flex items-center justify-center">
+        <div class="w-8 h-8 bg-[#B8860B] text-[#0D5C29] rounded-full flex items-center justify-center border border-[#E8B923]/50">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
           </svg>
         </div>
         <div>
-          <p class="text-sm font-medium text-[#0D5C29]">{user?.name || 'User'}</p>
-          <p class="text-xs text-gray-500">{capitalize(user?.role || 'guest')}</p>
+          <p class="text-sm font-medium text-white">{user?.name || 'User'}</p>
+          <p class="text-xs text-[#E8B923]">{capitalize(user?.role || 'guest')}</p>
         </div>
       </div>
 
@@ -370,11 +368,11 @@
       <div class="relative logout-menu">
         <button
           on:click|stopPropagation={() => showLogoutOptions = !showLogoutOptions}
-          class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-[#0D5C29] hover:bg-[#FFF9E6] hover:text-[#E8B923] rounded-lg transition-colors duration-200
+          class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-white hover:bg-[#4A7C59]/30 hover:text-[#E8B923] rounded-lg transition-colors duration-200 border border-transparent hover:border-[#B8860B]/30
             {isLoggingOut ? 'opacity-50 cursor-not-allowed' : ''}"
           disabled={isLoggingOut}
         >
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-5 h-5 text-[#E8B923]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
           </svg>
           <span>{isLoggingOut ? 'Logging out...' : 'Logout'}</span>
@@ -382,16 +380,16 @@
 
         <!-- Logout Options Dropdown -->
         {#if showLogoutOptions && !isLoggingOut}
-          <div class="absolute bottom-full left-0 right-0 mb-2 bg-white border border-gray-200 rounded-lg shadow-lg py-1">
+          <div class="absolute bottom-full left-0 right-0 mb-2 bg-[#0D5C29] border border-[#B8860B]/30 rounded-lg shadow-lg py-1">
             <button
               on:click={() => handleLogout(false)}
-              class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-[#0D5C29] hover:bg-[#FFF9E6] transition-colors"
+              class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-white hover:bg-[#4A7C59]/30 hover:text-[#E8B923] transition-colors"
             >
               <span>Logout from this device</span>
             </button>
             <button
               on:click={() => handleLogout(true)}
-              class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-[#E8B923] hover:bg-[#FFF9E6] transition-colors"
+              class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-[#E8B923] hover:bg-[#4A7C59]/30 transition-colors"
             >
               <span>Logout from all devices</span>
             </button>
@@ -403,16 +401,17 @@
 
   <!-- Main content -->
   <div class="flex-1 flex flex-col overflow-hidden">
-    <!-- Header - White background with green accents -->
-    <header class="bg-white shadow-sm border-b border-gray-200">
+    <!-- Header - Academic white background with green and gold accents -->
+    <header class="bg-white shadow-lg border-b border-[#4A7C59]/20">
       <div class="flex items-center justify-between px-6 py-4">
         <div class="flex items-center space-x-4">
-          <button class="lg:hidden p-1" on:click={() => sidebarOpen.set(true)}>
+          <button class="lg:hidden p-2 hover:bg-[#0D5C29]/10 rounded-lg transition-colors" on:click={() => sidebarOpen.set(true)} aria-label="Open menu">
             <svg class="h-6 w-6 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
             </svg>
           </button>
-          <h1 class="text-lg sm:text-2xl font-semibold text-[#0D5C29]">
+          <div class="h-8 w-px bg-[#4A7C59]/30"></div>
+          <h1 class="text-sm sm:text-2xl font-bold text-[#0D5C29]">
             {#if currentPath === "/dashboard" && user?.role}
               {capitalize(user.role)} Dashboard
             {:else}
@@ -422,14 +421,15 @@
         </div>
         <div class="flex items-center space-x-4">
           <!-- Notification bell icon -->
-          <button class="relative p-2 text-[#0D5C29] hover:text-[#E8B923] transition-colors">
+          <button class="relative p-2 text-[#0D5C29] hover:text-[#E8B923] hover:bg-[#E8B923]/10 rounded-lg transition-colors" aria-label="Notifications">
             <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7C18 6.279 15.464 4 12.25 4s-5.75 2.279-5.75 5.05v.7a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
             </svg>
-            <span class="absolute top-1 right-1 h-3 w-3 bg-red-600 rounded-full"></span>
+            <span class="absolute top-1 right-1 h-3 w-3 bg-[#E8B923] rounded-full border-2 border-white shadow-sm"></span>
           </button>
-          <div class="w-8 h-8 bg-[#0D5C29] rounded-full flex items-center justify-center">
-            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <div class="h-8 w-px bg-[#4A7C59]/30"></div>
+          <div class="w-10 h-10 bg-[#0D5C29] text-white rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
           </div>
@@ -437,8 +437,8 @@
       </div>
     </header>
 
-    <!-- Page content - Light cream background -->
-    <main class="flex-1 overflow-x-hidden overflow-y-auto bg-[#FFF9E6] p-6">
+    <!-- Page content - Academic cream background with subtle green tint -->
+    <main class="flex-1 overflow-x-hidden overflow-y-auto bg-[#F5F5DC] p-6">
       <slot />
     </main>
   </div>
@@ -448,6 +448,10 @@
     <div
       class="fixed inset-0 z-40 bg-[#0D5C29]/20 backdrop-blur-sm lg:hidden"
       on:click={() => sidebarOpen.set(false)}
+      on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { sidebarOpen.set(false); e.preventDefault(); } }}
+      role="button"
+      tabindex="0"
+      aria-label="Close sidebar"
     ></div>
   {/if}
 </div>
@@ -481,6 +485,7 @@
         <button 
           on:click={() => removeNotification(notification.id)}
           class="ml-4 hover:opacity-80 transition-opacity"
+          aria-label="Close notification"
         >
           <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
