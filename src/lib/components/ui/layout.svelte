@@ -324,10 +324,12 @@
         {#each $navigation as item}
           <li>
             {#if !(user?.role && item.roles.includes(user.role))}
-              <!-- Hide or disable if not permitted -->
-              <div class="flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded-lg opacity-50 pointer-events-none bg-[#4A7C59]/30 text-[#E8B923] border border-[#B8860B]/20">
-                {@html item.icon}
-                <span>{item.name}</span>
+              <!-- Skeleton loading with improved styling -->
+              <div class="px-4 py-3 rounded-lg bg-gradient-to-r from-[#4A7C59]/20 via-[#E8B923]/10 to-[#4A7C59]/20 animate-pulse h-10 border border-[#B8860B]/20 shadow-sm">
+                <div class="flex items-center space-x-3">
+                  <div class="w-5 h-5 bg-[#B8860B]/30 rounded animate-pulse"></div>
+                  <div class="h-4 bg-[#4A7C59]/30 rounded animate-pulse flex-1"></div>
+                </div>
               </div>
             {:else}
               <a
