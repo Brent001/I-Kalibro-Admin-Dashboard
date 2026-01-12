@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Layout from "$lib/components/ui/layout.svelte";
   import AddStaff from "$lib/components/ui/add_staff.svelte";
   import EditStaff from "$lib/components/ui/edit_staff.svelte";
   import { onMount } from "svelte";
@@ -252,13 +251,12 @@
   }
 </script>
 
-<Layout>
-  <div class={`space-y-6 transition-all duration-300 ${isAddStaffOpen || isEditStaffOpen ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
+<div class={`space-y-6 transition-all duration-300 ${isAddStaffOpen || isEditStaffOpen ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
     <!-- Error Message -->
     {#if errorMsg}
       <div class="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center justify-between">
         <span>{errorMsg}</span>
-        <button on:click={() => errorMsg = ""} class="text-red-600 hover:text-red-800">
+        <button on:click={() => errorMsg = ""} class="text-red-600 hover:text-red-800" aria-label="Close error message">
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
@@ -506,12 +504,12 @@
               </div>
             </div>
             <div class="flex space-x-1 ml-2">
-              <button class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Staff" on:click={() => handleEditStaff(member)}>
+              <button class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200" title="Edit Staff" on:click={() => handleEditStaff(member)} aria-label="Edit staff member">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                 </svg>
               </button>
-              <button class="p-1 text-red-600 hover:text-red-900 transition-colors duration-200" title="Delete Staff" on:click={() => handleDeleteStaff(member)}>
+              <button class="p-1 text-red-600 hover:text-red-900 transition-colors duration-200" title="Delete Staff" on:click={() => handleDeleteStaff(member)} aria-label="Delete staff member">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728"/>
                 </svg>
@@ -619,4 +617,3 @@
       </div>
     </div>
   {/if}
-</Layout>

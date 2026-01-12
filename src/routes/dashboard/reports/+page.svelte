@@ -1,9 +1,8 @@
 <script lang="ts">
-  import Layout from "$lib/components/ui/layout.svelte";
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { writable, derived } from 'svelte/store';
 
-  // Types
+  // --- Types ---
   interface Overview {
     totalVisits: number;
     totalTransactions: number;
@@ -32,7 +31,17 @@
     tables: TableData;
   }
 
-  // Reactive stores
+  type MetricConfig = {
+    key: keyof Overview;
+    label: string;
+    icon: keyof typeof ICON_PATHS;
+    gradient: string;
+    bgClass: string;
+    iconClass: string;
+    format?: 'currency' | 'number';
+  };
+
+  // --- Store & State ---
   const loading = writable(true);
   const error = writable<string>('');
   const dashboardData = writable<DashboardData>({
@@ -48,31 +57,17 @@
   });
 
   const transactionTypesForChart = derived(dashboardData, $dashboardData => {
-    const apiTypes = $dashboardData.charts.transactionTypes.filter(
-      t => t.type !== 'Overdue'
-    );
+    const apiTypes = $dashboardData.charts.transactionTypes.filter(t => t.type !== 'Overdue');
     const overdueCount = $dashboardData.tables.overdueList.length;
-    return [
-      ...apiTypes,
-      { type: 'Overdue', count: overdueCount }
-    ];
+    return [...apiTypes, { type: 'Overdue', count: overdueCount }];
   });
 
-  // Configuration
+  // --- Config ---
   const PERIOD_OPTIONS = [
     { value: "week", label: "Last 7 Days" },
     { value: "month", label: "Last 30 Days" },
     { value: "quarter", label: "Last 3 Months" },
     { value: "year", label: "Last 12 Months" }
-  ] as const;
-
-  const METRIC_CONFIGS = [
-    { key: 'totalVisits', label: 'Total Visits', icon: 'users', color: 'blue', gradient: 'from-blue-500 to-blue-600' },
-    { key: 'totalTransactions', label: 'Transactions', icon: 'check', color: 'green', gradient: 'from-green-500 to-green-600' },
-    { key: 'activeBorrowings', label: 'Active Borrowings', icon: 'book', color: 'yellow', gradient: 'from-yellow-500 to-yellow-600' },
-    { key: 'overdueBooks', label: 'Overdue Books', icon: 'clock', color: 'red', gradient: 'from-red-500 to-red-600' },
-    { key: 'totalPenalties', label: 'Total Penalties', icon: 'dollar', color: 'purple', format: 'currency', gradient: 'from-purple-500 to-purple-600' },
-    { key: 'availableBooks', label: 'Available Books', icon: 'library', color: 'indigo', gradient: 'from-indigo-500 to-indigo-600' }
   ] as const;
 
   const ICON_PATHS = {
@@ -84,32 +79,48 @@
     library: "M8 14v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
   } as const;
 
-  // State
+  const METRIC_CONFIGS: MetricConfig[] = [
+    { key: 'totalVisits', label: 'Total Visits', icon: 'users', gradient: 'from-blue-500 to-blue-600', bgClass: 'bg-blue-50', iconClass: 'text-blue-600' },
+    { key: 'totalTransactions', label: 'Transactions', icon: 'check', gradient: 'from-green-500 to-green-600', bgClass: 'bg-emerald-50', iconClass: 'text-emerald-600' },
+    { key: 'activeBorrowings', label: 'Active Loans', icon: 'book', gradient: 'from-yellow-500 to-yellow-600', bgClass: 'bg-amber-50', iconClass: 'text-amber-600' },
+    { key: 'overdueBooks', label: 'Overdue', icon: 'clock', gradient: 'from-red-500 to-red-600', bgClass: 'bg-rose-50', iconClass: 'text-rose-600' },
+    { key: 'totalPenalties', label: 'Fines Collected', icon: 'dollar', format: 'currency', gradient: 'from-purple-500 to-purple-600', bgClass: 'bg-purple-50', iconClass: 'text-purple-600' },
+    { key: 'availableBooks', label: 'In Stock', icon: 'library', gradient: 'from-indigo-500 to-indigo-600', bgClass: 'bg-slate-50', iconClass: 'text-slate-600' }
+  ];
+
   let selectedPeriod = 'month';
   let chartInstances: Record<string, any> = {};
+  let dropdownOpen = false;
 
-  // Utils
-  const formatCurrency = (amount: number): string => `₱${(amount / 100).toFixed(2)}`;
-  const formatNumber = (num: number): string => num.toLocaleString();
-  const formatDate = (dateStr: string): string => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // --- Utils ---
+  const formatCurrency = (amount: number) => `₱${(amount / 100).toFixed(2)}`;
+  const formatNumber = (num: number) => num.toLocaleString();
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
+  const formatValue = (value: number, format?: string) => 
+    format === 'currency' ? formatCurrency(value) : formatNumber(value);
 
-  const formatValue = (value: number, format?: string): string => {
-    return format === 'currency' ? formatCurrency(value) : formatNumber(value);
-  };
+  function toggleDropdown() {
+    dropdownOpen = !dropdownOpen;
+  }
 
-  // API functions
+  function selectPeriod(period: string) {
+    selectedPeriod = period;
+    dropdownOpen = false;
+    loadData();
+  }
+
+  function getSelectedPeriodLabel() {
+    return PERIOD_OPTIONS.find(option => option.value === selectedPeriod)?.label || 'Select Period';
+  }
+
+  // --- API ---
   async function fetchDashboardData(period: string): Promise<DashboardData> {
     const response = await fetch(`/api/reports?period=${period}`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.message || 'API request failed');
-    }
+    if (!result.success) throw new Error(result.message || 'API request failed');
     return result.data;
   }
 
@@ -128,9 +139,32 @@
     URL.revokeObjectURL(url);
   }
 
-  // Chart functions
+  async function loadData() {
+    loading.set(true);
+    error.set('');
+    try {
+      const data = await fetchDashboardData(selectedPeriod);
+      dashboardData.set(data);
+      if ((window as any).Chart) setTimeout(() => initializeCharts(data), 100);
+    } catch (err: any) {
+      error.set(err.message || 'Failed to load dashboard data');
+      console.error('Dashboard load error:', err);
+    } finally {
+      loading.set(false);
+    }
+  }
+
+  async function handleExport() {
+    try {
+      await exportReport();
+    } catch (err) {
+      error.set('Export failed. Please try again.');
+    }
+  }
+
+  // --- Charts ---
   async function loadChartJS() {
-    if (typeof window !== 'undefined' && !window.Chart) {
+    if (typeof window !== 'undefined' && !(window as any).Chart) {
       return new Promise<void>((resolve) => {
         const script = document.createElement('script');
         script.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js';
@@ -140,18 +174,6 @@
     }
   }
 
-  function createChart(canvasId: string, config: any): any {
-    const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
-    if (!canvas) return null;
-    
-    if (chartInstances[canvasId]) {
-      chartInstances[canvasId].destroy();
-    }
-    
-    chartInstances[canvasId] = new (window as any).Chart(canvas, config);
-    return chartInstances[canvasId];
-  }
-
   function createGradient(canvas: HTMLCanvasElement, colorStops: [number, string][]): CanvasGradient {
     const ctx = canvas.getContext('2d')!;
     const gradient = ctx.createLinearGradient(0, 0, 0, 400);
@@ -159,7 +181,37 @@
     return gradient;
   }
 
-  function initializeCharts(data: DashboardData): void {
+  function createChart(id: string, config: any) {
+    const ctx = document.getElementById(id) as HTMLCanvasElement;
+    if (!ctx) return;
+    if (chartInstances[id]) chartInstances[id].destroy();
+    
+    const defaults = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { 
+            legend: { 
+                position: 'bottom',
+                labels: { boxWidth: 10, usePointStyle: true, font: { family: "'Inter', sans-serif", size: 11 } } 
+            },
+            tooltip: {
+                backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                padding: 10,
+                cornerRadius: 8,
+                titleFont: { family: "'Inter', sans-serif", size: 13 },
+                bodyFont: { family: "'Inter', sans-serif", size: 12 }
+            }
+        }
+    };
+
+    chartInstances[id] = new (window as any).Chart(ctx, {
+        ...config,
+        options: { ...defaults, ...config.options }
+    });
+  }
+
+  function initializeCharts(data: DashboardData) {
+    // 1. Visits Line Chart
     const visitsCanvas = document.getElementById('visitsChart') as HTMLCanvasElement;
     if (visitsCanvas) {
       createChart('visitsChart', {
@@ -181,74 +233,66 @@
           }]
         },
         options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
           scales: {
             x: { grid: { display: false } },
-            y: { beginAtZero: true }
+            y: { beginAtZero: true, border: { display: false }, grid: { color: '#f1f5f9' } }
           }
         }
       });
     }
 
-    let transactionTypesData: Array<{type: string; count: number}> = [];
-    transactionTypesForChart.subscribe(types => {
-      transactionTypesData = types;
-    })();
-
-    const allZero = transactionTypesData.every(d => d.count === 0);
+    // 2. Transaction Doughnut
+    let txData: any[] = [];
+    transactionTypesForChart.subscribe(v => txData = v)();
+    
+    const allZero = txData.every(d => d.count === 0);
 
     createChart('transactionsChart', {
       type: 'doughnut',
       data: {
-        labels: allZero ? ['No Data'] : transactionTypesData.map(d => d.type),
+        labels: allZero ? ['No Data'] : txData.map(d => d.type),
         datasets: [{
-          data: allZero ? [1] : transactionTypesData.map(d => d.count),
+          data: allZero ? [1] : txData.map(d => d.count),
           backgroundColor: allZero
             ? ['#E5E7EB']
-            : transactionTypesData.map(d =>
+            : txData.map(d =>
                 d.type === 'Overdue' ? '#EF4444' :
                 d.type === 'Reserved' ? '#F59E42' :
                 d.type === 'Borrowed' ? '#10B981' :
                 d.type === 'Returned' ? '#3B82F6' :
                 '#A855F7'
               ),
-          borderWidth: 0
+          borderWidth: 0,
+          hoverOffset: 4
         }]
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '65%',
-        plugins: {
-          legend: { position: 'bottom' }
-        }
-      }
+      options: { cutout: '70%' }
     });
 
+    // 3. Categories Bar
     createChart('categoriesChart', {
       type: 'bar',
       data: {
         labels: data.charts.categoryDistribution.map(d => d.category.length > 12 ? d.category.slice(0, 12) + '...' : d.category),
         datasets: [{
-          data: data.charts.categoryDistribution.map(d => d.count),
-          backgroundColor: '#6366F1',
-          borderRadius: 6
+            label: 'Books',
+            data: data.charts.categoryDistribution.map(d => d.count),
+            backgroundColor: '#6366F1',
+            borderRadius: 6,
+            barThickness: 20
         }]
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
         indexAxis: 'y',
-        plugins: { legend: { display: false } },
         scales: {
-          x: { beginAtZero: true },
-          y: { grid: { display: false } }
-        }
+            x: { beginAtZero: true, grid: { display: false } },
+            y: { grid: { display: false } }
+        },
+        plugins: { legend: { display: false } }
       }
     });
 
+    // 4. Penalties Area
     const penaltiesCanvas = document.getElementById('penaltiesChart') as HTMLCanvasElement;
     if (penaltiesCanvas) {
       createChart('penaltiesChart', {
@@ -258,510 +302,400 @@
           datasets: [{
             label: 'Penalties (₱)',
             data: data.charts.penaltyTrends.map(d => d.amount / 100),
-            borderColor: '#F59E0B',
-            backgroundColor: createGradient(
-              penaltiesCanvas,
-              [
-                [0, 'rgba(245, 158, 11, 0.3)'],
-                [1, 'rgba(245, 158, 11, 0.05)']
-              ]
-            ),
+            borderColor: '#8B5CF6',
+            backgroundColor: createGradient(penaltiesCanvas, [[0, 'rgba(139, 92, 246, 0.3)'], [1, 'rgba(139, 92, 246, 0.05)']]),
             borderWidth: 3,
+            pointRadius: 0,
+            pointHoverRadius: 5,
             tension: 0.4,
             fill: true
           }]
         },
         options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
           scales: {
             x: { grid: { display: false } },
             y: { 
               beginAtZero: true,
               ticks: { callback: (value: any) => '₱' + value }
             }
-          }
+          },
+          plugins: { legend: { display: false } }
         }
       });
     }
   }
 
-  // Event handlers
-  async function handlePeriodChange(): Promise<void> {
-    await loadData();
-  }
-
-  async function handleExport(): Promise<void> {
-    try {
-      await exportReport();
-    } catch (err) {
-      error.set('Export failed. Please try again.');
-    }
-  }
-
-  // Main data loading function
-  async function loadData(): Promise<void> {
-    loading.set(true);
-    error.set('');
-    
-    try {
-      const data = await fetchDashboardData(selectedPeriod);
-      dashboardData.set(data);
-      
-      if (typeof window !== 'undefined' && (window as any).Chart) {
-        setTimeout(() => initializeCharts(data), 100);
-      }
-    } catch (err) {
-      error.set(err instanceof Error ? err.message : 'Failed to load dashboard data');
-      console.error('Dashboard load error:', err);
-    } finally {
-      loading.set(false);
-    }
-  }
-
-  // Component lifecycle
   onMount(async () => {
     await loadChartJS();
     await loadData();
+    
+    // Add click outside handler for dropdown
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.custom-dropdown')) {
+        dropdownOpen = false;
+      }
+    };
+    
+    document.addEventListener('click', handleClickOutside);
+    
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+    };
   });
 
-  // Reactive statements
+  onDestroy(() => {
+    Object.values(chartInstances).forEach(chart => chart?.destroy());
+  });
+
   $: if ($dashboardData && typeof window !== 'undefined' && (window as any).Chart) {
     initializeCharts($dashboardData);
   }
 </script>
 
-<Layout>
-  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-    <div class="max-w-7xl mx-auto px-0 sm:px-1 lg:px-2 py-3">
-      <!-- Header -->
-      <div class="mb-4">
-        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-          <div>
-            <h1 class="text-3xl font-bold text-gray-900">Library Analytics</h1>
-            <p class="mt-0.5 text-sm text-gray-600">Real-time fine calculations at ₱5/hour • Auto-updated every hour</p>
-          </div>
-          
-          <div class="flex flex-col sm:flex-row gap-2">
-            <select
-              bind:value={selectedPeriod}
-              on:change={handlePeriodChange}
-              class="px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm font-medium bg-white shadow-sm"
-              disabled={$loading}
+<div class="min-h-screen">
+  <!-- Header -->
+  <div class="mb-4">
+    <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900">Library Analytics</h1>
+        <p class="text-sm text-gray-600 mt-1">Real-time fine calculations at ₱5/hour • Auto-updated every hour</p>
+      </div>
+      
+      <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 w-full sm:w-auto">
+        <div class="relative w-full sm:w-auto custom-dropdown">
+          <!-- Custom Dropdown Button -->
+          <button
+            on:click={toggleDropdown}
+            disabled={$loading}
+            class="w-full sm:w-auto pl-4 pr-10 py-2 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm transition-all disabled:opacity-60 flex items-center justify-between"
+          >
+            <span>{getSelectedPeriodLabel()}</span>
+            <svg 
+              class="h-4 w-4 text-gray-500 transition-transform duration-200 {dropdownOpen ? 'rotate-180' : ''}" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
             >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+            </svg>
+          </button>
+
+          <!-- Dropdown Options -->
+          {#if dropdownOpen}
+            <div class="absolute z-10 mt-1 w-full sm:w-auto bg-white border border-gray-300 rounded-lg shadow-lg">
               {#each PERIOD_OPTIONS as option}
-                <option value={option.value}>{option.label}</option>
+                <button
+                  on:click={() => selectPeriod(option.value)}
+                  class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none first:rounded-t-lg last:rounded-b-lg {selectedPeriod === option.value ? 'bg-indigo-50 text-indigo-700' : ''}"
+                >
+                  {option.label}
+                </button>
               {/each}
-            </select>
-            
-            <button 
-              on:click={handleExport}
-              disabled={$loading}
-              class="inline-flex items-center justify-center px-2 py-1.5 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 shadow-sm transition-all duration-200 hover:shadow"
-            >
-              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-              </svg>
-              Export
-            </button>
-            
-            <button
-              on:click={() => window.location.href = '/dashboard/reports/visits'}
-              class="inline-flex items-center justify-center px-2 py-1.5 text-sm font-medium rounded-lg text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 shadow-sm transition-all duration-200 hover:shadow"
-            >
-              <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-              </svg>
-              Visit Logs
-            </button>
+            </div>
+          {/if}
+        </div>
+        
+        <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <button 
+            on:click={handleExport}
+            disabled={$loading}
+            class="inline-flex items-center justify-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50 w-full sm:w-auto"
+          >
+            <svg class="h-4 w-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            Export
+          </button>
+          
+          <button
+            on:click={() => window.location.href = '/dashboard/reports/visits'}
+            class="inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg text-white bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-sm transition-all duration-200 w-full sm:w-auto"
+          >
+            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+            </svg>
+            Visit Logs
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <main class="space-y-4 -mx-2 sm:mx-0">
+
+    {#if $error}
+      <div class="rounded-lg bg-red-50 border border-red-200 p-4 flex items-start shadow-sm">
+        <svg class="h-5 w-5 text-red-400 mt-0.5 mr-3 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
+        <div>
+          <h3 class="text-sm font-medium text-red-800">Error Loading Data</h3>
+          <p class="text-sm text-red-700 mt-1">{$error}</p>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Metrics Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-3">
+      {#each METRIC_CONFIGS as config}
+        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+          {#if $loading}
+            <div class="animate-pulse flex flex-col items-center">
+              <div class="h-10 w-10 bg-gray-200 rounded-lg mb-3"></div>
+              <div class="h-6 w-16 bg-gray-200 rounded mb-2"></div>
+              <div class="h-3 w-20 bg-gray-200 rounded"></div>
+            </div>
+          {:else}
+            <div class="flex flex-col items-center text-center">
+              <div class={`p-2.5 rounded-lg mb-3 bg-gradient-to-br ${config.gradient} shadow-sm`}>
+                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d={ICON_PATHS[config.icon]}/>
+                </svg>
+              </div>
+              <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{config.label}</p>
+              <p class="text-lg sm:text-xl font-bold text-gray-900">
+                {formatValue($dashboardData.overview[config.key], config.format)}
+              </p>
+            </div>
+          {/if}
+        </div>
+      {/each}
+    </div>
+
+    <!-- Main Charts Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      
+      <!-- Daily Visits -->
+      <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-lg font-bold text-gray-900">Daily Visits Trend</h3>
+            <p class="text-sm text-gray-600 mt-1">Track visitor activity patterns over time</p>
           </div>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            Live Data
+          </span>
+        </div>
+        <div class="relative h-72 w-full">
+          {#if $loading}
+            <div class="absolute inset-0 bg-gray-100 animate-pulse rounded-lg"></div>
+          {:else}
+            <canvas id="visitsChart"></canvas>
+          {/if}
         </div>
       </div>
 
-      <!-- Error Display -->
-      {#if $error}
-        <div class="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-start shadow-sm">
-          <svg class="h-5 w-5 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
-          </svg>
-          <span class="text-sm font-medium">{$error}</span>
-        </div>
-      {/if}
-
-      {#if $loading}
-        <!-- Skeleton Loading -->
-        <div class="space-y-6">
-          <!-- Skeleton Metrics -->
-          <div class="overflow-x-auto pb-2">
-            <div class="flex gap-2 min-w-[400px] sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              {#each METRIC_CONFIGS as config}
-                <div class="min-w-[120px] bg-white rounded-xl shadow-sm border border-gray-200 p-2 flex flex-col items-center justify-center animate-pulse">
-                  <div class="p-1.5 bg-gray-200 rounded-full mb-1 w-9 h-9 sm:w-11 sm:h-11"></div>
-                  <div class="h-5 sm:h-6 bg-gray-200 rounded w-16 mb-1"></div>
-                  <div class="block sm:hidden h-3 bg-gray-200 rounded w-20 mt-0.5"></div>
+      <!-- Transaction Types -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <h3 class="text-lg font-bold text-gray-900 mb-4">Activity Breakdown</h3>
+        <div class="relative h-72 w-full flex items-center justify-center">
+          {#if $loading}
+             <div class="h-48 w-48 rounded-full border-4 border-gray-200 animate-pulse"></div>
+          {:else}
+            <canvas id="transactionsChart"></canvas>
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div class="text-center">
+                    <span class="block text-2xl font-bold text-gray-900">
+                        {$dashboardData.overview.totalTransactions}
+                    </span>
+                    <span class="text-xs text-gray-500">Total</span>
                 </div>
-              {/each}
             </div>
-          </div>
+          {/if}
+        </div>
+      </div>
+    </div>
 
-          <!-- Skeleton Main Chart -->
-          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:p-8 animate-pulse">
-            <div class="flex items-start justify-between mb-6">
-              <div class="flex-1">
-                <div class="h-6 bg-gray-200 rounded w-48 mb-2"></div>
-                <div class="h-4 bg-gray-200 rounded w-64"></div>
-              </div>
-              <div class="h-6 bg-gray-200 rounded-full w-20"></div>
-            </div>
-            <div class="h-80 bg-gray-100 rounded-lg"></div>
-          </div>
+    <!-- Secondary Charts -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- Categories -->
+      <div class="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <h3 class="text-lg font-bold text-gray-900 mb-4">Book Categories</h3>
+        <div class="h-56">
+          {#if $loading}
+            <div class="h-full bg-gray-100 animate-pulse rounded-lg"></div>
+          {:else}
+            <canvas id="categoriesChart"></canvas>
+          {/if}
+        </div>
+      </div>
 
-          <!-- Skeleton Three Column Charts -->
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            {#each ['Transaction Types', 'Book Categories', 'Penalty Collections'] as title}
-              <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
-                <div class="h-5 bg-gray-200 rounded w-40 mb-4"></div>
-                <div class="h-64 bg-gray-100 rounded-lg"></div>
-              </div>
-            {/each}
-          </div>
+      <!-- Revenue Card -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col justify-between">
+         <div>
+             <h3 class="text-base font-semibold text-gray-900">Penalty Collections</h3>
+             {#if $loading}
+               <div class="h-8 w-24 bg-gray-200 rounded mt-2 animate-pulse"></div>
+               <div class="h-4 w-32 bg-gray-200 rounded mt-2 animate-pulse"></div>
+             {:else}
+               <p class="text-2xl font-bold text-purple-600 mt-2">{formatCurrency($dashboardData.overview.totalPenalties)}</p>
+               <p class="text-sm text-gray-500">Total fines collected</p>
+             {/if}
+         </div>
+         <div class="h-24 mt-4">
+           {#if !$loading}
+             <canvas id="penaltiesChart"></canvas>
+           {/if}
+         </div>
+      </div>
 
-          <!-- Skeleton Member Activity -->
-          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:p-8 animate-pulse">
-            <div class="h-6 bg-gray-200 rounded w-56 mb-6"></div>
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <!-- Member Activity -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+        <div class="p-4 pb-4">
+            <h3 class="text-base font-semibold text-gray-900">Member Activity</h3>
+        </div>
+        <div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
+            {#if $loading}
               {#each Array(4) as _}
-                <div class="bg-gradient-to-br from-gray-50 via-white to-gray-50 p-6 rounded-xl border border-gray-200">
-                  <div class="h-4 bg-gray-200 rounded w-20 mb-4"></div>
-                  <div class="flex items-end justify-between">
-                    <div class="space-y-2">
-                      <div class="h-8 bg-gray-200 rounded w-12"></div>
-                      <div class="h-3 bg-gray-200 rounded w-24"></div>
-                    </div>
-                    <div class="text-right space-y-2">
-                      <div class="h-6 bg-gray-200 rounded w-10"></div>
-                      <div class="h-3 bg-gray-200 rounded w-20"></div>
-                    </div>
-                  </div>
-                </div>
+                <div class="h-12 bg-gray-100 rounded animate-pulse"></div>
               {/each}
-            </div>
-          </div>
-
-          <!-- Skeleton Data Tables -->
-          <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-            <!-- Top Books Skeleton -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-pulse">
-              <div class="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
-                <div class="h-5 bg-gray-200 rounded w-48 mb-2"></div>
-                <div class="h-4 bg-gray-200 rounded w-40"></div>
-              </div>
-              <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                  <thead class="bg-gray-50">
-                    <tr>
-                      <th class="px-6 py-3 text-left">
-                        <div class="h-3 bg-gray-200 rounded w-12"></div>
-                      </th>
-                      <th class="px-6 py-3 text-left">
-                        <div class="h-3 bg-gray-200 rounded w-24"></div>
-                      </th>
-                      <th class="px-6 py-3 text-center">
-                        <div class="h-3 bg-gray-200 rounded w-16 mx-auto"></div>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="bg-white divide-y divide-gray-200">
-                    {#each Array(5) as _, index}
-                      <tr>
-                        <td class="px-6 py-4">
-                          <div class="w-10 h-10 bg-gray-200 rounded-full mx-auto"></div>
-                        </td>
-                        <td class="px-6 py-4">
-                          <div class="flex items-center gap-3">
-                            <div class="flex-shrink-0 w-10 h-14 bg-gray-200 rounded"></div>
-                            <div class="flex-1 space-y-2">
-                              <div class="h-4 bg-gray-200 rounded w-3/4"></div>
-                              <div class="h-3 bg-gray-200 rounded w-1/2"></div>
-                            </div>
-                          </div>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                          <div class="h-6 bg-gray-200 rounded-full w-12 mx-auto"></div>
-                        </td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- Overdue Books Skeleton -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-pulse">
-              <div class="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-red-50 to-white">
-                <div class="flex items-center justify-between">
-                  <div class="flex-1">
-                    <div class="h-5 bg-gray-200 rounded w-32 mb-2"></div>
-                    <div class="h-4 bg-gray-200 rounded w-40"></div>
-                  </div>
-                  <div class="h-6 bg-gray-200 rounded-full w-16"></div>
-                </div>
-              </div>
-              <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                  <thead class="bg-gray-50">
-                    <tr>
-                      <th class="px-6 py-3 text-left">
-                        <div class="h-3 bg-gray-200 rounded w-32"></div>
-                      </th>
-                      <th class="px-6 py-3 text-center">
-                        <div class="h-3 bg-gray-200 rounded w-16 mx-auto"></div>
-                      </th>
-                      <th class="px-6 py-3 text-right">
-                        <div class="h-3 bg-gray-200 rounded w-12 ml-auto"></div>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="bg-white divide-y divide-gray-200">
-                    {#each Array(5) as _}
-                      <tr>
-                        <td class="px-6 py-4">
-                          <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 bg-gray-200 rounded-full flex-shrink-0"></div>
-                            <div class="flex-1 space-y-2">
-                              <div class="h-4 bg-gray-200 rounded w-3/4"></div>
-                              <div class="h-3 bg-gray-200 rounded w-1/2"></div>
-                            </div>
-                          </div>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                          <div class="h-6 bg-gray-200 rounded-full w-12 mx-auto"></div>
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                          <div class="h-4 bg-gray-200 rounded w-16 ml-auto"></div>
-                        </td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      {:else}
-        <!-- Actual Content -->
-        <div class="space-y-6">
-          <!-- Metrics Grid -->
-          <div class="overflow-x-auto pb-2">
-            <div class="flex gap-2 min-w-[400px] sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              {#each METRIC_CONFIGS as config}
-                <div class="group relative min-w-[120px] bg-white rounded-xl shadow-sm border border-gray-200 p-2 flex flex-col items-center justify-center hover:shadow-md transition-all duration-200 hover:-translate-y-0.5">
-                  <!-- Icon -->
-                  <div class="p-1.5 bg-gradient-to-br {config.gradient} rounded-full shadow-sm mb-1">
-                    <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="{ICON_PATHS[config.icon]}"/>
-                    </svg>
-                  </div>
-                  <!-- Value -->
-                  <div class="text-base sm:text-lg font-bold text-gray-900">
-                    {formatValue($dashboardData.overview[config.key], config.format)}
-                  </div>
-                  <!-- Label always visible on mobile, tooltip on desktop -->
-                  <div class="block sm:hidden text-[11px] text-gray-500 mt-0.5 text-center">
-                    {config.label}
-                  </div>
-                  <div class="hidden sm:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 pointer-events-none transition bg-gray-900 text-white text-xs rounded px-2 py-1 z-10 whitespace-nowrap">
-                    {config.label}
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
-
-          <!-- Main Chart -->
-          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:p-8">
-            <div class="flex items-start justify-between mb-6">
-              <div>
-                <h3 class="text-xl font-bold text-gray-900">Daily Visits Trend</h3>
-                <p class="text-sm text-gray-600 mt-1">Track visitor activity patterns over time</p>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  Live Data
-                </span>
-              </div>
-            </div>
-            <div class="h-80">
-              <canvas id="visitsChart"></canvas>
-            </div>
-          </div>
-
-          <!-- Three Column Charts -->
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 class="text-lg font-bold text-gray-900 mb-4">Transaction Types</h3>
-              <div class="h-64">
-                <canvas id="transactionsChart"></canvas>
-              </div>
-            </div>
-
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 class="text-lg font-bold text-gray-900 mb-4">Book Categories</h3>
-              <div class="h-64">
-                <canvas id="categoriesChart"></canvas>
-              </div>
-            </div>
-
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 class="text-lg font-bold text-gray-900 mb-4">Penalty Collections</h3>
-              <div class="h-64">
-                <canvas id="penaltiesChart"></canvas>
-              </div>
-            </div>
-          </div>
-
-          <!-- Member Activity -->
-          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:p-8">
-            <h3 class="text-xl font-bold text-gray-900 mb-6">Member Activity Summary</h3>
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              {#each $dashboardData.charts.memberActivity as activity}
-                <div class="relative overflow-hidden bg-gradient-to-br from-gray-50 via-white to-gray-50 p-6 rounded-xl border border-gray-200 hover:shadow-md transition-all duration-200">
-                  <div class="relative z-10">
-                    <span class="text-sm font-semibold text-gray-700 uppercase tracking-wide">{activity.type}</span>
-                    <div class="mt-4 flex items-end justify-between">
-                      <div>
-                        <p class="text-3xl font-bold text-gray-900">{activity.active}</p>
-                        <p class="text-xs text-gray-500 mt-1">Active Members</p>
+            {:else}
+              {#each $dashboardData.charts.memberActivity as stat}
+                  <div class="flex items-center justify-between">
+                      <div class="flex items-center">
+                          <div class="w-2 h-2 rounded-full bg-indigo-500 mr-3"></div>
+                          <span class="text-sm text-gray-600">{stat.type}</span>
                       </div>
                       <div class="text-right">
-                        <p class="text-xl font-bold text-green-600">+{activity.new}</p>
-                        <p class="text-xs text-gray-500 mt-1">New This Period</p>
+                          <span class="block text-sm font-medium text-gray-900">{stat.active}</span>
+                          <span class="text-xs text-emerald-600">+{stat.new} new</span>
                       </div>
-                    </div>
                   </div>
-                </div>
               {/each}
-            </div>
-          </div>
+            {/if}
+        </div>
+      </div>
+    </div>
 
-          <!-- Data Tables -->
-          <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-            <!-- Top Books -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div class="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
-                <h3 class="text-lg font-bold text-gray-900">Most Popular Books</h3>
-                <p class="text-sm text-gray-600 mt-1">Top borrowed titles this period</p>
-              </div>
-              <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                  <thead class="bg-gray-50">
-                    <tr>
-                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rank</th>
-                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book Details</th>
-                      <th class="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Borrows</th>
-                    </tr>
-                  </thead>
-                  <tbody class="bg-white divide-y divide-gray-200">
-                    {#each $dashboardData.tables.topBooks as book, index}
-                      <tr class="hover:bg-gray-50 transition-colors">
-                        <td class="px-6 py-4">
-                          <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold text-sm shadow-sm
-                            {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-500 text-white' : 
-                             index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-400 text-white' :
-                             index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-500 text-white' :
-                             'bg-gray-100 text-gray-600'}">
-                            {index + 1}
-                          </div>
-                        </td>
-                        <td class="px-6 py-4">
-                          <div class="flex items-center gap-3">
-                            <div class="flex-shrink-0 w-10 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded shadow-sm flex items-center justify-center">
-                              <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-                              </svg>
-                            </div>
-                            <div class="min-w-0">
-                              <div class="text-sm font-semibold text-gray-900 truncate">{book.title}</div>
-                              <div class="text-xs text-gray-500 truncate">by {book.author}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                            {book.borrowCount}
-                          </span>
-                        </td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+    <!-- Data Tables -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      
+      <!-- Top Books -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-4 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+          <h3 class="text-lg font-bold text-gray-900">Most Popular Books</h3>
+          <p class="text-sm text-gray-600 mt-1">Top borrowed titles this period</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rank</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book Details</th>
+                <th class="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Borrows</th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+              {#if $loading}
+                 {#each Array(5) as _}
+                    <tr><td colspan="3" class="px-4 py-3"><div class="h-10 bg-gray-100 rounded animate-pulse"></div></td></tr>
+                 {/each}
+              {:else}
+                {#each $dashboardData.tables.topBooks as book, i}
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 whitespace-nowrap">
+                        <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold text-sm shadow-sm
+                          {i === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-500 text-white' : 
+                           i === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-400 text-white' :
+                           i === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-500 text-white' :
+                           'bg-gray-100 text-gray-600'}">
+                          {i + 1}
+                        </div>
+                    </td>
+                    <td class="px-4 py-3">
+                      <div class="flex items-center gap-3">
+                        <div class="flex-shrink-0 w-10 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded shadow-sm flex items-center justify-center">
+                          <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                          </svg>
+                        </div>
+                        <div class="min-w-0">
+                          <div class="text-sm font-semibold text-gray-900 truncate">{book.title}</div>
+                          <div class="text-xs text-gray-500 truncate">by {book.author}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-center">
+                      <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                        {book.borrowCount}
+                      </span>
+                    </td>
+                  </tr>
+                {/each}
+              {/if}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-            <!-- Overdue Books -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div class="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-red-50 to-white">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <h3 class="text-lg font-bold text-gray-900">Overdue Books</h3>
-                    <p class="text-sm text-gray-600 mt-1">Requires immediate attention • ₱5/hour</p>
-                  </div>
-                  <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-                    {$dashboardData.tables.overdueList.length} items
-                  </span>
-                </div>
-              </div>
-              <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                  <thead class="bg-gray-50">
-                    <tr>
-                      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book & Borrower</th>
-                      <th class="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Overdue</th>
-                      <th class="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Fine</th>
-                    </tr>
-                  </thead>
-                  <tbody class="bg-white divide-y divide-gray-200">
-                    {#each $dashboardData.tables.overdueList as overdue}
-                      <tr class="hover:bg-gray-50 transition-colors">
-                        <td class="px-6 py-4">
-                          <div class="flex items-center gap-3">
-                            <div class="flex-shrink-0">
-                              <div class="w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-full flex items-center justify-center">
-                                <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                </svg>
-                              </div>
-                            </div>
-                            <div class="min-w-0">
-                              <div class="text-sm font-semibold text-gray-900 truncate">{overdue.bookTitle}</div>
-                              <div class="text-xs text-gray-500 truncate">{overdue.borrowerName}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td class="px-6 py-4 text-center">
-                          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold
-                            {overdue.daysOverdue <= 3 ? 'bg-yellow-100 text-yellow-800' : 
-                             overdue.daysOverdue <= 7 ? 'bg-orange-100 text-orange-800' : 
-                             'bg-red-100 text-red-800'}">
-                            {overdue.daysOverdue}d
-                          </span>
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                          <span class="text-sm font-bold text-gray-900">
-                            {formatCurrency(overdue.fine)}
-                          </span>
-                        </td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
+      <!-- Overdue Books -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-4 py-4 border-b border-red-100 bg-gradient-to-r from-red-50 to-white">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+               <div class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></div>
+               <div>
+                 <h3 class="text-lg font-bold text-red-900">Overdue Books</h3>
+                 <p class="text-sm text-gray-600 mt-1">Requires immediate attention • ₱5/hour</p>
+               </div>
             </div>
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+              {$dashboardData.tables.overdueList.length} items
+            </span>
           </div>
         </div>
-      {/if}
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book & Borrower</th>
+                <th class="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Overdue</th>
+                <th class="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Fine</th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+               {#if $loading}
+                 {#each Array(3) as _}
+                    <tr><td colspan="3" class="px-4 py-3"><div class="h-10 bg-gray-100 rounded animate-pulse"></div></td></tr>
+                 {/each}
+              {:else}
+                {#each $dashboardData.tables.overdueList as item}
+                  <tr class="hover:bg-red-50/30 transition-colors group">
+                    <td class="px-4 py-3">
+                      <div class="flex items-center gap-3">
+                        <div class="flex-shrink-0">
+                          <div class="w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-full flex items-center justify-center">
+                            <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                          </div>
+                        </div>
+                        <div class="min-w-0">
+                          <div class="text-sm font-semibold text-gray-900 truncate">{item.bookTitle}</div>
+                          <div class="text-xs text-gray-500 truncate">{item.borrowerName}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-center">
+                      <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold
+                        {item.daysOverdue <= 3 ? 'bg-yellow-100 text-yellow-800' : 
+                         item.daysOverdue <= 7 ? 'bg-orange-100 text-orange-800' : 
+                         'bg-red-100 text-red-800'}">
+                        {item.daysOverdue}d
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-right">
+                      <div class="text-sm font-bold text-gray-900">
+                        {formatCurrency(item.fine)}
+                      </div>
+                    </td>
+                  </tr>
+                {/each}
+              {/if}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
-  </div>
-</Layout>
+  </main>
+</div>

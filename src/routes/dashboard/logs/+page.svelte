@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Layout from "$lib/components/ui/layout.svelte";
   import { onMount } from "svelte";
 
   let searchTerm = "";
@@ -118,8 +117,7 @@
   $: uniqueUsers = new Set(logs.map(l => l.accountId || l.userId)).size;
 </script>
 
-<Layout>
-  <div class="space-y-6">
+<div class="space-y-6">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
@@ -217,7 +215,7 @@
           >
             {#each eventTypes as type}
               <option value={type}>
-                {type === 'all' ? 'All Events' : type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                {type === 'all' ? 'All Events' : type.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
               </option>
             {/each}
           </select>
@@ -357,7 +355,7 @@
               <h3 class="font-medium text-gray-900 text-sm">{log.userName || 'Unknown User'}</h3>
               <div class="flex items-center space-x-2 mt-1">
                 <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getEventTypeColor(log.eventType)}`}>
-                  {log.eventType.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                  {log.eventType.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
                 </span>
                 <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getUserTypeColor(log)}`}>
                   {getUserTypeLabel(log)}
@@ -367,6 +365,7 @@
             <button 
               class="p-1 text-slate-600 hover:text-slate-900 transition-colors duration-200 ml-2" 
               title="View Details"
+              aria-label="View Details"
               on:click={() => openDetailModal(log)}
             >
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -441,6 +440,7 @@
           <h3 class="text-lg font-bold text-slate-900">Security Log Details</h3>
           <button 
             class="text-slate-400 hover:text-slate-600 transition-colors"
+            aria-label="Close"
             on:click={closeDetailModal}
           >
             <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -452,15 +452,15 @@
         <div class="p-6 space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Event Type</label>
+              <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Event Type</div>
               <div class="mt-1">
                 <span class={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getEventTypeColor(selectedLog.eventType)}`}>
-                  {selectedLog.eventType.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                  {selectedLog.eventType.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
                 </span>
               </div>
             </div>
             <div>
-              <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">User Type</label>
+              <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">User Type</div>
               <div class="mt-1">
                 <span class={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getUserTypeColor(selectedLog)}`}>
                   {getUserTypeLabel(selectedLog)}
@@ -470,53 +470,53 @@
           </div>
 
           <div>
-            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">User Name</label>
+            <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">User Name</div>
             <p class="mt-1 text-sm text-slate-900">{selectedLog.userName || 'Unknown'}</p>
           </div>
 
           <div>
-            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Email</label>
+            <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Email</div>
             <p class="mt-1 text-sm text-slate-900">{selectedLog.userEmail || 'N/A'}</p>
           </div>
 
           <div>
-            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Event Time</label>
+            <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Event Time</div>
             <p class="mt-1 text-sm text-slate-900">{formatDateTime(selectedLog.eventTime)}</p>
           </div>
 
           <div>
-            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">IP Address</label>
+            <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">IP Address</div>
             <p class="mt-1 text-sm text-slate-900 font-mono">{selectedLog.ipAddress || 'N/A'}</p>
           </div>
 
           <div>
-            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Browser</label>
+            <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Browser</div>
             <p class="mt-1 text-sm text-slate-900 break-words">{selectedLog.browser || 'N/A'}</p>
           </div>
 
           <div>
-            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Role</label>
+            <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Role</div>
             <p class="mt-1 text-sm text-slate-900">{selectedLog.role ? selectedLog.role.charAt(0).toUpperCase() + selectedLog.role.slice(1) : 'N/A'}</p>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Account ID</label>
+              <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Account ID</div>
               <p class="mt-1 text-sm text-slate-900">{selectedLog.accountId || 'N/A'}</p>
             </div>
             <div>
-              <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">User ID</label>
+              <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">User ID</div>
               <p class="mt-1 text-sm text-slate-900">{selectedLog.userId || 'N/A'}</p>
             </div>
           </div>
 
           <div>
-            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Log ID</label>
+            <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Log ID</div>
             <p class="mt-1 text-sm text-slate-900 font-mono">#{selectedLog.id}</p>
           </div>
 
           <div>
-            <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Created At</label>
+            <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider">Created At</div>
             <p class="mt-1 text-sm text-slate-900">{formatDateTime(selectedLog.createdAt)}</p>
           </div>
         </div>
@@ -532,4 +532,3 @@
       </div>
     </div>
   {/if}
-</Layout>

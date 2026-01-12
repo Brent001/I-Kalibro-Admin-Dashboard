@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Layout from "$lib/components/ui/layout.svelte";
   import AddMemberModal from "$lib/components/ui/add_member.svelte";
   import DeleteMember from "$lib/components/ui/delete_member.svelte";
   import EditMemberModal from "$lib/components/ui/edit_member_modal.svelte";
@@ -87,11 +86,11 @@
   function getTypeColor(type: string) {
     switch (type) {
       case 'Student':
-        return 'bg-slate-100 text-slate-800';
+        return 'bg-green-100 text-green-800';
       case 'Faculty':
-        return 'bg-slate-200 text-slate-900';
+        return 'bg-yellow-100 text-yellow-800';
       default:
-        return 'bg-slate-100 text-slate-800';
+        return 'bg-green-100 text-green-800';
     }
   }
 
@@ -99,14 +98,14 @@
   function getTypeIcon(type: string) {
     if (type === 'Student') {
       // Person icon
-      return `<svg class="h-4 w-4 mr-1 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/></svg>`;
+      return `<svg class="h-4 w-4 mr-1 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/></svg>`;
     }
     if (type === 'Faculty') {
       // Briefcase icon
-      return `<svg class="h-4 w-4 mr-1 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M16 3v4M8 3v4"/></svg>`;
+      return `<svg class="h-4 w-4 mr-1 text-yellow-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M16 3v4M8 3v4"/></svg>`;
     }
     // Default person icon
-    return `<svg class="h-4 w-4 mr-1 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/></svg>`;
+    return `<svg class="h-4 w-4 mr-1 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/></svg>`;
   }
 
   function resetForm() {
@@ -137,7 +136,7 @@
     showAddModal = false;
   }
 
-  async function handleMemberAdded(event) {
+  async function handleMemberAdded(event: CustomEvent<any>) {
     const member = event.detail;
     try {
       const res = await fetch('/api/user', {
@@ -240,7 +239,7 @@
   }
 
   // Fixed delete handler with better error handling
-  async function handleDeleteConfirm(event) {
+  async function handleDeleteConfirm(event: CustomEvent<{permanent: boolean}>) {
     loading = true;
     const permanent = event?.detail?.permanent || false;
 
@@ -290,8 +289,7 @@
   }
 </script>
 
-<Layout>
-  <div class="space-y-6">
+<div class="space-y-6">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
@@ -302,7 +300,7 @@
       {#if userRole === 'admin'}
       <button
         on:click={openAddModal}
-        class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+        class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-green-900 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-200"
       >
         <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
@@ -320,7 +318,7 @@
             <p class="font-medium">Success:</p>
             <p class="text-sm">{successMsg}</p>
           </div>
-          <button on:click={() => successMsg = ""} class="text-green-400 hover:text-green-600">
+          <button on:click={() => successMsg = ""} class="text-green-400 hover:text-green-600" aria-label="Close success message">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -341,7 +339,7 @@
               Try again
             </button>
           </div>
-          <button on:click={() => errorMsg = ""} class="text-red-400 hover:text-red-600">
+          <button on:click={() => errorMsg = ""} class="text-red-400 hover:text-red-600" aria-label="Close error message">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -354,9 +352,9 @@
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
       <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
-          <div class="p-3 bg-slate-100 rounded-xl">
+          <div class="p-3 bg-green-100 rounded-xl">
             <!-- Total: Group/People Icon -->
-            <svg class="h-6 w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="h-6 w-6 text-green-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
             </svg>
           </div>
@@ -368,9 +366,9 @@
       </div>
       <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
-          <div class="p-3 bg-emerald-100 rounded-xl">
+          <div class="p-3 bg-yellow-100 rounded-xl">
             <!-- Active: Check Circle Icon -->
-            <svg class="h-6 w-6 text-emerald-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="h-6 w-6 text-yellow-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10"/>
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/>
             </svg>
@@ -383,9 +381,9 @@
       </div>
       <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
-          <div class="p-3 bg-slate-100 rounded-xl">
+          <div class="p-3 bg-green-100 rounded-xl">
             <!-- Students: Person Icon -->
-            <svg class="h-6 w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="h-6 w-6 text-green-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <circle cx="12" cy="8" r="4"/>
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/>
             </svg>
@@ -398,9 +396,9 @@
       </div>
       <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
         <div class="flex items-center">
-          <div class="p-3 bg-purple-100 rounded-xl">
+          <div class="p-3 bg-amber-100 rounded-xl">
             <!-- Faculty & Staff: Briefcase Icon -->
-            <svg class="h-6 w-6 text-purple-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="h-6 w-6 text-amber-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <rect x="2" y="7" width="20" height="14" rx="2"/>
               <path stroke-linecap="round" stroke-linejoin="round" d="M16 3v4M8 3v4"/>
             </svg>
@@ -426,12 +424,12 @@
               type="text"
               placeholder="Search by name, email, or ID..."
               bind:value={searchTerm}
-              class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200"
+              class="pl-10 pr-4 py-3 w-full border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors duration-200"
               disabled={loading}
             />
             {#if loading}
               <div class="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <div class="animate-spin rounded-full h-4 w-4 border-2 border-slate-300 border-t-slate-600"></div>
+                <div class="animate-spin rounded-full h-4 w-4 border-2 border-green-300 border-t-green-600"></div>
               </div>
             {/if}
           </div>
@@ -439,7 +437,7 @@
         <div>
           <select
             bind:value={selectedType}
-            class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200"
+            class="px-4 py-3 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-slate-700 transition-colors duration-200"
             disabled={loading}
           >
             {#each memberTypes as type}
@@ -542,8 +540,8 @@
     {#if !loading || members.length > 0}
       <div class="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
         <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200">
-            <thead class="bg-slate-50">
+          <table class="min-w-full divide-y divide-green-200">
+            <thead class="bg-green-50">
               <tr>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Member Details
@@ -565,9 +563,9 @@
                 </th>
               </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-slate-100">
+            <tbody class="bg-white divide-y divide-green-100">
               {#each filteredMembers as member}
-                <tr class="hover:bg-slate-50 transition-colors duration-200">
+                <tr class="hover:bg-green-50 transition-colors duration-200">
                   <td class="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div class="text-sm font-semibold text-slate-900">{member.username}</div>
@@ -655,19 +653,19 @@
                 </div>
               </div>
               <div class="flex items-center space-x-1 ml-2">
-                <button on:click={() => openViewModal(member.id)} class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors duration-200" title="View Details">
+                <button on:click={() => openViewModal(member.id)} class="p-2 text-slate-600 hover:text-green-900 hover:bg-green-100 rounded-lg transition-colors duration-200" title="View Details" aria-label="View member details">
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                   </svg>
                 </button>
                 {#if userRole === 'admin'}
-                  <button on:click={() => openEditModal(member)} class="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors duration-200" title="Edit Member">
+                  <button on:click={() => openEditModal(member)} class="p-2 text-emerald-600 hover:text-yellow-700 hover:bg-yellow-50 rounded-lg transition-colors duration-200" title="Edit Member" aria-label="Edit member">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
                     </svg>
                   </button>
-                  <button on:click={() => openDeleteModal(member)} class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" title="Remove Member">
+                  <button on:click={() => openDeleteModal(member)} class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" title="Remove Member" aria-label="Remove member">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                     </svg>
@@ -675,7 +673,7 @@
                 {/if}
               </div>
             </div>
-            <div class="space-y-2 text-xs text-slate-600">
+            <div class="space-y-2 text-xs text-green-600">
               <div class="flex items-center">
                 <svg class="h-3 w-3 mr-2 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <rect width="20" height="14" x="2" y="5" rx="2"/>
@@ -696,7 +694,7 @@
                 <span>{member.enrollmentNo || member.department}</span>
               </div>
             </div>
-            <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+            <div class="flex items-center justify-between mt-3 pt-3 border-t border-green-100">
               <div class="text-xs text-slate-600">
                 {#if member.course}
                   <div class="font-medium">{member.course}</div>
@@ -707,7 +705,7 @@
                   <div>{member.designation}</div>
                 {/if}
               </div>
-              <div class="flex items-center text-xs text-slate-600">
+              <div class="flex items-center text-xs text-green-600">
                 <svg class="h-3 w-3 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
                 </svg>
@@ -731,16 +729,16 @@
         <span class="font-semibold">{filteredMembers.length}</span> results
       </div>
       <nav class="relative z-0 inline-flex rounded-lg shadow-sm -space-x-px order-1 sm:order-2">
-        <button class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-l-lg text-slate-500 bg-white hover:bg-slate-50 transition-colors duration-200">
+        <button class="relative inline-flex items-center px-3 py-2 border border-green-300 text-sm font-medium rounded-l-lg text-green-500 bg-white hover:bg-green-50 transition-colors duration-200">
           <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
           </svg>
           <span class="hidden sm:inline">Previous</span>
         </button>
-        <button class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium text-slate-700 bg-slate-50" disabled>
+        <button class="relative inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium text-slate-700 bg-green-50" disabled>
           1
         </button>
-        <button class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-r-lg text-slate-500 bg-white hover:bg-slate-50 transition-colors duration-200">
+        <button class="relative inline-flex items-center px-3 py-2 border border-green-300 text-sm font-medium rounded-r-lg text-green-500 bg-white hover:bg-green-50 transition-colors duration-200">
           <span class="hidden sm:inline">Next</span>
           <svg class="h-4 w-4 ml-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
@@ -810,4 +808,3 @@
       />
     {/if}
   </div>
-</Layout>

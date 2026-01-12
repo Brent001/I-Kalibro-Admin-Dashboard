@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Layout from "$lib/components/ui/layout.svelte";
   import { onMount } from "svelte";
   import { slide } from 'svelte/transition';
   import { quintOut } from 'svelte/easing';
@@ -236,8 +235,7 @@
   }
 </script>
 
-<Layout>
-  <div class="space-y-6">
+<div class="space-y-6">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
@@ -284,7 +282,7 @@
             <p class="font-medium">Success:</p>
             <p class="text-sm">{successMsg}</p>
           </div>
-          <button on:click={() => successMsg = ""} class="text-green-400 hover:text-green-600">
+          <button on:click={() => successMsg = ""} class="text-green-400 hover:text-green-600" aria-label="Close success message">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -305,7 +303,7 @@
               Try again
             </button>
           </div>
-          <button on:click={() => errorMsg = ""} class="text-red-400 hover:text-red-600">
+          <button on:click={() => errorMsg = ""} class="text-red-400 hover:text-red-600" aria-label="Close error message">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -441,6 +439,7 @@
             <button 
               on:click={() => showTypeSelectionModal = false}
               class="text-slate-400 hover:text-slate-600 transition-colors"
+              aria-label="Close modal"
             >
               <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -815,4 +814,3 @@
       </nav>
     </div>
   </div>
-</Layout>

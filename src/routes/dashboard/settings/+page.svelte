@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Layout from "$lib/components/ui/layout.svelte";
+
   import { onMount } from "svelte";
 
   let activeTab: string = 'general';
@@ -93,8 +93,7 @@
   }
 </script>
 
-<Layout>
-  <div class="space-y-6">
+<div class="space-y-6">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
@@ -149,60 +148,66 @@
                   <h3 class="text-lg font-medium text-gray-900 mb-4">Library Information</h3>
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="libraryName" class="block text-sm font-medium text-gray-700 mb-2">
                         Library Name
                       </label>
                       <input
+                        id="libraryName"
                         type="text"
                         bind:value={settings.libraryName}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="libraryCode" class="block text-sm font-medium text-gray-700 mb-2">
                         Library Code
                       </label>
                       <input
+                        id="libraryCode"
                         type="text"
                         bind:value={settings.libraryCode}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="address" class="block text-sm font-medium text-gray-700 mb-2">
                         Address
                       </label>
                       <textarea
+                        id="address"
                         bind:value={settings.address}
                         rows={3}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
+                      ></textarea>
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="phone" class="block text-sm font-medium text-gray-700 mb-2">
                         Phone Number
                       </label>
                       <input
+                        id="phone"
                         type="tel"
                         bind:value={settings.phone}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="email" class="block text-sm font-medium text-gray-700 mb-2">
                         Email
                       </label>
                       <input
+                        id="email"
                         type="email"
                         bind:value={settings.email}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="website" class="block text-sm font-medium text-gray-700 mb-2">
                         Website
                       </label>
                       <input
+                        id="website"
                         type="url"
                         bind:value={settings.website}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -220,60 +225,66 @@
                   <h3 class="text-lg font-medium text-gray-900 mb-4">Loan Policies</h3>
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="defaultLoanPeriod" class="block text-sm font-medium text-gray-700 mb-2">
                         Default Loan Period (days)
                       </label>
                       <input
+                        id="defaultLoanPeriod"
                         type="number"
                         bind:value={settings.defaultLoanPeriod}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="maxRenewals" class="block text-sm font-medium text-gray-700 mb-2">
                         Maximum Renewals
                       </label>
                       <input
+                        id="maxRenewals"
                         type="number"
                         bind:value={settings.maxRenewals}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="maxBooksStudent" class="block text-sm font-medium text-gray-700 mb-2">
                         Max Books per Student
                       </label>
                       <input
+                        id="maxBooksStudent"
                         type="number"
                         bind:value={settings.maxBooksPerStudent}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="maxBooksFaculty" class="block text-sm font-medium text-gray-700 mb-2">
                         Max Books per Faculty
                       </label>
                       <input
+                        id="maxBooksFaculty"
                         type="number"
                         bind:value={settings.maxBooksPerFaculty}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="overdueFinePerDay" class="block text-sm font-medium text-gray-700 mb-2">
                         Overdue Fine per Day (₱)
                       </label>
                       <input
+                        id="overdueFinePerDay"
                         type="number"
                         bind:value={settings.overdueFinePerDay}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="reservationPeriod" class="block text-sm font-medium text-gray-700 mb-2">
                         Reservation Period (days)
                       </label>
                       <input
+                        id="reservationPeriod"
                         type="number"
                         bind:value={settings.reservationPeriod}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -298,8 +309,9 @@
                           <p class="text-sm text-gray-500">Send notifications via email</p>
                         </div>
                       </div>
-                      <label class="relative inline-flex items-center cursor-pointer">
+                      <label for="emailNotifications" class="relative inline-flex items-center cursor-pointer">
                         <input
+                          id="emailNotifications"
                           type="checkbox"
                           checked={settings.emailNotifications}
                           on:change={(e: Event) => handleInputChange('emailNotifications', (e.target as HTMLInputElement).checked)}
@@ -317,8 +329,9 @@
                           <p class="text-sm text-gray-500">Send notifications via SMS</p>
                         </div>
                       </div>
-                      <label class="relative inline-flex items-center cursor-pointer">
+                      <label for="smsNotifications" class="relative inline-flex items-center cursor-pointer">
                         <input
+                          id="smsNotifications"
                           type="checkbox"
                           checked={settings.smsNotifications}
                           on:change={(e: Event) => handleInputChange('smsNotifications', (e.target as HTMLInputElement).checked)}
@@ -333,8 +346,9 @@
                         <h4 class="text-sm font-medium text-gray-900">Overdue Reminders</h4>
                         <p class="text-sm text-gray-500">Notify users about overdue books</p>
                       </div>
-                      <label class="relative inline-flex items-center cursor-pointer">
+                      <label for="overdueReminders" class="relative inline-flex items-center cursor-pointer">
                         <input
+                          id="overdueReminders"
                           type="checkbox"
                           checked={settings.overdueReminders}
                           on:change={(e: Event) => handleInputChange('overdueReminders', (e.target as HTMLInputElement).checked)}
@@ -349,8 +363,9 @@
                         <h4 class="text-sm font-medium text-gray-900">Return Reminders</h4>
                         <p class="text-sm text-gray-500">Notify users about upcoming due dates</p>
                       </div>
-                      <label class="relative inline-flex items-center cursor-pointer">
+                      <label for="returnReminders" class="relative inline-flex items-center cursor-pointer">
                         <input
+                          id="returnReminders"
                           type="checkbox"
                           checked={settings.returnReminders}
                           on:change={(e: Event) => handleInputChange('returnReminders', (e.target as HTMLInputElement).checked)}
@@ -365,8 +380,9 @@
                         <h4 class="text-sm font-medium text-gray-900">New Book Alerts</h4>
                         <p class="text-sm text-gray-500">Notify about new book additions</p>
                       </div>
-                      <label class="relative inline-flex items-center cursor-pointer">
+                      <label for="newBookAlerts" class="relative inline-flex items-center cursor-pointer">
                         <input
+                          id="newBookAlerts"
                           type="checkbox"
                           checked={settings.newBookAlerts}
                           on:change={(e: Event) => handleInputChange('newBookAlerts', (e.target as HTMLInputElement).checked)}
@@ -387,30 +403,33 @@
                   <h3 class="text-lg font-medium text-gray-900 mb-4">Security Configuration</h3>
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="sessionTimeout" class="block text-sm font-medium text-gray-700 mb-2">
                         Session Timeout (minutes)
                       </label>
                       <input
+                        id="sessionTimeout"
                         type="number"
                         bind:value={settings.sessionTimeout}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="passwordExpiry" class="block text-sm font-medium text-gray-700 mb-2">
                         Password Expiry (days)
                       </label>
                       <input
+                        id="passwordExpiry"
                         type="number"
                         bind:value={settings.passwordExpiry}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="loginAttempts" class="block text-sm font-medium text-gray-700 mb-2">
                         Failed Login Attempts
                       </label>
                       <input
+                        id="loginAttempts"
                         type="number"
                         bind:value={settings.loginAttempts}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -424,8 +443,9 @@
                         <h4 class="text-sm font-medium text-gray-900">Two-Factor Authentication</h4>
                         <p class="text-sm text-gray-500">Require 2FA for admin accounts</p>
                       </div>
-                      <label class="relative inline-flex items-center cursor-pointer">
+                      <label for="twoFactorAuth" class="relative inline-flex items-center cursor-pointer">
                         <input
+                          id="twoFactorAuth"
                           type="checkbox"
                           checked={settings.twoFactorAuth}
                           on:change={(e: Event) => handleInputChange('twoFactorAuth', (e.target as HTMLInputElement).checked)}
@@ -440,8 +460,9 @@
                         <h4 class="text-sm font-medium text-gray-900">Audit Logging</h4>
                         <p class="text-sm text-gray-500">Log all system activities</p>
                       </div>
-                      <label class="relative inline-flex items-center cursor-pointer">
+                      <label for="auditLog" class="relative inline-flex items-center cursor-pointer">
                         <input
+                          id="auditLog"
                           type="checkbox"
                           checked={settings.auditLog}
                           on:change={(e: Event) => handleInputChange('auditLog', (e.target as HTMLInputElement).checked)}
@@ -462,10 +483,11 @@
                   <h3 class="text-lg font-medium text-gray-900 mb-4">System Configuration</h3>
                   <div class="space-y-6">
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="backupFrequency" class="block text-sm font-medium text-gray-700 mb-2">
                         Backup Frequency
                       </label>
                       <select
+                        id="backupFrequency"
                         bind:value={settings.backupFrequency}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       >
@@ -520,50 +542,55 @@
                   <h3 class="text-lg font-medium text-gray-900 mb-4">Profile Settings</h3>
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="fullName" class="block text-sm font-medium text-gray-700 mb-2">
                         Full Name
                       </label>
                       <input
+                        id="fullName"
                         type="text"
                         bind:value={profile.fullName}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="username" class="block text-sm font-medium text-gray-700 mb-2">
                         Username
                       </label>
                       <input
+                        id="username"
                         type="text"
                         bind:value={profile.username}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="profileEmail" class="block text-sm font-medium text-gray-700 mb-2">
                         Email
                       </label>
                       <input
+                        id="profileEmail"
                         type="email"
                         bind:value={profile.email}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="profilePhone" class="block text-sm font-medium text-gray-700 mb-2">
                         Phone
                       </label>
                       <input
+                        id="profilePhone"
                         type="tel"
                         bind:value={profile.phone}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="newPassword" class="block text-sm font-medium text-gray-700 mb-2">
                         New Password
                       </label>
                       <input
+                        id="newPassword"
                         type="password"
                         bind:value={profile.password}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -571,10 +598,11 @@
                       />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">
+                      <label for="confirmPassword" class="block text-sm font-medium text-gray-700 mb-2">
                         Confirm Password
                       </label>
                       <input
+                        id="confirmPassword"
                         type="password"
                         bind:value={profile.confirmPassword}
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -597,4 +625,3 @@
       </div>
     </div>
   </div>
-</Layout>

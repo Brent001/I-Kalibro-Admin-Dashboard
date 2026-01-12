@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { browser } from '$app/environment';
-  import Layout from "$lib/components/ui/layout.svelte";
   import AddBooks from "$lib/components/ui/add_books.svelte";
   import AddCategory from "$lib/components/ui/add_category.svelte";
   import ViewBook from "$lib/components/ui/view_book.svelte";
@@ -357,8 +356,7 @@
   $: categoryDropdownOptions = ['all', ...categories.map(c => c.name)];
 </script>
 
-<Layout>
-  <div class="space-y-6">
+<div class="space-y-6">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
@@ -404,6 +402,7 @@
           <button 
             on:click={() => error = ""} 
             class="text-red-400 hover:text-red-600"
+            aria-label="Close error message"
           >
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -886,4 +885,3 @@
       />
     {/if}
   </div>
-</Layout>
