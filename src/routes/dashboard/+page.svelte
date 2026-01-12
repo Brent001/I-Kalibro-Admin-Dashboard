@@ -169,7 +169,7 @@
 
 <div class="min-h-screen">
   <!-- Header -->
-  <div class="mb-4">
+  <div class="mb-2">
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h2 class="text-2xl font-bold text-slate-900">Dashboard Overview</h2>
@@ -187,7 +187,7 @@
     </div>
   </div>
 
-  <main class="space-y-4 -mx-2 sm:mx-0">
+  <main class="space-y-2 -mx-2 sm:mx-0">
 
     {#if error}
       <!-- Error State -->
@@ -206,9 +206,9 @@
       </div>
     {:else}
       <!-- Stats Grid -->
-      <div class="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+      <div class="grid grid-cols-2 gap-1 sm:gap-2 sm:grid-cols-2 lg:grid-cols-4 mb-2">
         <!-- Total Books Card -->
-        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           {#if loading}
             <div class="animate-pulse flex flex-col items-center">
               <div class="h-10 w-10 bg-gray-200 rounded-lg mb-3"></div>
@@ -231,7 +231,7 @@
         </div>
 
         <!-- Active Members Card -->
-        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           {#if loading}
             <div class="animate-pulse flex flex-col items-center">
               <div class="h-10 w-10 bg-gray-200 rounded-lg mb-3"></div>
@@ -254,7 +254,7 @@
         </div>
 
         <!-- Books Borrowed Card -->
-        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           {#if loading}
             <div class="animate-pulse flex flex-col items-center">
               <div class="h-10 w-10 bg-gray-200 rounded-lg mb-3"></div>
@@ -277,7 +277,7 @@
         </div>
 
         <!-- Overdue Books Card -->
-        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           {#if loading}
             <div class="animate-pulse flex flex-col items-center">
               <div class="h-10 w-10 bg-gray-200 rounded-lg mb-3"></div>
@@ -301,7 +301,7 @@
       </div>
 
       <!-- Library Insights -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-2">
         <div class="flex items-center justify-between mb-3">
           <div>
             <h3 class="text-lg font-semibold text-slate-900">Library Insights</h3>
@@ -314,7 +314,7 @@
           </div>
         </div>
         
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
           <!-- Borrowing Rate -->
           <div class="space-y-3">
             <div class="flex items-center justify-between">
@@ -396,7 +396,7 @@
       </div>
 
       <!-- Activity and Overdue Lists -->
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div class="grid grid-cols-1 gap-2 lg:grid-cols-2">
         <!-- Recent Activity -->
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div class="px-3 sm:px-4 lg:px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-green-50 to-white">

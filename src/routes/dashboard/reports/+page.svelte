@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { writable, derived } from 'svelte/store';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
 
   // --- Types ---
   interface Overview {
@@ -70,6 +72,23 @@
     { value: "year", label: "Last 12 Months" }
   ] as const;
 
+  // Map logs parameter to period value
+  function parseLogsParam(logsParam: string | null): string {
+    if (!logsParam) return 'month';
+    
+    const num = parseInt(logsParam);
+    if (isNaN(num)) return 'month';
+    
+    if (logsParam.includes('d')) {
+      if (num <= 7) return 'week';
+      if (num <= 30) return 'month';
+      if (num <= 90) return 'quarter';
+      if (num <= 365) return 'year';
+    }
+    
+    return 'month'; // default fallback
+  }
+
   const ICON_PATHS = {
     users: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
     check: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
@@ -88,11 +107,14 @@
     { key: 'availableBooks', label: 'In Stock', icon: 'library', gradient: 'from-indigo-500 to-indigo-600', bgClass: 'bg-slate-50', iconClass: 'text-slate-600' }
   ];
 
-  let selectedPeriod = 'month';
+  let selectedPeriod = writable('month');
   let chartInstances: Record<string, any> = {};
-  let dropdownOpen = false;
+  let dropdownOpen = writable(false);
+  let exportDropdownOpen = writable(false);
+  let selectedExportFormat = writable('pdf');
 
-  // --- Utils ---
+  // Reactive selected period label
+  $: selectedPeriodLabel = PERIOD_OPTIONS.find(option => option.value === $selectedPeriod)?.label || 'Select Period';
   const formatCurrency = (amount: number) => `₱${(amount / 100).toFixed(2)}`;
   const formatNumber = (num: number) => num.toLocaleString();
   const formatDate = (dateStr: string) => {
@@ -102,17 +124,45 @@
     format === 'currency' ? formatCurrency(value) : formatNumber(value);
 
   function toggleDropdown() {
-    dropdownOpen = !dropdownOpen;
+    dropdownOpen.update(open => !open);
+  }
+
+  function toggleExportDropdown() {
+    exportDropdownOpen.update(open => !open);
+  }
+
+  function selectExportFormat(format: string) {
+    selectedExportFormat.set(format);
+    exportDropdownOpen.set(false);
+    handleExport();
   }
 
   function selectPeriod(period: string) {
-    selectedPeriod = period;
-    dropdownOpen = false;
+    selectedPeriod.set(period);
+    dropdownOpen.set(false);
+    
+    // Update URL with logs parameter
+    const logsParam = getLogsParamFromPeriod(period);
+    const url = new URL(window.location.href);
+    if (logsParam) {
+      url.searchParams.set('logs', logsParam);
+    } else {
+      url.searchParams.delete('logs');
+    }
+    window.history.replaceState({}, '', url.toString());
+    
     loadData();
   }
 
-  function getSelectedPeriodLabel() {
-    return PERIOD_OPTIONS.find(option => option.value === selectedPeriod)?.label || 'Select Period';
+  // Helper function to convert period to logs parameter
+  function getLogsParamFromPeriod(period: string): string | null {
+    switch (period) {
+      case 'week': return '7d';
+      case 'month': return '30d';
+      case 'quarter': return '90d';
+      case 'year': return '365d';
+      default: return null;
+    }
   }
 
   // --- API ---
@@ -124,26 +174,11 @@
     return result.data;
   }
 
-  async function exportReport(): Promise<void> {
-    const response = await fetch(`/api/reports/export?period=${selectedPeriod}`);
-    if (!response.ok) throw new Error('Export failed');
-    
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `library_report_${selectedPeriod}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
-
   async function loadData() {
     loading.set(true);
     error.set('');
     try {
-      const data = await fetchDashboardData(selectedPeriod);
+      const data = await fetchDashboardData($selectedPeriod);
       dashboardData.set(data);
       if ((window as any).Chart) setTimeout(() => initializeCharts(data), 100);
     } catch (err: any) {
@@ -156,7 +191,18 @@
 
   async function handleExport() {
     try {
-      await exportReport();
+      const response = await fetch(`/api/reports/export?period=${$selectedPeriod}&format=${$selectedExportFormat}`);
+      if (!response.ok) throw new Error('Export failed');
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `library_report_${$selectedPeriod}_${new Date().toISOString().split('T')[0]}.${$selectedExportFormat === 'excel' ? 'xlsx' : 'pdf'}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     } catch (err) {
       error.set('Export failed. Please try again.');
     }
@@ -325,15 +371,32 @@
     }
   }
 
-  onMount(async () => {
-    await loadChartJS();
-    await loadData();
+  onMount(() => {
+    // Check URL parameters for initial period selection
+    const currentUrl = new URL(window.location.href);
+    const logsParam = currentUrl.searchParams.get('logs');
+    const initialPeriod = parseLogsParam(logsParam);
+    selectedPeriod.set(initialPeriod);
     
-    // Add click outside handler for dropdown
+    // If no logs parameter and using default period, add it to URL
+    if (!logsParam && initialPeriod === 'month') {
+      currentUrl.searchParams.set('logs', '30d');
+      window.history.replaceState({}, '', currentUrl.toString());
+    }
+    
+    (async () => {
+      await loadChartJS();
+      await loadData();
+    })();
+    
+    // Add click outside handler for dropdowns
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest('.custom-dropdown')) {
-        dropdownOpen = false;
+        dropdownOpen.set(false);
+      }
+      if (!target.closest('.export-dropdown')) {
+        exportDropdownOpen.set(false);
       }
     };
     
@@ -370,9 +433,9 @@
             disabled={$loading}
             class="w-full sm:w-auto pl-4 pr-10 py-2 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm transition-all disabled:opacity-60 flex items-center justify-between"
           >
-            <span>{getSelectedPeriodLabel()}</span>
+            <span>{selectedPeriodLabel}</span>
             <svg 
-              class="h-4 w-4 text-gray-500 transition-transform duration-200 {dropdownOpen ? 'rotate-180' : ''}" 
+              class="h-4 w-4 text-gray-500 transition-transform duration-200 {$dropdownOpen ? 'rotate-180' : ''}" 
               fill="none" 
               stroke="currentColor" 
               viewBox="0 0 24 24"
@@ -382,12 +445,12 @@
           </button>
 
           <!-- Dropdown Options -->
-          {#if dropdownOpen}
+          {#if $dropdownOpen}
             <div class="absolute z-10 mt-1 w-full sm:w-auto bg-white border border-gray-300 rounded-lg shadow-lg">
               {#each PERIOD_OPTIONS as option}
                 <button
                   on:click={() => selectPeriod(option.value)}
-                  class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none first:rounded-t-lg last:rounded-b-lg {selectedPeriod === option.value ? 'bg-indigo-50 text-indigo-700' : ''}"
+                  class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none first:rounded-t-lg last:rounded-b-lg {$selectedPeriod === option.value ? 'bg-indigo-50 text-indigo-700' : ''}"
                 >
                   {option.label}
                 </button>
@@ -397,14 +460,49 @@
         </div>
         
         <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <button 
-            on:click={handleExport}
-            disabled={$loading}
-            class="inline-flex items-center justify-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50 w-full sm:w-auto"
-          >
-            <svg class="h-4 w-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-            Export
-          </button>
+          <div class="relative w-full sm:w-auto export-dropdown">
+            <button
+              on:click={toggleExportDropdown}
+              disabled={$loading}
+              class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50"
+            >
+              <svg class="h-4 w-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Export {$selectedExportFormat.toUpperCase()}
+              <svg 
+                class="h-4 w-4 ml-2 text-gray-500 transition-transform duration-200 {$exportDropdownOpen ? 'rotate-180' : ''}" 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+              </svg>
+            </button>
+
+            {#if $exportDropdownOpen}
+              <div class="absolute z-10 mt-1 w-full sm:w-auto bg-white border border-gray-300 rounded-lg shadow-lg">
+                <button
+                  on:click={() => selectExportFormat('pdf')}
+                  class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none rounded-t-lg flex items-center {$selectedExportFormat === 'pdf' ? 'bg-indigo-50 text-indigo-700' : ''}"
+                >
+                  <svg class="h-4 w-4 mr-2 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                  </svg>
+                  PDF Document
+                </button>
+                <button
+                  on:click={() => selectExportFormat('excel')}
+                  class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none rounded-b-lg flex items-center {$selectedExportFormat === 'excel' ? 'bg-indigo-50 text-indigo-700' : ''}"
+                >
+                  <svg class="h-4 w-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                  </svg>
+                  Excel Spreadsheet
+                </button>
+              </div>
+            {/if}
+          </div>
           
           <button
             on:click={() => window.location.href = '/dashboard/reports/visits'}
@@ -421,7 +519,7 @@
     </div>
   </div>
 
-  <main class="space-y-4 -mx-2 sm:mx-0">
+  <main class="space-y-2 -mx-2 sm:mx-0">
 
     {#if $error}
       <div class="rounded-lg bg-red-50 border border-red-200 p-4 flex items-start shadow-sm">
@@ -434,9 +532,9 @@
     {/if}
 
     <!-- Metrics Grid -->
-    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-3">
+    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-1 sm:gap-2">
       {#each METRIC_CONFIGS as config}
-        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           {#if $loading}
             <div class="animate-pulse flex flex-col items-center">
               <div class="h-10 w-10 bg-gray-200 rounded-lg mb-3"></div>
@@ -461,10 +559,10 @@
     </div>
 
     <!-- Main Charts Section -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-2">
       
       <!-- Daily Visits -->
-      <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+      <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-3">
         <div class="flex items-center justify-between mb-4">
           <div>
             <h3 class="text-lg font-bold text-gray-900">Daily Visits Trend</h3>
@@ -484,7 +582,7 @@
       </div>
 
       <!-- Transaction Types -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3">
         <h3 class="text-lg font-bold text-gray-900 mb-4">Activity Breakdown</h3>
         <div class="relative h-72 w-full flex items-center justify-center">
           {#if $loading}
@@ -505,10 +603,10 @@
     </div>
 
     <!-- Secondary Charts -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
       
       <!-- Categories -->
-      <div class="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+      <div class="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-3">
         <h3 class="text-lg font-bold text-gray-900 mb-4">Book Categories</h3>
         <div class="h-56">
           {#if $loading}
@@ -520,7 +618,7 @@
       </div>
 
       <!-- Revenue Card -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col justify-between">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 flex flex-col justify-between">
          <div>
              <h3 class="text-base font-semibold text-gray-900">Penalty Collections</h3>
              {#if $loading}
@@ -540,7 +638,7 @@
 
       <!-- Member Activity -->
       <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-        <div class="p-4 pb-4">
+        <div class="p-3 pb-4">
             <h3 class="text-base font-semibold text-gray-900">Member Activity</h3>
         </div>
         <div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
@@ -567,11 +665,11 @@
     </div>
 
     <!-- Data Tables -->
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-2">
       
       <!-- Top Books -->
       <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div class="px-4 py-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+        <div class="px-3 py-3 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
           <h3 class="text-lg font-bold text-gray-900">Most Popular Books</h3>
           <p class="text-sm text-gray-600 mt-1">Top borrowed titles this period</p>
         </div>
@@ -579,20 +677,20 @@
           <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rank</th>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book Details</th>
-                <th class="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Borrows</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rank</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book Details</th>
+                <th class="px-3 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Borrows</th>
               </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
               {#if $loading}
                  {#each Array(5) as _}
-                    <tr><td colspan="3" class="px-4 py-3"><div class="h-10 bg-gray-100 rounded animate-pulse"></div></td></tr>
+                    <tr><td colspan="3" class="px-3 py-3"><div class="h-10 bg-gray-100 rounded animate-pulse"></div></td></tr>
                  {/each}
               {:else}
                 {#each $dashboardData.tables.topBooks as book, i}
                   <tr class="hover:bg-gray-50 transition-colors">
-                    <td class="px-4 py-3 whitespace-nowrap">
+                    <td class="px-3 py-3 whitespace-nowrap">
                         <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold text-sm shadow-sm
                           {i === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-500 text-white' : 
                            i === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-400 text-white' :
@@ -601,7 +699,7 @@
                           {i + 1}
                         </div>
                     </td>
-                    <td class="px-4 py-3">
+                    <td class="px-3 py-3">
                       <div class="flex items-center gap-3">
                         <div class="flex-shrink-0 w-10 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded shadow-sm flex items-center justify-center">
                           <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -614,7 +712,7 @@
                         </div>
                       </div>
                     </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-center">
+                    <td class="px-3 py-3 whitespace-nowrap text-center">
                       <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
                         {book.borrowCount}
                       </span>
@@ -629,7 +727,7 @@
 
       <!-- Overdue Books -->
       <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div class="px-4 py-4 border-b border-red-100 bg-gradient-to-r from-red-50 to-white">
+        <div class="px-3 py-3 border-b border-red-100 bg-gradient-to-r from-red-50 to-white">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
                <div class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></div>
@@ -655,12 +753,12 @@
             <tbody class="bg-white divide-y divide-gray-200">
                {#if $loading}
                  {#each Array(3) as _}
-                    <tr><td colspan="3" class="px-4 py-3"><div class="h-10 bg-gray-100 rounded animate-pulse"></div></td></tr>
+                    <tr><td colspan="3" class="px-3 py-3"><div class="h-10 bg-gray-100 rounded animate-pulse"></div></td></tr>
                  {/each}
               {:else}
                 {#each $dashboardData.tables.overdueList as item}
                   <tr class="hover:bg-red-50/30 transition-colors group">
-                    <td class="px-4 py-3">
+                    <td class="px-3 py-3">
                       <div class="flex items-center gap-3">
                         <div class="flex-shrink-0">
                           <div class="w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-full flex items-center justify-center">
@@ -675,7 +773,7 @@
                         </div>
                       </div>
                     </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-center">
+                    <td class="px-3 py-3 whitespace-nowrap text-center">
                       <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold
                         {item.daysOverdue <= 3 ? 'bg-yellow-100 text-yellow-800' : 
                          item.daysOverdue <= 7 ? 'bg-orange-100 text-orange-800' : 
@@ -683,7 +781,7 @@
                         {item.daysOverdue}d
                       </span>
                     </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-right">
+                    <td class="px-3 py-3 whitespace-nowrap text-right">
                       <div class="text-sm font-bold text-gray-900">
                         {formatCurrency(item.fine)}
                       </div>
