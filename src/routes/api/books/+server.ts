@@ -3,7 +3,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
-import { eq, like, and, or, gt, count, not } from 'drizzle-orm';
+import { eq, ilike, and, or, gt, count, not, inArray, isNotNull } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import { book, staffAccount, category, bookBorrowing } from '$lib/server/db/schema/schema.js';
 
@@ -62,7 +62,7 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
       username: user.username || '',
       email: user.email || ''
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error('Authentication error:', err);
     return null;
   }
@@ -71,6 +71,11 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
 function validateYear(year: number): boolean {
   const currentYear = new Date().getFullYear();
   return year >= 1000 && year <= currentYear;
+}
+
+// Function to normalize category names for comparison
+function normalizeCategoryName(name: string): string {
+  return name.trim().toLowerCase();
 }
 
 // GET - Fetch books with enhanced filtering
@@ -84,11 +89,19 @@ export const GET: RequestHandler = async ({ request, url }) => {
     const searchParams = url.searchParams;
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = Math.min(parseInt(searchParams.get('limit') || '10', 10), 100);
-    const search = searchParams.get('search') || '';
-    const categoryId = searchParams.get('categoryId') || '';
+    const search = searchParams.get('q') || '';
+    // Support both single 'category' param (comma-separated) and multiple 'categories' params
+    const categoryNames = (() => {
+      const categoryParam = searchParams.get('category');
+      if (categoryParam) {
+        return categoryParam.split(',').filter(c => c.trim());
+      }
+      return searchParams.getAll('categories').filter(c => c.trim());
+    })();
     const author = searchParams.get('author') || '';
     const available = searchParams.get('available');
     const bookId = searchParams.get('bookId') || '';
+    const language = searchParams.get('language') || searchParams.get('lang') || '';
 
     if (page < 1 || limit < 1) {
       throw error(400, { message: 'Invalid pagination parameters. Page and limit must be >= 1' });
@@ -100,18 +113,56 @@ export const GET: RequestHandler = async ({ request, url }) => {
     if (search) {
       conditions.push(
         or(
-          like(book.title, `%${search}%`),
-          like(book.author, `%${search}%`)
+          ilike(book.title, `%${search}%`),
+          ilike(book.author, `%${search}%`),
+          ilike(book.bookId, `%${search}%`)
         )
       );
     }
 
-    if (categoryId && categoryId !== 'all') {
-      conditions.push(eq(book.categoryId, parseInt(categoryId)));
+    // Handle multiple categories by name
+    if (categoryNames.length > 0) {
+      // Fetch all categories to find matching names case-insensitively
+      const allCategories = await db
+        .select({ id: category.id, name: category.name })
+        .from(category);
+      
+      // Find category IDs for all requested category names
+      const categoryIds: number[] = [];
+      for (const categoryName of categoryNames) {
+        if (categoryName.trim()) {
+          const matchingCategory = allCategories.find(cat => 
+            normalizeCategoryName(cat.name || '') === normalizeCategoryName(categoryName.trim())
+          );
+          if (matchingCategory) {
+            categoryIds.push(matchingCategory.id);
+          }
+        }
+      }
+      
+      if (categoryIds.length > 0) {
+        conditions.push(inArray(book.categoryId, categoryIds));
+      } else {
+        // If no categories found, return empty results
+        return json({
+          success: true,
+          data: {
+            books: [],
+            pagination: {
+              currentPage: page,
+              totalPages: 0,
+              totalCount: 0,
+              limit,
+              hasNextPage: false,
+              hasPrevPage: false
+            }
+          }
+        });
+      }
     }
 
     if (author) {
-      conditions.push(like(book.author, `%${author}%`));
+      conditions.push(ilike(book.author, `%${author}%`));
     }
 
     if (available === 'true') {
@@ -119,7 +170,11 @@ export const GET: RequestHandler = async ({ request, url }) => {
     }
 
     if (bookId) {
-      conditions.push(like(book.bookId, `%${bookId}%`));
+      conditions.push(ilike(book.bookId, `%${bookId}%`));
+    }
+
+    if (language) {
+      conditions.push(ilike(book.language, `%${language}%`));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -174,7 +229,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
       }
     });
 
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error fetching books:', err);
     if (err.status) {
       throw err;
@@ -336,6 +391,9 @@ export const PUT: RequestHandler = async ({ request, url }) => {
 
     // Validate categoryId if present
     if (body.categoryId !== undefined) {
+      if (typeof body.categoryId !== 'number' || body.categoryId === null || isNaN(body.categoryId)) {
+        throw error(400, { message: 'categoryId must be a valid number' });
+      }
       const categoryExists = await db
         .select({ id: category.id })
         .from(category)
@@ -443,7 +501,7 @@ export const PUT: RequestHandler = async ({ request, url }) => {
       message: 'Book updated successfully'
     });
 
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error updating book:', err);
     if (err.status) {
       throw err;
