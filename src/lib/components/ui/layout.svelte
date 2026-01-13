@@ -4,12 +4,15 @@
   import { goto } from "$app/navigation";
   import { writable, get, derived } from "svelte/store";
   import { browser } from "$app/environment";
+  import NotificationContainer from "./notificationContainer.svelte";
+  import { notifications } from "$lib/stores/notificationStore.js";
 
   export let onLogout: () => void = () => {};
   
   const sidebarOpen = writable(false);
   let isLoggingOut = false;
   let showLogoutOptions = false;
+  let showNotificationPanel = false;
   
   // Create a persistent user store that survives navigation
   const userStore = writable<{
@@ -208,9 +211,9 @@
         
         // Show success message and redirect immediately
         if (logoutAllDevices) {
-          showNotification('Logged out from all devices successfully', 'success');
+          notifications.show('Logged out from all devices successfully', 'success');
         } else {
-          showNotification('Logged out successfully', 'success');
+          notifications.show('Logged out successfully', 'success');
         }
         
         // Redirect immediately without delay
@@ -220,7 +223,7 @@
       } else {
         // Handle partial success or errors
         console.error('Logout error:', result.message);
-        showNotification(result.message || 'Logout completed with some issues', 'warning');
+        notifications.show(result.message || 'Logout completed with some issues', 'warning');
         
         // Still redirect even if there were issues
         setTimeout(() => {
@@ -231,7 +234,7 @@
       }
     } catch (error) {
       console.error('Logout request failed:', error);
-      showNotification('Network error during logout. Redirecting...', 'error');
+      notifications.show('Network error during logout. Redirecting...', 'error');
       
       // Force redirect even on network error
       setTimeout(() => {
@@ -244,24 +247,6 @@
     }
   }
 
-  // Simple notification system
-  let notifications: Array<{id: number; message: string; type: 'success' | 'error' | 'warning'}> = [];
-  let notificationId = 0;
-
-  function showNotification(message: string, type: 'success' | 'error' | 'warning' = 'success') {
-    const id = ++notificationId;
-    notifications = [...notifications, { id, message, type }];
-    
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-      notifications = notifications.filter(n => n.id !== id);
-    }, 5000);
-  }
-
-  function removeNotification(id: number) {
-    notifications = notifications.filter(n => n.id !== id);
-  }
-
   // Close logout options when clicking outside
   function handleClickOutside(event: Event) {
     if (showLogoutOptions) {
@@ -269,6 +254,65 @@
       if (!target.closest('.logout-menu')) {
         showLogoutOptions = false;
       }
+    }
+    // Close notification panel when clicking outside
+    if (showNotificationPanel) {
+      const target = event.target as Element;
+      if (!target.closest('.notification-panel') && !target.closest('.notification-bell')) {
+        showNotificationPanel = false;
+      }
+    }
+  }
+
+  // Notification helper functions
+  function getNotificationIconColor(type: string) {
+    switch (type) {
+      case 'success': return 'text-emerald-600';
+      case 'error': return 'text-red-600';
+      case 'warning': return 'text-amber-600';
+      case 'info': default: return 'text-blue-600';
+    }
+  }
+
+  function getNotificationIcon(type: string) {
+    switch (type) {
+      case 'success':
+        return `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+        </svg>`;
+      case 'error':
+        return `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+        </svg>`;
+      case 'warning':
+        return `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+        </svg>`;
+      case 'info':
+      default:
+        return `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+        </svg>`;
+    }
+  }
+
+  function formatTimestamp(date: Date) {
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / (1000 * 60));
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return `${days}d ago`;
+  }
+
+  function handleNotificationAction(notification: any) {
+    if (notification.actionUrl) {
+      showNotificationPanel = false; // Close panel before navigation
+      window.location.href = notification.actionUrl;
     }
   }
 
@@ -423,12 +467,131 @@
         </div>
         <div class="flex items-center space-x-4">
           <!-- Notification bell icon -->
-          <button class="relative p-2 text-[#0D5C29] hover:text-[#E8B923] hover:bg-[#E8B923]/10 rounded-lg transition-colors" aria-label="Notifications">
-            <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7C18 6.279 15.464 4 12.25 4s-5.75 2.279-5.75 5.05v.7a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
-            </svg>
-            <span class="absolute top-1 right-1 h-3 w-3 bg-[#E8B923] rounded-full border-2 border-white shadow-sm"></span>
-          </button>
+          <div class="relative notification-bell">
+            <button
+              class="relative p-2 text-[#0D5C29] hover:text-[#E8B923] hover:bg-[#E8B923]/10 rounded-lg transition-colors"
+              aria-label="Notifications"
+              on:click={() => {
+                showNotificationPanel = !showNotificationPanel;
+              }}
+            >
+              <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7C18 6.279 15.464 4 12.25 4s-5.75 2.279-5.75 5.05v.7a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
+              </svg>
+              {#if $notifications.length > 0}
+                <span class="absolute -top-1 -right-1 h-5 w-5 bg-[#E8B923] text-white text-xs rounded-full flex items-center justify-center font-semibold shadow-sm">
+                  {$notifications.length > 9 ? '9+' : $notifications.length}
+                </span>
+              {:else}
+                <span class="absolute top-1 right-1 h-3 w-3 bg-[#E8B923] rounded-full border-2 border-white shadow-sm"></span>
+              {/if}
+            </button>
+
+            <!-- Notification Panel -->
+            {#if showNotificationPanel}
+              <div class="fixed sm:absolute right-4 sm:right-0 left-4 sm:left-auto mt-2 sm:mt-2 w-auto sm:w-96 max-h-[calc(100vh-8rem)] bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden notification-panel">
+                <!-- Header -->
+                <div class="bg-gradient-to-r from-[#0D5C29] to-[#4A7C59] text-white px-4 py-3 flex items-center justify-between">
+                  <h3 class="font-semibold text-base sm:text-lg">Notifications</h3>
+                  <div class="flex items-center space-x-2">
+                    {#if $notifications.length > 0}
+                      <button
+                        on:click={() => notifications.clear()}
+                        class="text-xs text-white/80 hover:text-white underline hidden sm:block"
+                      >
+                        Clear all
+                      </button>
+                    {/if}
+                    <button
+                      on:click={() => showNotificationPanel = false}
+                      class="text-white hover:bg-white/20 rounded-full p-1"
+                      aria-label="Close notifications panel"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Content -->
+                <div class="max-h-80 overflow-y-auto">
+                  {#if $notifications.length === 0}
+                    <div class="p-4 sm:p-6 text-center text-gray-500">
+                      <svg class="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7C18 6.279 15.464 4 12.25 4s-5.75 2.279-5.75 5.05v.7a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
+                      </svg>
+                      <p class="text-sm">No notifications yet</p>
+                    </div>
+                  {:else}
+                    <div class="divide-y divide-gray-100">
+                      {#each $notifications as notification (notification.id)}
+                        <div class="p-3 sm:p-4 hover:bg-gray-50 transition-colors cursor-pointer group">
+                          <div class="flex items-start space-x-2 sm:space-x-3">
+                            <!-- Icon -->
+                            <div class="flex-shrink-0 mt-0.5">
+                              <div class="w-7 h-7 sm:w-8 sm:h-8 {getNotificationIconColor(notification.type)} bg-white bg-opacity-50 rounded-full flex items-center justify-center shadow-sm">
+                                {@html getNotificationIcon(notification.type)}
+                              </div>
+                            </div>
+
+                            <!-- Content -->
+                            <div class="flex-1 min-w-0">
+                              {#if notification.title}
+                                <h4 class="text-sm font-semibold text-gray-900 mb-1">{notification.title}</h4>
+                              {/if}
+                              <p class="text-sm text-gray-700 leading-relaxed">{notification.message}</p>
+
+                              <!-- Timestamp and Action -->
+                              <div class="flex items-center justify-between mt-2">
+                                {#if notification.timestamp}
+                                  <span class="text-xs text-gray-500">{formatTimestamp(notification.timestamp)}</span>
+                                {:else}
+                                  <span></span>
+                                {/if}
+
+                                {#if notification.actionText && notification.actionUrl}
+                                  <button
+                                    on:click={() => handleNotificationAction(notification)}
+                                    class="text-xs font-medium text-[#0D5C29] hover:underline focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#0D5C29] rounded px-2 py-1"
+                                  >
+                                    {notification.actionText}
+                                  </button>
+                                {/if}
+                              </div>
+                            </div>
+
+                            <!-- Close Button -->
+                            <button
+                              on:click={() => notifications.remove(notification.id)}
+                              class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 rounded-full p-1 transition-opacity flex-shrink-0"
+                              aria-label="Close notification"
+                            >
+                              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+
+                <!-- Mobile Clear All Button -->
+                {#if $notifications.length > 0}
+                  <div class="sm:hidden border-t border-gray-200 p-3">
+                    <button
+                      on:click={() => notifications.clear()}
+                      class="w-full text-sm text-gray-600 hover:text-gray-800 underline text-center"
+                    >
+                      Clear all notifications
+                    </button>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          </div>
           <div class="h-8 w-px bg-[#4A7C59]/30"></div>
           <div class="w-10 h-10 bg-[#0D5C29] text-white rounded-full flex items-center justify-center border-2 border-white shadow-sm">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -458,42 +621,4 @@
   {/if}
 </div>
 
-<!-- Notifications -->
-{#if notifications.length > 0}
-  <div class="fixed top-4 right-4 z-[100] space-y-2">
-    {#each notifications as notification (notification.id)}
-      <div 
-        class="flex items-center justify-between px-4 py-3 rounded-lg shadow-lg transition-all duration-300 ease-in-out
-          {notification.type === 'success' ? 'bg-[#0D5C29] text-white' : 
-           notification.type === 'error' ? 'bg-red-600 text-white' : 
-           'bg-[#E8B923] text-white'}"
-      >
-        <div class="flex items-center space-x-2">
-          {#if notification.type === 'success'}
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-            </svg>
-          {:else if notification.type === 'error'}
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-          {:else}
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-          {/if}
-          <span class="text-sm font-medium">{notification.message}</span>
-        </div>
-        <button 
-          on:click={() => removeNotification(notification.id)}
-          class="ml-4 hover:opacity-80 transition-opacity"
-          aria-label="Close notification"
-        >
-          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
-    {/each}
-  </div>
-{/if}
+<NotificationContainer />
