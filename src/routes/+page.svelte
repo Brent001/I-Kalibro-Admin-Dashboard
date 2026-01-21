@@ -30,7 +30,8 @@
         });
         const result = await res.json();
         if (result.success) {
-          await goto('/dashboard', { replaceState: true });
+          // Use optimized redirect: replaceState removes history entry, noScroll skips scroll animation
+          await goto('/dashboard', { replaceState: true, noScroll: true });
         } else {
           errorMsg = result.message || 'Login failed';
         }
@@ -59,10 +60,10 @@
           </svg>
         </div>
         <h2 class="mt-6 text-3xl font-bold text-[#0D5C29]">
-          i-Kalibro Admin Portal
+          E-Kalibro Admin Portal
         </h2>
         <p class="mt-2 text-sm text-gray-600">
-          Smart Library Management System
+          Library Management System
         </p>
         <p class="text-xs text-gray-500">
           Metro Dagupan Colleges
@@ -167,21 +168,21 @@
   </div>
 
   <!-- Right side - Feature showcase -->
-  <div class="hidden lg:block lg:flex-1 relative bg-[#0D5C29]">
+  <div class="hidden lg:block lg:flex-1 relative bg-gradient-to-br from-[#0D5C29] to-[#1a8c42]">
     <!-- Content overlay -->
     <div class="relative flex flex-col justify-center items-center h-full p-12 text-white z-10">
       <div class="max-w-md text-center">
         <h1 class="text-4xl font-bold mb-6">
-          Smart Library Management
+          Library Management
         </h1>
         <p class="text-xl mb-8 text-slate-200">
           Streamline your library operations with our comprehensive management system
         </p>
         <div class="space-y-6">
           <div class="flex items-center space-x-4">
-            <div class="bg-white/10 p-3 rounded-full">
+            <div class="bg-[#E8B923] p-3 rounded-full">
               <!-- Library/Database Icon -->
-              <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg class="h-6 w-6 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
               </svg>
             </div>
@@ -191,9 +192,9 @@
             </div>
           </div>
           <div class="flex items-center space-x-4">
-            <div class="bg-white/10 p-3 rounded-full">
+            <div class="bg-[#E8B923] p-3 rounded-full">
               <!-- ID Card/Badge Icon -->
-              <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg class="h-6 w-6 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/>
               </svg>
             </div>
@@ -203,9 +204,9 @@
             </div>
           </div>
           <div class="flex items-center space-x-4">
-            <div class="bg-white/10 p-3 rounded-full">
+            <div class="bg-[#E8B923] p-3 rounded-full">
               <!-- Chart/Analytics Icon -->
-              <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg class="h-6 w-6 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
               </svg>
             </div>

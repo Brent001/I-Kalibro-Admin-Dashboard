@@ -1,9 +1,7 @@
 import type { PageServerLoad } from './$types.js';
 import { redirect } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
-import { db } from '$lib/server/db/index.js';
-import { staffAccount } from '$lib/server/db/schema/schema.js'; // updated import
-import { eq } from 'drizzle-orm';
+import { isSessionRevoked } from '$lib/server/db/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -15,6 +13,14 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
     }
 
     try {
+        // Check if session has been revoked (logout from all devices)
+        if (await isSessionRevoked(token)) {
+            console.warn('Session has been revoked');
+            cookies.delete('token', { path: '/' });
+            cookies.delete('refresh_token', { path: '/' });
+            throw redirect(302, '/');
+        }
+
         const decoded = jwt.verify(token, JWT_SECRET) as any;
         const userId = decoded.userId || decoded.id;
         
@@ -23,23 +29,14 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
             throw redirect(302, '/');
         }
 
-        const [user] = await db
-            .select({
-                id: staffAccount.id,
-                name: staffAccount.name,
-                username: staffAccount.username,
-                email: staffAccount.email,
-                role: staffAccount.role,
-                isActive: staffAccount.isActive
-            })
-            .from(staffAccount)
-            .where(eq(staffAccount.id, userId))
-            .limit(1);
-
-        if (!user || !user.isActive) {
-            cookies.delete('token', { path: '/' });
-            throw redirect(302, '/');
-        }
+        // Use user data from JWT token (no database query needed)
+        const user = {
+            id: userId,
+            username: decoded.username,
+            email: decoded.email,
+            role: decoded.role,
+            isActive: true
+        };
 
         // Fetch transactions from API
         const res = await fetch('/api/transactions');
@@ -48,7 +45,6 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
         return {
             user: {
                 id: user.id,
-                name: user.name,
                 username: user.username,
                 email: user.email,
                 role: user.role

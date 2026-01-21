@@ -5,6 +5,7 @@ import { bookBorrowing, bookReturn, book, staffAccount, qrCodeToken, paymentInfo
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { isSessionRevoked } from '$lib/server/db/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const FINE_PER_HOUR = 5; // 5 pesos per hour
@@ -53,6 +54,11 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     
     if (!token) {
       throw error(401, { message: 'Not authenticated. Please log in.' });
+    }
+
+    // Check if session has been revoked
+    if (await isSessionRevoked(token)) {
+      throw error(401, { message: 'Your session has been revoked. Please log in again.' });
     }
 
     // Verify JWT token

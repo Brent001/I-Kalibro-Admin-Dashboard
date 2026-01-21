@@ -61,7 +61,47 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         cookies.delete('session_id', cookieOptions);
         cookies.delete('csrf_token', cookieOptions);
 
-        // Return success response immediately
+        // IMPORTANT: Perform critical cleanup operations BEFORE returning response
+        // Use Promise.all() to parallelize Redis operations for speed
+        try {
+            const criticalOps = [];
+            
+            // Blacklist tokens in Redis (in parallel)
+            if (token) {
+                criticalOps.push(
+                    redisClient.setex(`blacklist:${token}`, 3600, 'revoked') // 1 hour
+                );
+            }
+            if (refreshToken) {
+                criticalOps.push(
+                    redisClient.setex(`blacklist:refresh:${refreshToken}`, 86400, 'revoked') // 24 hours
+                );
+            }
+
+            // Handle logout from all devices - THIS IS CRITICAL
+            if (logoutAllDevices && userId) {
+                criticalOps.push(
+                    revokeAllUserSessions(parseInt(userId))
+                );
+            }
+
+            // Run all critical operations in parallel
+            await Promise.all(criticalOps);
+            
+            // Server-side token revocation (non-critical but do it)
+            if (sessionId && !logoutAllDevices) {
+                try {
+                    await revokeToken(sessionId);
+                } catch (error) {
+                    console.warn('Session revocation failed:', error);
+                }
+            }
+        } catch (error) {
+            console.error('Logout cleanup failed:', error);
+            // Still return success since cookies are already deleted
+        }
+
+        // Return success response AFTER critical operations complete
         const response = {
             success: true,
             message: 'Logged out successfully',
@@ -72,74 +112,35 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             }
         };
 
-        // Perform cleanup operations asynchronously in the background
+        // Non-critical operations: run in background without blocking response
         setImmediate(async () => {
             try {
-                // Blacklist tokens in Redis
-                if (token) {
-                    await redisClient.setex(`blacklist:${token}`, 3600, 'revoked'); // 1 hour
-                }
-                if (refreshToken) {
-                    await redisClient.setex(`blacklist:refresh:${refreshToken}`, 86400, 'revoked'); // 24 hours
-                }
-
-                // Server-side token revocation
-                if (sessionId) {
-                    try {
-                        await revokeToken(sessionId);
-                    } catch (error) {
-                        console.warn('Session revocation failed:', error);
-                    }
-                }
-
-                // Handle logout from all devices
-                if (logoutAllDevices && userId) {
-                    try {
-                        const userSessions = await getUserSessions(parseInt(userId));
-                        await revokeAllUserSessions(parseInt(userId));
-
-                        // Blacklist all user's tokens
-                        for (const session of userSessions) {
-                            if (session.token && session.token !== token) {
-                                await redisClient.setex(`blacklist:${session.token}`, 3600, 'revoked');
-                            }
-                        }
-                    } catch (error) {
-                        console.warn('Multi-device logout failed:', error);
-                    }
-                }
-
                 // Log security event
-                try {
-                    await logSecurityEvent({
-                        type: 'logout',
-                        userId: userId || 'anonymous',
-                        sessionId: sessionId || 'unknown',
-                        ip: clientIP,
-                        userAgent,
-                        reason,
-                        logoutAllDevices,
-                        timestamp: new Date(),
-                        metadata: {
-                            processingTime: Date.now() - startTime,
-                        }
-                    });
-                } catch (error) {
-                    console.warn('Security logging failed:', error);
-                }
-
-                // Invalidate cached user data
-                if (userId) {
-                    try {
-                        await redisClient.del(`user:${userId}:profile`);
-                        await redisClient.del(`user:${userId}:permissions`);
-                        await redisClient.del(`user:${userId}:sessions`);
-                    } catch (error) {
-                        console.warn('Cache cleanup failed:', error);
+                await logSecurityEvent({
+                    type: 'logout',
+                    userId: userId || 'anonymous',
+                    sessionId: sessionId || 'unknown',
+                    ip: clientIP,
+                    userAgent,
+                    reason,
+                    logoutAllDevices,
+                    timestamp: new Date(),
+                    metadata: {
+                        processingTime: Date.now() - startTime,
                     }
-                }
+                });
             } catch (error) {
-                console.error('Background cleanup failed:', error);
+                console.warn('Security logging failed:', error);
+            }
+
+            // Invalidate cached user data
+            if (userId) {
+                try {
+                    await redisClient.del(`user:${userId}:profile`);
+                    await redisClient.del(`user:${userId}:permissions`);
+                } catch (error) {
+                    console.warn('Cache cleanup failed:', error);
+                }
             }
         });
 

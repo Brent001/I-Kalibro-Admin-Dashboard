@@ -212,27 +212,27 @@
 
 <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex">
   <!-- Left Panel - Branding & Features -->
-  <div class="hidden lg:flex lg:w-2/5 bg-gradient-to-br from-slate-900 to-slate-800 text-white flex-col justify-center p-12">
+  <div class="hidden lg:flex lg:w-2/5 bg-gradient-to-br from-[#0D5C29] to-[#1a8c42] text-white flex-col justify-center p-12">
     <div class="max-w-lg">
       <!-- Logo & Brand -->
       <div class="mb-10">
         <div class="flex items-center mb-5">
-          <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center mr-3 shadow-lg">
-            <svg class="h-6 w-6 text-slate-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <div class="w-10 h-10 bg-[#E8B923] rounded-lg flex items-center justify-center mr-3 shadow-lg">
+            <svg class="h-6 w-6 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
               <circle cx="12" cy="12" r="2"/>
             </svg>
           </div>
           <h1 class="text-2xl font-bold">i-Kalibro</h1>
         </div>
-        <h2 class="text-3xl font-bold mb-3 leading-tight">Admin Portal</h2>
+        <h2 class="text-3xl font-bold mb-3 leading-tight text-[#E8B923]">Admin Portal</h2>
         <p class="text-slate-300 leading-relaxed">Reset your admin or staff password securely with OTP verification.</p>
       </div>
       <!-- Features List -->
       <div class="space-y-6">
         <div class="flex items-start space-x-3">
-          <div class="flex-shrink-0 w-9 h-9 bg-slate-700 rounded-lg flex items-center justify-center mt-0.5">
-            <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+          <div class="flex-shrink-0 w-9 h-9 bg-[#E8B923] rounded-lg flex items-center justify-center mt-0.5">
+            <svg class="h-4 w-4 text-[#0D5C29]" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
             </svg>
           </div>
@@ -242,8 +242,8 @@
           </div>
         </div>
         <div class="flex items-start space-x-3">
-          <div class="flex-shrink-0 w-9 h-9 bg-slate-700 rounded-lg flex items-center justify-center mt-0.5">
-            <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+          <div class="flex-shrink-0 w-9 h-9 bg-[#E8B923] rounded-lg flex items-center justify-center mt-0.5">
+            <svg class="h-4 w-4 text-[#0D5C29]" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
             </svg>
           </div>
@@ -253,8 +253,8 @@
           </div>
         </div>
         <div class="flex items-start space-x-3">
-          <div class="flex-shrink-0 w-9 h-9 bg-slate-700 rounded-lg flex items-center justify-center mt-0.5">
-            <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+          <div class="flex-shrink-0 w-9 h-9 bg-[#E8B923] rounded-lg flex items-center justify-center mt-0.5">
+            <svg class="h-4 w-4 text-[#0D5C29]" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
             </svg>
           </div>
@@ -273,7 +273,7 @@
       <!-- Mobile Header -->
       <div class="lg:hidden text-center mb-8">
         <div class="flex items-center justify-center mb-2">
-          <div class="w-9 h-9 bg-slate-900 rounded-lg flex items-center justify-center mr-2">
+          <div class="w-9 h-9 bg-[#0D5C29] rounded-lg flex items-center justify-center mr-2">
             <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
               <circle cx="12" cy="12" r="2"/>
@@ -288,24 +288,24 @@
       <div class="mb-8">
         <div class="flex items-center justify-center space-x-2">
           <div class="flex items-center">
-            <div class="w-8 h-8 rounded-full {step >= 1 ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500'} flex items-center justify-center text-sm font-semibold">
+            <div class="w-8 h-8 rounded-full {step >= 1 ? 'bg-[#0D5C29] text-white' : 'bg-slate-200 text-slate-500'} flex items-center justify-center text-sm font-semibold">
               1
             </div>
-            <span class="ml-2 text-xs font-medium {step >= 1 ? 'text-slate-900' : 'text-slate-400'}">Admin Account</span>
+            <span class="ml-2 text-xs font-medium {step >= 1 ? 'text-[#0D5C29]' : 'text-slate-400'}">Admin Account</span>
           </div>
-          <div class="w-12 h-0.5 {step >= 2 ? 'bg-slate-900' : 'bg-slate-200'}"></div>
+          <div class="w-12 h-0.5 {step >= 2 ? 'bg-[#0D5C29]' : 'bg-slate-200'}"></div>
           <div class="flex items-center">
-            <div class="w-8 h-8 rounded-full {step >= 2 ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500'} flex items-center justify-center text-sm font-semibold">
+            <div class="w-8 h-8 rounded-full {step >= 2 ? 'bg-[#0D5C29] text-white' : 'bg-slate-200 text-slate-500'} flex items-center justify-center text-sm font-semibold">
               2
             </div>
-            <span class="ml-2 text-xs font-medium {step >= 2 ? 'text-slate-900' : 'text-slate-400'}">OTP</span>
+            <span class="ml-2 text-xs font-medium {step >= 2 ? 'text-[#0D5C29]' : 'text-slate-400'}">OTP</span>
           </div>
-          <div class="w-12 h-0.5 {step >= 3 ? 'bg-slate-900' : 'bg-slate-200'}"></div>
+          <div class="w-12 h-0.5 {step >= 3 ? 'bg-[#0D5C29]' : 'bg-slate-200'}"></div>
           <div class="flex items-center">
-            <div class="w-8 h-8 rounded-full {step >= 3 ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500'} flex items-center justify-center text-sm font-semibold">
+            <div class="w-8 h-8 rounded-full {step >= 3 ? 'bg-[#0D5C29] text-white' : 'bg-slate-200 text-slate-500'} flex items-center justify-center text-sm font-semibold">
               3
             </div>
-            <span class="ml-2 text-xs font-medium {step >= 3 ? 'text-slate-900' : 'text-slate-400'}">Reset</span>
+            <span class="ml-2 text-xs font-medium {step >= 3 ? 'text-[#0D5C29]' : 'text-slate-400'}">Reset</span>
           </div>
         </div>
       </div>
@@ -313,7 +313,7 @@
       <!-- Step 1: Email/Username -->
       {#if step === 1}
         <div class="mb-8">
-          <h2 class="text-3xl font-bold text-slate-900 mb-2">Forgot Admin Password</h2>
+          <h2 class="text-3xl font-bold text-[#0D5C29] mb-2">Forgot Admin Password</h2>
           <p class="text-slate-600">
             Enter your {useUsername ? 'username' : 'email'} to receive a one-time code for admin/staff password reset.
           </p>
@@ -321,7 +321,7 @@
 
         <form class="space-y-5" on:submit|preventDefault={handleIdentifierSubmit}>
           <div>
-            <label class="block text-sm font-semibold text-slate-700 mb-2" for="identifier">
+            <label class="block text-sm font-semibold text-[#0D5C29] mb-2" for="identifier">
               {useUsername ? 'Username' : 'Email Address'}
             </label>
             <div class="relative">
@@ -341,14 +341,14 @@
                 type={useUsername ? 'text' : 'email'}
                 required
                 bind:value={identifier}
-                class="w-full pl-10 pr-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all placeholder-slate-400 shadow-sm"
+                class="w-full pl-10 pr-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent transition-all placeholder-slate-400 shadow-sm"
                 placeholder={useUsername ? 'Enter your username' : 'Enter your email'}
               />
             </div>
             <button
               type="button"
               on:click={toggleInputMode}
-              class="mt-2 text-sm text-slate-600 hover:text-slate-900 transition-colors flex items-center"
+              class="mt-2 text-sm text-slate-600 hover:text-[#0D5C29] transition-colors flex items-center"
             >
               <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
@@ -358,12 +358,12 @@
           </div>
 
           <div>
-            <label class="block text-sm font-semibold text-slate-700 mb-2" for="captcha">
+            <label class="block text-sm font-semibold text-[#0D5C29] mb-2" for="captcha">
               Verify you're human
             </label>
             <div class="flex items-center gap-2.5">
-              <div class="flex-1 bg-slate-100 border border-slate-200 rounded-lg px-3.5 py-3 flex items-center justify-center">
-                <span class="text-lg font-bold text-slate-900">
+              <div class="flex-1 bg-[#FFF9E6] border border-[#E8B923] rounded-lg px-3.5 py-3 flex items-center justify-center">
+                <span class="text-lg font-bold text-[#0D5C29]">
                   {num1} + {num2} = ?
                 </span>
               </div>
@@ -372,15 +372,15 @@
                 type="number"
                 required
                 bind:value={captchaAnswer}
-                class="w-20 px-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all text-center shadow-sm"
+                class="w-20 px-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent transition-all text-center shadow-sm"
               />
               <button
                 type="button"
                 on:click={generateMathProblem}
-                class="p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                class="p-3 border border-slate-200 rounded-lg hover:bg-[#FFF9E6] transition-colors"
                 title="Generate new problem"
               >
-                <svg class="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                 </svg>
               </button>
@@ -409,7 +409,7 @@
           <button
             type="submit"
             disabled={isLoading}
-            class="w-full bg-slate-900 text-white py-3.5 px-4 rounded-lg font-semibold hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            class="w-full bg-[#0D5C29] text-white py-3.5 px-4 rounded-lg font-semibold hover:bg-[#0D5C29]/90 focus:outline-none focus:ring-2 focus:ring-[#0D5C29] focus:ring-offset-2 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {#if isLoading}
               <span class="flex items-center justify-center">
@@ -427,7 +427,7 @@
           <div class="mt-5 text-center">
             <p class="text-slate-600 text-sm">
               Remembered your password?
-              <a href="/" class="ml-1 font-semibold text-slate-900 hover:text-slate-700 transition-colors">
+              <a href="/" class="ml-1 font-semibold text-[#0D5C29] hover:text-[#E8B923] transition-colors">
                 Sign in
               </a>
             </p>
@@ -438,19 +438,19 @@
       <!-- Step 2: OTP Verification -->
       {#if step === 2}
         <div class="mb-8">
-          <button on:click={handleBack} class="flex items-center text-slate-600 hover:text-slate-900 mb-4 transition-colors">
+          <button on:click={handleBack} class="flex items-center text-slate-600 hover:text-[#0D5C29] mb-4 transition-colors">
             <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
             </svg>
             Back
           </button>
-          <h2 class="text-3xl font-bold text-slate-900 mb-2">Verify OTP</h2>
+          <h2 class="text-3xl font-bold text-[#0D5C29] mb-2">Verify OTP</h2>
           <p class="text-slate-600">Enter the 6-digit code sent to your admin/staff email</p>
         </div>
 
         <form class="space-y-5" on:submit|preventDefault={handleOTPSubmit}>
           <div>
-            <label class="block text-sm font-semibold text-slate-700 mb-2" for="otp">
+            <label class="block text-sm font-semibold text-[#0D5C29] mb-2" for="otp">
               One-Time Password
             </label>
             <input
@@ -459,7 +459,7 @@
               required
               maxlength="6"
               bind:value={otp}
-              class="w-full px-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all placeholder-slate-400 shadow-sm text-center text-2xl tracking-widest font-semibold"
+              class="w-full px-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent transition-all placeholder-slate-400 shadow-sm text-center text-2xl tracking-widest font-semibold"
               placeholder="000000"
             />
           </div>
@@ -482,16 +482,16 @@
             </div>
           {/if}
 
-          <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-600 text-center">
+          <div class="bg-[#FFF9E6] border border-[#E8B923] rounded-lg p-3 text-sm text-slate-600 text-center">
             {#if resendTimer > 0}
-              Resend OTP in <span class="font-semibold text-slate-900">{resendTimer}s</span>
+              Resend OTP in <span class="font-semibold text-[#0D5C29]">{resendTimer}s</span>
             {:else}
               Didn't receive the code?
               <button
                 type="button"
                 on:click={handleResendOTP}
                 disabled={isLoading}
-                class="ml-1 font-semibold text-slate-900 hover:text-slate-700 transition-colors disabled:opacity-50"
+                class="ml-1 font-semibold text-[#0D5C29] hover:text-[#E8B923] transition-colors disabled:opacity-50"
               >
                 Resend OTP
               </button>
@@ -501,7 +501,7 @@
           <button
             type="submit"
             disabled={isLoading}
-            class="w-full bg-slate-900 text-white py-3.5 px-4 rounded-lg font-semibold hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            class="w-full bg-[#0D5C29] text-white py-3.5 px-4 rounded-lg font-semibold hover:bg-[#0D5C29]/90 focus:outline-none focus:ring-2 focus:ring-[#0D5C29] focus:ring-offset-2 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {#if isLoading}
               <span class="flex items-center justify-center">
@@ -521,19 +521,19 @@
       <!-- Step 3: New Password -->
       {#if step === 3}
         <div class="mb-8">
-          <button on:click={handleBack} class="flex items-center text-slate-600 hover:text-slate-900 mb-4 transition-colors">
+          <button on:click={handleBack} class="flex items-center text-slate-600 hover:text-[#0D5C29] mb-4 transition-colors">
             <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
             </svg>
             Back
           </button>
-          <h2 class="text-3xl font-bold text-slate-900 mb-2">Set New Admin Password</h2>
+          <h2 class="text-3xl font-bold text-[#0D5C29] mb-2">Set New Admin Password</h2>
           <p class="text-slate-600">Create a strong password for your admin or staff account</p>
         </div>
 
         <form class="space-y-5" on:submit|preventDefault={handlePasswordSubmit}>
           <div>
-            <label class="block text-sm font-semibold text-slate-700 mb-2" for="newPassword">
+            <label class="block text-sm font-semibold text-[#0D5C29] mb-2" for="newPassword">
               New Password
             </label>
             <div class="relative">
@@ -542,7 +542,7 @@
                 type={showNewPassword ? 'text' : 'password'}
                 required
                 bind:value={newPassword}
-                class="w-full px-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all placeholder-slate-400 shadow-sm pr-10"
+                class="w-full px-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent transition-all placeholder-slate-400 shadow-sm pr-10"
                 placeholder="Enter new password"
               />
               <button
@@ -566,7 +566,7 @@
           </div>
 
           <div>
-            <label class="block text-sm font-semibold text-slate-700 mb-2" for="confirmPassword">
+            <label class="block text-sm font-semibold text-[#0D5C29] mb-2" for="confirmPassword">
               Confirm Password
             </label>
             <div class="relative">
@@ -575,13 +575,13 @@
                 type={showConfirmPassword ? 'text' : 'password'}
                 required
                 bind:value={confirmPassword}
-                class="w-full px-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all placeholder-slate-400 shadow-sm pr-10"
+                class="w-full px-3.5 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent transition-all placeholder-slate-400 shadow-sm pr-10"
                 placeholder="Confirm new password"
               />
               <button
                 type="button"
                 on:click={() => showConfirmPassword = !showConfirmPassword}
-                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#0D5C29]"
               >
                 {#if showConfirmPassword}
                   <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -615,29 +615,29 @@
             </div>
           {/if}
 
-          <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-600">
-            <p class="font-semibold mb-1">Password Requirements:</p>
+          <div class="bg-[#FFF9E6] border border-[#E8B923] rounded-lg p-3 text-sm text-slate-600">
+            <p class="font-semibold mb-1 text-[#0D5C29]">Password Requirements:</p>
             <ul class="space-y-0.5 text-xs">
               <li class="flex items-center">
-                <svg class="h-3 w-3 mr-1.5 {newPassword.length >= 8 ? 'text-green-600' : 'text-slate-400'}" fill="currentColor" viewBox="0 0 20 20">
+                <svg class="h-3 w-3 mr-1.5 {newPassword.length >= 8 ? 'text-[#0D5C29]' : 'text-slate-400'}" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
                 </svg>
                 At least 8 characters
               </li>
               <li class="flex items-center">
-                <svg class="h-3 w-3 mr-1.5 {/[A-Z]/.test(newPassword) ? 'text-green-600' : 'text-slate-400'}" fill="currentColor" viewBox="0 0 20 20">
+                <svg class="h-3 w-3 mr-1.5 {/[A-Z]/.test(newPassword) ? 'text-[#0D5C29]' : 'text-slate-400'}" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
                 </svg>
                 One uppercase letter
               </li>
               <li class="flex items-center">
-                <svg class="h-3 w-3 mr-1.5 {/[a-z]/.test(newPassword) ? 'text-green-600' : 'text-slate-400'}" fill="currentColor" viewBox="0 0 20 20">
+                <svg class="h-3 w-3 mr-1.5 {/[a-z]/.test(newPassword) ? 'text-[#0D5C29]' : 'text-slate-400'}" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
                 </svg>
                 One lowercase letter
               </li>
               <li class="flex items-center">
-                <svg class="h-3 w-3 mr-1.5 {/[0-9]/.test(newPassword) ? 'text-green-600' : 'text-slate-400'}" fill="currentColor" viewBox="0 0 20 20">
+                <svg class="h-3 w-3 mr-1.5 {/[0-9]/.test(newPassword) ? 'text-[#0D5C29]' : 'text-slate-400'}" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
                 </svg>
                 One number
@@ -648,7 +648,7 @@
           <button
             type="submit"
             disabled={isLoading}
-            class="w-full bg-slate-900 text-white py-3.5 px-4 rounded-lg font-semibold hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            class="w-full bg-[#0D5C29] text-white py-3.5 px-4 rounded-lg font-semibold hover:bg-[#0D5C29]/90 focus:outline-none focus:ring-2 focus:ring-[#0D5C29] focus:ring-offset-2 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {#if isLoading}
               <span class="flex items-center justify-center">

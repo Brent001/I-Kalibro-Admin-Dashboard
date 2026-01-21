@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import { db } from '$lib/server/db/index.js';
 import { book, staffAccount, category, bookBorrowing } from '$lib/server/db/schema/schema.js';
 import { eq, count, sum, and, gt } from 'drizzle-orm';
+import { isSessionRevoked } from '$lib/server/db/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -33,6 +34,12 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
       }
     }
     if (!token) return null;
+    
+    // Check if session has been revoked
+    if (await isSessionRevoked(token)) {
+      return null;
+    }
+    
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     const userId = decoded.userId || decoded.id;
     if (!userId) return null;

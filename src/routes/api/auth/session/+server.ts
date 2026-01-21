@@ -1,9 +1,7 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
-import { db } from '$lib/server/db/index.js';
-import { staffAccount } from '$lib/server/db/schema/schema.js';
-import { eq } from 'drizzle-orm';
+import { redisClient } from '$lib/server/db/cache.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -63,6 +61,52 @@ export const GET: RequestHandler = async ({ request, getClientAddress, cookies }
             throw jwtError;
         }
 
+        // Check if token is blacklisted
+        const blacklistKey = `blacklist:${token}`;
+        const isBlacklisted = await redisClient.get(blacklistKey);
+        if (isBlacklisted) {
+            return json(
+                {
+                    success: false,
+                    message: 'Authentication token has been revoked',
+                    error: 'TOKEN_REVOKED'
+                },
+                { status: 401 }
+            );
+        }
+
+        // Check if session has been revoked (logout from all devices)
+        if (decoded.sessionId) {
+            const revokedKey = `revoked:session:${decoded.sessionId}`;
+            const isRevoked = await redisClient.get(revokedKey);
+            if (isRevoked) {
+                return json(
+                    {
+                        success: false,
+                        message: 'Session has been revoked. Please login again.',
+                        error: 'SESSION_REVOKED'
+                    },
+                    { status: 401 }
+                );
+            }
+            
+            // Also check if session is still active
+            const sessionData = await redisClient.get(`session:${decoded.sessionId}`);
+            if (sessionData) {
+                const session: any = JSON.parse(sessionData);
+                if (!session.isActive) {
+                    return json(
+                        {
+                            success: false,
+                            message: 'Session is no longer active',
+                            error: 'SESSION_INACTIVE'
+                        },
+                        { status: 401 }
+                    );
+                }
+            }
+        }
+
         const userId = decoded.userId || decoded.id;
         
         if (!userId) {
@@ -76,30 +120,15 @@ export const GET: RequestHandler = async ({ request, getClientAddress, cookies }
             );
         }
 
-        // Fetch user from database
-        const [user] = await db
-            .select({
-                id: staffAccount.id,
-                name: staffAccount.name,
-                username: staffAccount.username,
-                email: staffAccount.email,
-                role: staffAccount.role,
-                isActive: staffAccount.isActive
-            })
-            .from(staffAccount)
-            .where(eq(staffAccount.id, userId))
-            .limit(1);
-
-        if (!user) {
-            return json(
-                {
-                    success: false,
-                    message: 'User not found',
-                    error: 'USER_NOT_FOUND'
-                },
-                { status: 401 }
-            );
-        }
+        // Use cached user data from JWT token instead of fetching from database (much faster)
+        // The JWT already contains all necessary user info
+        const user = {
+            id: userId,
+            username: decoded.username,
+            email: decoded.email,
+            role: decoded.role,
+            isActive: true  // If token is valid, user is active
+        };
 
         if (!user.isActive) {
             return json(
@@ -118,7 +147,6 @@ export const GET: RequestHandler = async ({ request, getClientAddress, cookies }
             data: {
                 user: {
                     id: user.id,
-                    name: user.name,
                     username: user.username,
                     email: user.email,
                     role: user.role,

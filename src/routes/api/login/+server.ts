@@ -7,6 +7,8 @@ import jwt, { type Secret } from 'jsonwebtoken';
 import { z } from 'zod';
 import type { ZodIssue } from 'zod';
 import { dev } from '$app/environment';
+import { randomBytes, createHash } from 'crypto';
+import { redisClient } from '$lib/server/db/cache.js';
 
 // Environment variables - ensure these are set
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
@@ -25,6 +27,11 @@ const loginSchema = z.object({
 const loginAttempts = new Map<string, { count: number; resetTime: number }>();
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+
+// Helper function to hash tokens for storage
+function hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+}
 
 function isRateLimited(identifier: string): boolean {
     const attempts = loginAttempts.get(identifier);
@@ -105,23 +112,15 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
         const { username, password } = validationResult.data;
 
-        // Find user in database by username or email
-        const [user] = await db
+        // Find user in database by username or email (optimized to single query)
+        const [foundUser] = await db
             .select()
             .from(staffAccount)
-            .where(eq(staffAccount.username, username))
+            .where(
+                // Check both username and email in a single query
+                eq(staffAccount.username, username) || eq(staffAccount.email, username)
+            )
             .limit(1);
-
-        let userByEmail = null;
-        if (!user) {
-            [userByEmail] = await db
-                .select()
-                .from(staffAccount)
-                .where(eq(staffAccount.email, username))
-                .limit(1);
-        }
-
-        const foundUser = user || userByEmail;
 
         // Always hash the provided password to prevent timing attacks
         const dummyHash = '$2b$12$dummy.hash.to.prevent.timing.attacks';
@@ -161,25 +160,80 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         // Clear any failed attempts on successful login
         clearFailedAttempts(clientIP);
 
-        // Create JWT token
-        const tokenPayload = {
-            userId: foundUser.id, // use userId for consistency
-            username: foundUser.username,
-            role: foundUser.role
+        // Generate a unique session ID for this login
+        const sessionId = randomBytes(16).toString('hex');
+        
+        // Create refresh token payload first (we need to hash it in session)
+        const refreshTokenPayload = {
+            userId: foundUser.id,
+            sessionId: sessionId,
+            tokenType: 'refresh',
+            jti: `${sessionId}-refresh`
         };
-        const token = jwt.sign(tokenPayload, JWT_SECRET as Secret, {
-            expiresIn: JWT_EXPIRES_IN,
+        
+        const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production', {
+            expiresIn: '7d', // Refresh token: 7 days
             issuer: 'kalibro-library',
             subject: String(foundUser.id)
         });
 
-        // Set cookie for dashboard access
+        // Create session data with hashed refresh token
+        const now = new Date();
+        const sessionData = {
+            id: sessionId,
+            userId: foundUser.id,
+            token: undefined, // Will be set on token refresh
+            refreshToken: hashToken(refreshToken), // Store HASHED refresh token
+            userAgent: request.headers.get('user-agent') || '',
+            ipAddress: clientIP,
+            createdAt: now,
+            lastUsedAt: now,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+            isActive: true
+        };
+        
+        // Store session data and add to user's session set in parallel for speed
+        await Promise.all([
+            redisClient.setex(
+                `session:${sessionId}`,
+                7 * 24 * 60 * 60, // 7 days in seconds
+                JSON.stringify(sessionData)
+            ),
+            redisClient.sadd(`user:${foundUser.id}:sessions`, sessionId)
+        ]);
+
+        // Create JWT token with sessionId included
+        const tokenPayload = {
+            userId: foundUser.id,
+            username: foundUser.username,
+            email: foundUser.email,
+            role: foundUser.role,
+            sessionId: sessionId, // IMPORTANT: Include sessionId for logout-all-devices tracking
+            tokenType: 'access',
+            jti: sessionId // JWT ID matches sessionId
+        };
+        
+        const token = jwt.sign(tokenPayload, JWT_SECRET as Secret, {
+            expiresIn: '15m', // Access token: 15 minutes
+            issuer: 'kalibro-library',
+            subject: String(foundUser.id)
+        });
+
+        // Set cookies for authentication
         cookies.set('token', token, {
             path: '/',
             httpOnly: true,
-            sameSite: 'lax',
+            sameSite: 'strict',
             secure: process.env.NODE_ENV === 'production',
-            maxAge: 60 * 60 * 24 * 7 // 7 days
+            maxAge: 15 * 60 // 15 minutes
+        });
+        
+        cookies.set('refresh_token', refreshToken, {
+            path: '/',
+            httpOnly: true,
+            sameSite: 'strict',
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 7 * 24 * 60 * 60 // 7 days
         });
 
         // Log successful login (don't log password or sensitive data)
