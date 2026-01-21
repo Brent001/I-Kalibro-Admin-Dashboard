@@ -166,7 +166,7 @@
         // Not authenticated, redirect to login
         userStore.set(null);
         if (browser) {
-          window.location.href = '/';
+          await goto('/', { replaceState: true, noScroll: true });
         }
       } else {
         console.error('Session fetch failed:', response.status);
@@ -216,9 +216,9 @@
           notifications.show('Logged out successfully', 'success');
         }
         
-        // Redirect immediately without delay
+        // Use goto for faster redirect (better than window.location.href)
         if (browser) {
-          window.location.href = '/';
+          await goto('/', { replaceState: true, noScroll: true });
         }
       } else {
         // Handle partial success or errors
@@ -226,22 +226,18 @@
         notifications.show(result.message || 'Logout completed with some issues', 'warning');
         
         // Still redirect even if there were issues
-        setTimeout(() => {
-          if (browser) {
-            window.location.href = '/';
-          }
-        }, 2000);
+        if (browser) {
+          await goto('/', { replaceState: true, noScroll: true });
+        }
       }
     } catch (error) {
       console.error('Logout request failed:', error);
       notifications.show('Network error during logout. Redirecting...', 'error');
       
       // Force redirect even on network error
-      setTimeout(() => {
-        if (browser) {
-          window.location.href = '/';
-        }
-      }, 2000);
+      if (browser) {
+        await goto('/', { replaceState: true, noScroll: true });
+      }
     } finally {
       isLoggingOut = false;
     }
@@ -321,11 +317,55 @@
       // Fetch user session on component mount
       fetchUserSession();
       
+      // Set up periodic session validation (every 60 seconds for performance)
+      // This ensures we detect logout from all devices with minimal overhead
+      let isCheckPending = false;
+      
+      const sessionCheckInterval = setInterval(async () => {
+        // Skip if check already in progress (avoid overlapping requests)
+        if (isCheckPending || !$userStore) {
+          return;
+        }
+        
+        try {
+          isCheckPending = true;
+          const response = await fetch('/api/auth/session', {
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+            }
+          });
+
+          if (response.status === 401) {
+            // Session has been revoked (logout from all devices)
+            console.warn('Session revoked - redirecting to login');
+            userStore.set(null);
+            notifications.show('Your session has been revoked. Please log in again.', 'error');
+            if (browser) {
+              await goto('/', { replaceState: true, noScroll: true });
+            }
+          } else if (!response.ok) {
+            // Session is invalid
+            console.warn('Session invalid - redirecting to login');
+            userStore.set(null);
+            if (browser) {
+              await goto('/', { replaceState: true, noScroll: true });
+            }
+          }
+        } catch (error) {
+          console.error('Session check failed:', error);
+        } finally {
+          isCheckPending = false;
+        }
+      }, 60000); // Check every 60 seconds (reduced from 30 for performance)
+      
       // Set up click outside handler
       document.addEventListener('click', handleClickOutside);
       
       return () => {
         document.removeEventListener('click', handleClickOutside);
+        clearInterval(sessionCheckInterval);
       };
     }
   });
@@ -380,9 +420,9 @@
                   {activeNavHref === item.href
                     ? 'bg-[#E8B923] text-[#0D5C29] border-[#B8860B] shadow-sm'
                     : 'text-white hover:bg-[#4A7C59]/30 hover:text-[#E8B923] hover:border-[#B8860B]/30'}"
-                on:click|preventDefault={() => {
-                  goto(item.href);
+                on:click|preventDefault={async () => {
                   sidebarOpen.set(false);
+                  await goto(item.href, { noScroll: true });
                 }}
               >
                 {@html item.icon}
@@ -403,7 +443,7 @@
           </svg>
         </div>
         <div>
-          <p class="text-sm font-medium text-white">{user?.name || 'User'}</p>
+          <p class="text-sm font-medium text-white">{user?.username || 'User'}</p>
           <p class="text-xs text-[#E8B923]">{capitalize(user?.role || 'guest')}</p>
         </div>
       </div>

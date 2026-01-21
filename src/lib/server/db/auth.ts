@@ -74,6 +74,24 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
             return null;
         }
         
+        // Check if session has been revoked (logout from all devices)
+        if (decoded.sessionId) {
+            const revokedKey = `revoked:session:${decoded.sessionId}`;
+            const isRevoked = await redisClient.get(revokedKey);
+            if (isRevoked) {
+                return null;
+            }
+            
+            // Also check if session is still active
+            const sessionData = await redisClient.get(`session:${decoded.sessionId}`);
+            if (sessionData) {
+                const session: UserSession = JSON.parse(sessionData);
+                if (!session.isActive) {
+                    return null;
+                }
+            }
+        }
+        
         // Verify token type matches
         if (decoded.tokenType !== tokenType) {
             return null;
@@ -128,6 +146,49 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
     } catch (error) {
         console.error('Token verification failed:', error);
         return null;
+    }
+}
+
+/**
+ * Quick check if session is revoked (for API endpoints)
+ * Decodes token without verification and checks revocation status
+ */
+export async function isSessionRevoked(token: string): Promise<boolean> {
+    try {
+        const decoded = jwt.decode(token) as JWTPayload | null;
+        if (!decoded || !decoded.sessionId) {
+            return false;
+        }
+        
+        const sessionId = decoded.sessionId;
+        
+        // Quick check: look only for revocation marker (fastest path - usually returns immediately)
+        // If revoked marker exists, session is definitely revoked
+        const revokedKey = `revoked:session:${sessionId}`;
+        const isRevoked = await redisClient.get(revokedKey);
+        if (isRevoked) {
+            return true;
+        }
+        
+        // Only check session active status if revocation marker not found
+        // This reduces Redis calls significantly (one check instead of two)
+        const sessionData = await redisClient.get(`session:${sessionId}`);
+        if (sessionData) {
+            try {
+                const session: UserSession = JSON.parse(sessionData);
+                if (!session.isActive) {
+                    return true;
+                }
+            } catch (parseError) {
+                console.warn('Failed to parse session data:', parseError);
+                return false;
+            }
+        }
+        
+        return false;
+    } catch (error) {
+        console.error('Session revocation check failed:', error);
+        return false;
     }
 }
 
@@ -242,6 +303,15 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
             return null;
         }
 
+        // Check if session has been revoked (logout from all devices)
+        if (decoded.sessionId) {
+            const revokedKey = `revoked:session:${decoded.sessionId}`;
+            const isRevoked = await redisClient.get(revokedKey);
+            if (isRevoked) {
+                return null;
+            }
+        }
+
         // Verify session exists and is active
         const sessionData = await redisClient.get(`session:${decoded.sessionId}`);
         if (!sessionData) {
@@ -345,19 +415,34 @@ export async function revokeToken(sessionId: string, tokenType: 'access' | 'refr
 }
 
 /**
- * Get all active sessions for a user
+ * Get all active sessions for a user (optimized - fetch all in parallel)
  */
 export async function getUserSessions(userId: number): Promise<UserSession[]> {
     try {
+        // Get session IDs first
         const sessionIds = await redisClient.smembers(`user:${userId}:sessions`);
+        
+        if (sessionIds.length === 0) {
+            return [];
+        }
+        
+        // Fetch all sessions in parallel (not sequential)
+        const sessionPromises = sessionIds.map(sessionId =>
+            redisClient.get(`session:${sessionId}`)
+        );
+        
+        const sessionDataArray = await Promise.all(sessionPromises);
         const sessions: UserSession[] = [];
         
-        for (const sessionId of sessionIds) {
-            const sessionData = await redisClient.get(`session:${sessionId}`);
+        for (const sessionData of sessionDataArray) {
             if (sessionData) {
-                const session: UserSession = JSON.parse(sessionData);
-                if (session.isActive && session.expiresAt > new Date()) {
-                    sessions.push(session);
+                try {
+                    const session: UserSession = JSON.parse(sessionData);
+                    if (session.isActive && session.expiresAt > new Date()) {
+                        sessions.push(session);
+                    }
+                } catch (parseError) {
+                    console.warn('Failed to parse session data:', parseError);
                 }
             }
         }
@@ -370,29 +455,41 @@ export async function getUserSessions(userId: number): Promise<UserSession[]> {
 }
 
 /**
- * Revoke all sessions for a user
+ * Revoke all sessions for a user (optimized with batching)
  */
 export async function revokeAllUserSessions(userId: number): Promise<void> {
     try {
+        // Get all session IDs for this user
         const sessionIds = await redisClient.smembers(`user:${userId}:sessions`);
-        for (const sessionId of sessionIds) {
-            const sessionData = await redisClient.get(`session:${sessionId}`);
-            if (sessionData) {
-                const session: UserSession = JSON.parse(sessionData);
-                // Blacklist access token (if present)
-                if (session.token) {
-                    await redisClient.setex(`blacklist:${session.token}`, 7 * 24 * 60 * 60, 'revoked');
-                }
-                // Blacklist refresh token
-                if (session.refreshToken) {
-                    await redisClient.setex(`blacklist:refresh:${session.refreshToken}`, 7 * 24 * 60 * 60, 'revoked');
-                }
-            }
-            await redisClient.del(`session:${sessionId}`);
+        
+        if (sessionIds.length === 0) {
+            return; // No sessions to revoke
         }
-        await redisClient.del(`user:${userId}:sessions`);
+
+        // FAST PATH: Instead of fetching each session individually, just create revocation markers
+        // This is much faster since we don't need the full session data
+        const revocationOps: Promise<any>[] = [];
+        
+        // Create revocation markers for all sessions at once
+        for (const sessionId of sessionIds) {
+            revocationOps.push(
+                // Set revocation marker (only need to mark as revoked, not fetch/update full session)
+                redisClient.setex(`revoked:session:${sessionId}`, 7 * 24 * 60 * 60, 'revoked_all_devices')
+            );
+        }
+        
+        // Add the delete operation for the session set
+        revocationOps.push(
+            redisClient.del(`user:${userId}:sessions`)
+        );
+        
+        // Execute all operations in parallel (much faster than sequential)
+        await Promise.all(revocationOps);
+        
+        console.log(`User ${userId} revoked ${sessionIds.length} sessions`);
     } catch (error) {
         console.error('Failed to revoke all user sessions:', error);
+        throw error;
     }
 }
 
