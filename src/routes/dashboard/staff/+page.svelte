@@ -251,10 +251,10 @@
   }
 </script>
 
-<div class={`space-y-6 transition-all duration-300 ${isAddStaffOpen || isEditStaffOpen ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
+<div class={`space-y-2 transition-all duration-300 ${isAddStaffOpen || isEditStaffOpen ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
     <!-- Error Message -->
     {#if errorMsg}
-      <div class="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center justify-between">
+      <div class="bg-red-50 border border-red-200 text-red-800 px-3 py-2 rounded-lg flex items-center justify-between text-sm mb-2">
         <span>{errorMsg}</span>
         <button on:click={() => errorMsg = ""} class="text-red-600 hover:text-red-800" aria-label="Close error message">
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -265,117 +265,120 @@
     {/if}
 
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-      <div>
-        <h2 class="text-2xl font-bold text-slate-900">Staff Management</h2>
-        <p class="text-slate-600">Manage library staff accounts and permissions</p>
+    <div class="mb-2">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-900">Staff Management</h2>
+          <p class="text-slate-600">Manage library staff accounts and permissions</p>
+        </div>
+        <button
+          class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-200"
+          on:click={() => isAddStaffOpen = true} 
+        >
+          <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          Add New Staff
+        </button>
       </div>
-      <button
-        class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
-        on:click={() => isAddStaffOpen = true} 
-      >
-        <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-        </svg>
-        Add New Staff
-      </button>
     </div>
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-2 bg-slate-100 rounded-lg">
-            <svg class="h-4 w-4 lg:h-6 lg:w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+    <div class="grid grid-cols-2 gap-1 sm:gap-2 lg:grid-cols-4 mb-2">
+      <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+        <div class="flex flex-col items-center text-center">
+          <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-slate-400 to-slate-600 shadow-sm">
+            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
             </svg>
           </div>
-          <div class="ml-2 lg:ml-4">
-            <p class="text-xs lg:text-sm font-medium text-gray-600">Total Staff</p>
-            <p class="text-lg lg:text-2xl font-semibold text-gray-900">{staff.length}</p>
-          </div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Total Staff</p>
+          <p class="text-lg sm:text-xl font-bold text-gray-900">
+            {staff.length}
+          </p>
         </div>
       </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-2 bg-green-50 rounded-lg">
-            <svg class="h-4 w-4 lg:h-6 lg:w-6 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+        <div class="flex flex-col items-center text-center">
+          <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-green-400 to-green-600 shadow-sm">
+            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
           </div>
-          <div class="ml-2 lg:ml-4">
-            <p class="text-xs lg:text-sm font-medium text-gray-600">Active Staff</p>
-            <p class="text-lg lg:text-2xl font-semibold text-gray-900">{staff.filter(s => s.isActive).length}</p>
-          </div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Active Staff</p>
+          <p class="text-lg sm:text-xl font-bold text-gray-900">
+            {staff.filter(s => s.isActive).length}
+          </p>
         </div>
       </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-2 bg-purple-50 rounded-lg">
-            <svg class="h-4 w-4 lg:h-6 lg:w-6 text-purple-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+        <div class="flex flex-col items-center text-center">
+          <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-purple-400 to-purple-600 shadow-sm">
+            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
             </svg>
           </div>
-          <div class="ml-2 lg:ml-4">
-            <p class="text-xs lg:text-sm font-medium text-gray-600">Administrators</p>
-            <p class="text-lg lg:text-2xl font-semibold text-gray-900">{staff.filter(s => s.role === 'admin').length}</p>
-          </div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Administrators</p>
+          <p class="text-lg sm:text-xl font-bold text-gray-900">
+            {staff.filter(s => s.role === 'admin').length}
+          </p>
         </div>
       </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-2 bg-slate-50 rounded-lg">
-            <svg class="h-4 w-4 lg:h-6 lg:w-6 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+        <div class="flex flex-col items-center text-center">
+          <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-amber-400 to-amber-600 shadow-sm">
+            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
             </svg>
           </div>
-          <div class="ml-2 lg:ml-4">
-            <p class="text-xs lg:text-sm font-medium text-gray-600">Library Staff</p>
-            <p class="text-lg lg:text-2xl font-semibold text-gray-900">{staff.filter(s => s.role === 'staff').length}</p>
-          </div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Library Staff</p>
+          <p class="text-lg sm:text-xl font-bold text-gray-900">
+            {staff.filter(s => s.role === 'staff').length}
+          </p>
         </div>
       </div>
     </div>
 
     <!-- Filters and Search -->
-    <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-      <div class="flex flex-col lg:flex-row gap-4">
-        <div class="flex-1">
-          <div class="relative">
-            <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="11" cy="11" r="8"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35"/>
-            </svg>
-            <input
-              type="text"
-              placeholder="Search by name, email, or username..."
-              bind:value={searchTerm}
-              class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200"
-            />
-          </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-2">
+      <!-- Search Bar -->
+      <div class="mb-3">
+        <div class="relative">
+          <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input
+            type="text"
+            placeholder="Search by name, email, or username..."
+            bind:value={searchTerm}
+            class="pl-10 pr-4 py-2.5 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 text-sm"
+          />
         </div>
-        <div class="flex flex-col sm:flex-row gap-2">
-          <select
-            bind:value={selectedRole}
-            class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200"
-          >
-            {#each roleTypes as role}
-              <option value={role}>
-                {role === 'all' ? 'All Roles' : role.charAt(0).toUpperCase() + role.slice(1)}
-              </option>
-            {/each}
-          </select>
-          <select
-            bind:value={selectedStatus}
-            class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200"
-          >
-            {#each statusTypes as status}
-              <option value={status}>
-                {status === 'all' ? 'All Status' : status.charAt(0).toUpperCase() + status.slice(1)}
-              </option>
-            {/each}
-          </select>
-        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="flex flex-col sm:flex-row gap-2">
+        <select
+          bind:value={selectedRole}
+          class="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-gray-700 transition-colors duration-200 flex-1 text-sm"
+        >
+          {#each roleTypes as role}
+            <option value={role}>
+              {role === 'all' ? 'All Roles' : role.charAt(0).toUpperCase() + role.slice(1)}
+            </option>
+          {/each}
+        </select>
+        <select
+          bind:value={selectedStatus}
+          class="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-gray-700 transition-colors duration-200 flex-1 text-sm"
+        >
+          {#each statusTypes as status}
+            <option value={status}>
+              {status === 'all' ? 'All Status' : status.charAt(0).toUpperCase() + status.slice(1)}
+            </option>
+          {/each}
+        </select>
       </div>
     </div>
 
@@ -412,7 +415,7 @@
 
     <!-- Desktop Table View -->
     {#if !loading || staff.length > 0}
-    <div class="hidden lg:block bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden">
+    <div class="hidden lg:block bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden mb-2">
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-slate-50">
@@ -488,9 +491,9 @@
     {/if}
 
     <!-- Mobile Card View -->
-    <div class="lg:hidden grid grid-cols-1 gap-4">
+    <div class="lg:hidden grid grid-cols-1 gap-2 mb-2">
       {#each filteredStaff as member}
-        <div class="bg-white rounded-lg shadow-sm border p-4">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3">
           <div class="flex items-start justify-between mb-3">
             <div class="flex-1">
               <h3 class="font-medium text-gray-900 text-sm">{member.name}</h3>
@@ -543,7 +546,7 @@
     </div>
 
     <!-- Pagination -->
-    <div class="bg-white px-4 lg:px-6 py-4 border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="bg-white px-3 py-3 border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
       <div class="text-sm text-slate-700 order-2 sm:order-1">
         Showing <span class="font-semibold">1</span> to <span class="font-semibold">{filteredStaff.length}</span> of
         <span class="font-semibold">{filteredStaff.length}</span> results

@@ -1,13 +1,21 @@
 <script lang="ts">
   import ConfirmBorrowModal from "$lib/components/ui/ConfirmBorrowModal.svelte";
   import ReturnBookModal from "$lib/components/ui/ReturnBookModal.svelte";
+  import CustomDateRangeModal from "$lib/components/ui/CustomDateRangeModal.svelte";
   import { onMount } from "svelte";
   export let data;
 
   let searchTerm = "";
   let selectedStatus = "all";
   let selectedType = "all";
+  let selectedPeriod = "all";
   let showFilters = false;
+  let dropdownOpen = false;
+  let customDays = "";
+
+  // Custom date range modal states
+  let showCustomDateModal = false;
+  let customDaysLabel = "";
 
   // Modal states
   let showConfirmBorrowModal = false;
@@ -23,6 +31,14 @@
 
   const transactionTypes = ['all', 'Borrow', 'Return', 'Reserve'];
   const transactionStatuses = ['all', 'borrowed', 'returned', 'overdue', 'active', 'fulfilled', 'cancelled'];
+  const periodOptions = [
+    { value: 'all', label: 'All Time' },
+    { value: '7d', label: 'Last 7 Days' },
+    { value: '30d', label: 'Last 30 Days' },
+    { value: '90d', label: 'Last 3 Months' },
+    { value: '365d', label: 'Last 12 Months' },
+    { value: 'custom', label: 'Custom Days' }
+  ];
 
   interface Transaction {
     id: number;
@@ -35,6 +51,64 @@
     borrowDate?: string;
     dueDate?: string;
     returnDate?: string;
+    createdAt?: string;
+  }
+
+  function getDaysAgo(days: number): Date {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return date;
+  }
+
+  function calculateWorkingDays(fromDate: string, toDate: string): number {
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    let workingDays = 0;
+    const currentDate = new Date(start);
+
+    while (currentDate <= end) {
+      const dayOfWeek = currentDate.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        workingDays++;
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return workingDays;
+  }
+
+  function calculateDaysUntilDue(dueDate: string): number {
+    if (!dueDate) return 0;
+    const today = new Date();
+    const due = new Date(dueDate);
+    const diffTime = due.getTime() - today.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }
+
+  function isDateInPeriod(dateStr: string | undefined, period: string, customDaysValue?: number): boolean {
+    if (!dateStr) return period === 'all' || period === 'custom';
+    if (period === 'all') return true;
+    
+    try {
+      const date = new Date(dateStr);
+      
+      if (period === 'custom') {
+        if (!customDaysValue || customDaysValue <= 0) return false;
+        return date >= getDaysAgo(customDaysValue);
+      }
+
+      const daysMap: { [key: string]: number } = {
+        '7d': 7,
+        '30d': 30,
+        '90d': 90,
+        '365d': 365
+      };
+      const days = daysMap[period];
+      if (!days) return true;
+      return date >= getDaysAgo(days);
+    } catch {
+      return true;
+    }
   }
 
   $: filteredTransactions = transactions.filter((transaction: Transaction) => {
@@ -45,8 +119,36 @@
       (transaction.memberId?.toLowerCase() ?? '').includes(searchTerm.toLowerCase());
     const matchesStatus = selectedStatus === 'all' || transaction.status?.toLowerCase() === selectedStatus.toLowerCase();
     const matchesType = selectedType === 'all' || transaction.type?.toLowerCase() === selectedType.toLowerCase();
-    return matchesSearch && matchesStatus && matchesType;
+    const customDaysNum = customDays ? parseInt(customDays) : 0;
+    const matchesPeriod = isDateInPeriod(transaction.borrowDate || transaction.createdAt, selectedPeriod, customDaysNum);
+    return matchesSearch && matchesStatus && matchesType && matchesPeriod;
   });
+
+  function toggleDropdown() {
+    dropdownOpen = !dropdownOpen;
+  }
+
+  function selectPeriod(period: string) {
+    selectedPeriod = period;
+    dropdownOpen = false;
+    if (period === 'custom') {
+      showCustomDateModal = true;
+    }
+  }
+
+  function openCustomDateModal() {
+    showCustomDateModal = true;
+  }
+
+  function closeCustomDateModal() {
+    showCustomDateModal = false;
+  }
+
+  function handleDateRangeApply(e: CustomEvent) {
+    const { label, daysCount } = e.detail;
+    customDaysLabel = label;
+    customDays = String(daysCount);
+  }
 
   function getStatusColor(status: string) {
     const s = status?.toLowerCase() || '';
@@ -264,84 +366,82 @@
   };
 </script>
 
-<div class="space-y-6">
+<div class="space-y-2">
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <div>
-        <h2 class="text-2xl sm:text-3xl font-bold text-gray-900">Transaction Management</h2>
-        <p class="text-sm sm:text-base text-gray-600 mt-1">Monitor and manage all library transactions</p>
+    <div class="mb-2">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-900">Transaction Management</h2>
+          <p class="text-slate-600">Monitor and manage all library transactions</p>
+        </div>
       </div>
     </div>
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+    <div class="grid grid-cols-2 gap-1 sm:gap-2 lg:grid-cols-4 mb-2">
       <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
-        <div class="flex items-start justify-between">
-          <div class="flex-1">
-            <p class="text-sm font-medium text-gray-600 mb-1">Active Loans</p>
-            <p class="text-3xl font-bold text-gray-900">{stats.active}</p>
-            <p class="text-xs text-gray-500 mt-1">Currently borrowed</p>
-          </div>
-          <div class="p-3 bg-blue-100 rounded-lg">
-            <svg class="h-6 w-6 text-blue-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <div class="flex flex-col items-center text-center">
+          <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-blue-400 to-blue-600 shadow-sm">
+            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
             </svg>
           </div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Active Loans</p>
+          <p class="text-lg sm:text-xl font-bold text-gray-900">
+            {stats.active}
+          </p>
         </div>
       </div>
 
       <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
-        <div class="flex items-start justify-between">
-          <div class="flex-1">
-            <p class="text-sm font-medium text-gray-600 mb-1">Returned</p>
-            <p class="text-3xl font-bold text-gray-900">{stats.returned}</p>
-            <p class="text-xs text-gray-500 mt-1">Successfully returned</p>
-          </div>
-          <div class="p-3 bg-emerald-100 rounded-lg">
-            <svg class="h-6 w-6 text-emerald-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <div class="flex flex-col items-center text-center">
+          <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-sm">
+            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
           </div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Returned</p>
+          <p class="text-lg sm:text-xl font-bold text-gray-900">
+            {stats.returned}
+          </p>
         </div>
       </div>
 
       <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
-        <div class="flex items-start justify-between">
-          <div class="flex-1">
-            <p class="text-sm font-medium text-gray-600 mb-1">Overdue</p>
-            <p class="text-3xl font-bold text-gray-900">{stats.overdue}</p>
-            <p class="text-xs text-gray-500 mt-1">Need attention</p>
-          </div>
-          <div class="p-3 bg-red-100 rounded-lg">
-            <svg class="h-6 w-6 text-red-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <div class="flex flex-col items-center text-center">
+          <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-red-400 to-red-600 shadow-sm">
+            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
             </svg>
           </div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Overdue</p>
+          <p class="text-lg sm:text-xl font-bold text-gray-900">
+            {stats.overdue}
+          </p>
         </div>
       </div>
 
       <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
-        <div class="flex items-start justify-between">
-          <div class="flex-1">
-            <p class="text-sm font-medium text-gray-600 mb-1">Reserved</p>
-            <p class="text-3xl font-bold text-gray-900">{stats.reserved}</p>
-            <p class="text-xs text-gray-500 mt-1">Pending pickup</p>
-          </div>
-          <div class="p-3 bg-amber-100 rounded-lg">
-            <svg class="h-6 w-6 text-amber-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <div class="flex flex-col items-center text-center">
+          <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-amber-400 to-amber-600 shadow-sm">
+            <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"/>
             </svg>
           </div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Reserved</p>
+          <p class="text-lg sm:text-xl font-bold text-gray-900">
+            {stats.reserved}
+          </p>
         </div>
       </div>
     </div>
 
     <!-- Search and Filters -->
-    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-2">
       <!-- Search Bar -->
-      <div class="mb-4">
+      <div class="mb-3">
         <div class="relative">
-          <svg class="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="8"/>
             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35"/>
           </svg>
@@ -349,22 +449,22 @@
             type="text"
             placeholder="Search by book title, member name, ID..."
             bind:value={searchTerm}
-            class="pl-12 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200"
+            class="pl-10 pr-4 py-2.5 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 text-sm"
           />
         </div>
       </div>
 
       <!-- Mobile Filter Toggle -->
-      <div class="sm:hidden mb-4">
+      <div class="sm:hidden mb-3">
         <button
           on:click={() => showFilters = !showFilters}
-          class="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+          class="w-full flex items-center justify-between px-3 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors duration-200 text-sm"
         >
           <span class="flex items-center font-medium text-gray-700">
             <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z"/>
             </svg>
-            Filters & Actions
+            Filters
           </span>
           <svg class={`h-5 w-5 transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
@@ -374,10 +474,39 @@
 
       <!-- Filters -->
       <div class={`${showFilters ? 'block' : 'hidden'} sm:block`}>
-        <div class="flex flex-col sm:flex-row gap-3">
+        <div class="flex flex-col sm:flex-row gap-2">
+          <div class="relative sm:w-auto">
+            <!-- Period Dropdown -->
+            <button
+              on:click={toggleDropdown}
+              class="w-full sm:w-auto px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 text-sm bg-white text-gray-700 flex items-center justify-between"
+            >
+              <span>{selectedPeriod === 'custom' ? customDaysLabel || 'Select Dates' : periodOptions.find(p => p.value === selectedPeriod)?.label || 'All Time'}</span>
+              <svg class={`h-4 w-4 ml-2 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </button>
+
+            <!-- Period Dropdown Menu -->
+            {#if dropdownOpen}
+              <div class="absolute z-10 mt-1 w-full sm:w-auto bg-white border border-gray-300 rounded-lg shadow-lg">
+                {#each periodOptions as option}
+                  <button
+                    on:click={() => selectPeriod(option.value)}
+                    class={`block w-full text-left px-3 py-2 text-sm hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg transition-colors duration-150 ${
+                      selectedPeriod === option.value ? 'bg-slate-100 text-slate-900 font-medium' : 'text-gray-700'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
           <select
             bind:value={selectedType}
-            class="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 flex-1 sm:flex-none"
+            class="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 flex-1 text-sm"
           >
             {#each transactionTypes as type}
               <option value={type}>
@@ -387,7 +516,7 @@
           </select>
           <select
             bind:value={selectedStatus}
-            class="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 flex-1 sm:flex-none"
+            class="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 flex-1 text-sm"
           >
             {#each transactionStatuses as status}
               <option value={status}>
@@ -395,18 +524,17 @@
               </option>
             {/each}
           </select>
-          <button class="px-5 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center transition-all duration-200 font-medium text-gray-700">
-            <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <button class="px-3 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center transition-all duration-200 font-medium text-gray-700 text-sm">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
             </svg>
-            Export
           </button>
         </div>
       </div>
     </div>
 
     <!-- Desktop Table View -->
-    <div class="hidden lg:block bg-white shadow-sm border border-gray-200 rounded-xl overflow-hidden">
+    <div class="hidden lg:block bg-white shadow-sm border border-gray-200 rounded-xl overflow-hidden mb-2">
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-slate-50">
@@ -545,9 +673,9 @@
     </div>
 
     <!-- Mobile Card View -->
-    <div class="lg:hidden space-y-4">
+    <div class="lg:hidden space-y-2 mb-2">
       {#each filteredTransactions as transaction}
-        <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+        <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200 text-sm">
           <!-- Header -->
           <div class="flex items-start justify-between mb-4">
             <div class="flex-1">
@@ -647,31 +775,13 @@
       {/each}
     </div>
 
-    <!-- Pagination -->
-    <div class="bg-white px-6 py-4 border border-gray-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
-      <div class="text-sm text-gray-700 order-2 sm:order-1">
-        Showing <span class="font-semibold">1</span> to <span class="font-semibold">{filteredTransactions.length}</span> of
-        <span class="font-semibold">{filteredTransactions.length}</span> results
-      </div>
-      <nav class="relative z-0 inline-flex rounded-lg shadow-sm -space-x-px order-1 sm:order-2">
-        <button class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-l-lg text-gray-500 bg-white hover:bg-slate-50 transition-colors duration-200">
-          <svg class="h-5 w-5 sm:mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-          </svg>
-          <span class="hidden sm:inline">Previous</span>
-        </button>
-        <button class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800">
-          1
-        </button>
-        <button class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-r-lg text-gray-500 bg-white hover:bg-slate-50 transition-colors duration-200">
-          <span class="hidden sm:inline">Next</span>
-          <svg class="h-5 w-5 sm:ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-          </svg>
-        </button>
-      </nav>
-    </div>
   </div>
+
+  <!-- Custom Date Range Modal as component -->
+  <CustomDateRangeModal
+    bind:open={showCustomDateModal}
+    on:apply={handleDateRangeApply}
+  />
 
   <!-- Confirm Borrow Modal as component -->
   <ConfirmBorrowModal

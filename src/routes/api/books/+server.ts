@@ -397,7 +397,7 @@ export const PUT: RequestHandler = async ({ request, url }) => {
       const categoryExists = await db
         .select({ id: category.id })
         .from(category)
-        .where(eq(category.id, body.categoryId))
+        .where(eq(category.id, body.categoryId as number))
         .limit(1);
 
       if (categoryExists.length === 0) {
@@ -489,7 +489,7 @@ export const PUT: RequestHandler = async ({ request, url }) => {
     const [cat] = await db
       .select({ name: category.name })
       .from(category)
-      .where(eq(category.id, updatedBook.categoryId))
+      .where(eq(category.id, updatedBook.categoryId!))
       .limit(1);
 
     return json({
