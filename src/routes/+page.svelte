@@ -52,7 +52,7 @@
   <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-[#FFF9E6]">
     <div class="max-w-md w-full space-y-8">
       <div class="text-center">
-        <img src="/assets/logo.png" alt="E-Kalibro Logo" class="mx-auto h-16 w-16 rounded-full object-cover" />
+        <img src="/assets/logo.png" alt="E-Kalibro Logo" class="mx-auto h-20 w-20 rounded-full object-cover" />
         <h2 class="mt-6 text-3xl font-bold text-[#0D5C29]">
           e-Kalibro Admin Portal
         </h2>
