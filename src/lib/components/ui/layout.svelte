@@ -13,6 +13,8 @@
   let isLoggingOut = false;
   let showLogoutOptions = false;
   let showNotificationPanel = false;
+  let showLogoutConfirm = false;
+  let logoutAllDevices = false;
   
   // Create a persistent user store that survives navigation
   const userStore = writable<{
@@ -181,11 +183,12 @@
   }
 
   // Advanced logout function
-  async function handleLogout(logoutAllDevices: boolean = false) {
+  async function handleLogout(logoutAllDevicesFlag: boolean = false) {
     if (isLoggingOut) return;
     
     isLoggingOut = true;
     showLogoutOptions = false;
+    showLogoutConfirm = false;
 
     try {
       const response = await fetch('/api/logout', {
@@ -195,7 +198,7 @@
         },
         credentials: 'include',
         body: JSON.stringify({
-          logoutAllDevices,
+          logoutAllDevices: logoutAllDevicesFlag,
           reason: 'user_logout'
         })
       });
@@ -210,7 +213,7 @@
         onLogout();
         
         // Show success message and redirect immediately
-        if (logoutAllDevices) {
+        if (logoutAllDevicesFlag) {
           notifications.show('Logged out from all devices successfully', 'success');
         } else {
           notifications.show('Logged out successfully', 'success');
@@ -466,13 +469,19 @@
         {#if showLogoutOptions && !isLoggingOut}
           <div class="absolute bottom-full left-0 right-0 mb-2 bg-[#0D5C29] border border-[#B8860B]/30 rounded-lg shadow-lg py-1">
             <button
-              on:click={() => handleLogout(false)}
+              on:click={() => {
+                logoutAllDevices = false;
+                showLogoutConfirm = true;
+              }}
               class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-white hover:bg-[#4A7C59]/30 hover:text-[#E8B923] transition-colors"
             >
               <span>Logout from this device</span>
             </button>
             <button
-              on:click={() => handleLogout(true)}
+              on:click={() => {
+                logoutAllDevices = true;
+                showLogoutConfirm = true;
+              }}
               class="flex items-center space-x-2 w-full px-3 py-2 text-sm text-[#E8B923] hover:bg-[#4A7C59]/30 transition-colors"
             >
               <span>Logout from all devices</span>
@@ -656,6 +665,49 @@
       tabindex="0"
       aria-label="Close sidebar"
     ></div>
+  {/if}
+
+  <!-- Logout Confirmation Modal -->
+  {#if showLogoutConfirm}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div class="bg-white rounded-lg shadow-2xl max-w-sm mx-4 p-6 border border-gray-200">
+        <!-- Icon -->
+        <div class="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+        </div>
+
+        <!-- Title -->
+        <h3 class="text-lg font-semibold text-gray-900 text-center mb-2">
+          {logoutAllDevices ? 'Logout from All Devices?' : 'Confirm Logout?'}
+        </h3>
+
+        <!-- Message -->
+        <p class="text-gray-600 text-center text-sm mb-6">
+          {logoutAllDevices 
+            ? 'You will be logged out from all devices and sessions. This action cannot be undone.' 
+            : 'Are you sure you want to logout from this device?'}
+        </p>
+
+        <!-- Buttons -->
+        <div class="flex gap-3">
+          <button
+            on:click={() => showLogoutConfirm = false}
+            class="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            on:click={() => handleLogout(logoutAllDevices)}
+            disabled={isLoggingOut}
+            class="flex-1 px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoggingOut ? 'Logging out...' : 'Logout'}
+          </button>
+        </div>
+      </div>
+    </div>
   {/if}
 </div>
 
