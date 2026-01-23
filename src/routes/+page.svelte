@@ -43,7 +43,7 @@
 </script>
 
 <svelte:head>
-  <title>Login | i/Kalibro Admin Portal</title>
+  <title>Login | e-Kalibro Admin Portal</title>
 </svelte:head>
 
 <!-- Main Layout -->
@@ -52,15 +52,9 @@
   <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-[#FFF9E6]">
     <div class="max-w-md w-full space-y-8">
       <div class="text-center">
-        <div class="mx-auto h-16 w-16 bg-[#0D5C29] rounded-full flex items-center justify-center">
-          <!-- BookOpen SVG -->
-          <svg class="h-8 w-8 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-            <circle cx="12" cy="12" r="2"/>
-          </svg>
-        </div>
+        <img src="/assets/logo.png" alt="E-Kalibro Logo" class="mx-auto h-16 w-16 rounded-full object-cover" />
         <h2 class="mt-6 text-3xl font-bold text-[#0D5C29]">
-          E-Kalibro Admin Portal
+          e-Kalibro Admin Portal
         </h2>
         <p class="mt-2 text-sm text-gray-600">
           Library Management System
