@@ -130,17 +130,6 @@ export const GET: RequestHandler = async ({ request, getClientAddress, cookies }
             isActive: true  // If token is valid, user is active
         };
 
-        if (!user.isActive) {
-            return json(
-                {
-                    success: false,
-                    message: 'User account is inactive',
-                    error: 'USER_INACTIVE'
-                },
-                { status: 401 }
-            );
-        }
-
         // Return user session information
         const sessionData = {
             success: true,

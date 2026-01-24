@@ -513,6 +513,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>Reports | E-Kalibro Admin Portal</title>
+</svelte:head>
+
 <div class="min-h-screen">
   <!-- Header -->
   <div class="mb-4">

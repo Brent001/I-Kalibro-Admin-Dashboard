@@ -2,6 +2,13 @@
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
 
+  // Get encryption key from Vite environment variable (required)
+  const ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY as string;
+
+  if (!ENCRYPTION_KEY) {
+    throw new Error('VITE_ENCRYPTION_KEY environment variable is not set');
+  }
+
   export let data: {
     dashboard: {
       totalBooks: number;
@@ -48,6 +55,52 @@
   let loading: boolean = true;
   let error: string | null = null;
 
+  /**
+   * Decrypt data using AES-256-GCM (matches server-side encryption)
+   */
+  async function decryptData(encryptedData: string): Promise<any> {
+    if (!browser) {
+      console.warn('Decryption called outside browser context');
+      throw new Error('Decryption only available in browser');
+    }
+    
+    try {
+      const key = ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32);
+      
+      // Decode from base64
+      const combined = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+      
+      // Extract components
+      const iv = combined.slice(0, 16);
+      const authTag = combined.slice(-16);
+      const encrypted = combined.slice(16, -16);
+      
+      // Import key with proper error handling
+      const keyBuffer = new TextEncoder().encode(key);
+      const cryptoKey = await globalThis.crypto.subtle.importKey(
+        'raw',
+        keyBuffer,
+        { name: 'AES-GCM' },
+        false,
+        ['decrypt']
+      );
+      
+      // Decrypt
+      const decrypted = await globalThis.crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv },
+        cryptoKey,
+        new Uint8Array([...encrypted, ...authTag])
+      );
+      
+      // Parse JSON
+      const text = new TextDecoder().decode(decrypted);
+      return JSON.parse(text);
+    } catch (err) {
+      console.error('Decryption error:', err);
+      throw new Error('Failed to decrypt dashboard data');
+    }
+  }
+
   async function loadDashboardData(): Promise<void> {
     try {
       loading = true;
@@ -67,13 +120,19 @@
       const result = await response.json();
 
       if (result.success && result.data) {
+        // Decrypt the data if it's encrypted (for direct API calls)
+        let dashboardResult = result.data;
+        if (result.encrypted) {
+          dashboardResult = await decryptData(result.data);
+        }
+
         dashboardData = {
-          totalBooks: result.data.totalBooks || 0,
-          activeMembers: result.data.activeMembers || 0,
-          booksBorrowed: result.data.booksBorrowed || 0,
-          overdueBooks: result.data.overdueBooks || 0,
-          recentActivity: result.data.recentActivity || [],
-          overdueBooksList: result.data.overdueBooksList || []
+          totalBooks: dashboardResult.totalBooks || 0,
+          activeMembers: dashboardResult.activeMembers || 0,
+          booksBorrowed: dashboardResult.booksBorrowed || 0,
+          overdueBooks: dashboardResult.overdueBooks || 0,
+          recentActivity: dashboardResult.recentActivity || [],
+          overdueBooksList: dashboardResult.overdueBooksList || []
         };
       }
     } catch (err) {
@@ -166,6 +225,10 @@
     }
   });
 </script>
+
+<svelte:head>
+  <title>Dashboard | E-Kalibro Admin Portal</title>
+</svelte:head>
 
 <div class="min-h-screen">
   <!-- Header -->

@@ -9,6 +9,23 @@ import { redisClient } from '$lib/server/db/cache.js';
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production';
 
+// Helper function to calculate time until next 3:00 AM (logout time)
+function getTimeUntilNextLogout(): number {
+    const now = new Date();
+    const nextLogout = new Date(now);
+    
+    // Set to next 3:00 AM
+    nextLogout.setHours(3, 0, 0, 0);
+    
+    // If 3:00 AM has already passed today, set to tomorrow's 3:00 AM
+    if (nextLogout <= now) {
+        nextLogout.setDate(nextLogout.getDate() + 1);
+    }
+    
+    // Return milliseconds until that time
+    return nextLogout.getTime() - now.getTime();
+}
+
 export interface AuthUser {
     id: number;
     name: string;
@@ -264,13 +281,14 @@ export async function generateTokens(
         { ...basePayload, tokenType: 'refresh', jti: refreshJti },
         JWT_REFRESH_SECRET,
         {
-            expiresIn: '7d',
+            expiresIn: '30d', // Refresh token: 30 days (extended to handle auto-logout at 3am)
             issuer: 'kalibro-library',
             subject: user.id.toString()
         }
     );
 
     // Store session in Redis
+    const timeUntilLogout = getTimeUntilNextLogout();
     const sessionData: UserSession = {
         id: sessionId,
         userId: user.id,
@@ -280,11 +298,11 @@ export async function generateTokens(
         ipAddress: sessionInfo.ipAddress,
         createdAt: new Date(),
         lastUsedAt: new Date(),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        expiresAt: new Date(Date.now() + timeUntilLogout), // Auto-logout at next 3:00 AM
         isActive: true
     };
 
-    await redisClient.setex(`session:${sessionId}`, 7 * 24 * 60 * 60, JSON.stringify(sessionData));
+    await redisClient.setex(`session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(sessionData));
     await redisClient.sadd(`user:${user.id}:sessions`, sessionId);
 
     return { accessToken, refreshToken, sessionId };
@@ -365,7 +383,9 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
         // Update session with new access token
         session.token = hashToken(accessToken);
         session.lastUsedAt = new Date();
-        await redisClient.setex(`session:${decoded.sessionId}`, 7 * 24 * 60 * 60, JSON.stringify(session));
+        const timeUntilLogout = getTimeUntilNextLogout();
+        session.expiresAt = new Date(Date.now() + timeUntilLogout);
+        await redisClient.setex(`session:${decoded.sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(session));
 
         return { accessToken };
     } catch (error) {
@@ -383,7 +403,9 @@ export async function updateSessionLastUsed(sessionId: string): Promise<void> {
         if (sessionData) {
             const session: UserSession = JSON.parse(sessionData);
             session.lastUsedAt = new Date();
-            await redisClient.setex(`session:${sessionId}`, 7 * 24 * 60 * 60, JSON.stringify(session));
+            const timeUntilLogout = getTimeUntilNextLogout();
+            session.expiresAt = new Date(Date.now() + timeUntilLogout);
+            await redisClient.setex(`session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(session));
         }
     } catch (error) {
         console.error('Failed to update session:', error);
@@ -402,7 +424,8 @@ export async function revokeToken(sessionId: string, tokenType: 'access' | 'refr
             if (tokenType === 'access') {
                 // Mark session as inactive
                 session.isActive = false;
-                await redisClient.setex(`session:${sessionId}`, 7 * 24 * 60 * 60, JSON.stringify(session));
+                const timeUntilLogout = getTimeUntilNextLogout();
+                await redisClient.setex(`session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(session));
             } else {
                 // Remove session completely for refresh token revocation
                 await redisClient.del(`session:${sessionId}`);
@@ -471,10 +494,11 @@ export async function revokeAllUserSessions(userId: number): Promise<void> {
         const revocationOps: Promise<any>[] = [];
         
         // Create revocation markers for all sessions at once
+        const timeUntilLogout = getTimeUntilNextLogout();
         for (const sessionId of sessionIds) {
             revocationOps.push(
                 // Set revocation marker (only need to mark as revoked, not fetch/update full session)
-                redisClient.setex(`revoked:session:${sessionId}`, 7 * 24 * 60 * 60, 'revoked_all_devices')
+                redisClient.setex(`revoked:session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), 'revoked_all_devices')
             );
         }
         

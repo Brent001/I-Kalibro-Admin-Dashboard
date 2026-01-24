@@ -487,6 +487,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>Books | E-Kalibro Admin Portal</title>
+</svelte:head>
+
 <div class="space-y-4">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

@@ -366,6 +366,10 @@
   };
 </script>
 
+<svelte:head>
+  <title>Transactions | E-Kalibro Admin Portal</title>
+</svelte:head>
+
 <div class="space-y-2">
     <!-- Header -->
     <div class="mb-2">

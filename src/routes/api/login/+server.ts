@@ -20,7 +20,9 @@ const loginSchema = z.object({
         .min(1, 'Username is required')
         .trim(),
     password: z.string()
-        .min(1, 'Password is required')
+        .min(1, 'Password is required'),
+    rememberMe: z.boolean().optional(),
+    rememberMeToken: z.string().optional()
 });
 
 // Rate limiting (simple in-memory store - use Redis in production)
@@ -31,6 +33,23 @@ const LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
 // Helper function to hash tokens for storage
 function hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+}
+
+// Helper function to calculate time until next 3:00 AM (logout time)
+function getTimeUntilNextLogout(): number {
+    const now = new Date();
+    const nextLogout = new Date(now);
+    
+    // Set to next 3:00 AM
+    nextLogout.setHours(3, 0, 0, 0);
+    
+    // If 3:00 AM has already passed today, set to tomorrow's 3:00 AM
+    if (nextLogout <= now) {
+        nextLogout.setDate(nextLogout.getDate() + 1);
+    }
+    
+    // Return milliseconds until that time
+    return nextLogout.getTime() - now.getTime();
 }
 
 function isRateLimited(identifier: string): boolean {
@@ -110,7 +129,146 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             );
         }
 
-        const { username, password } = validationResult.data;
+        const { username, password, rememberMe, rememberMeToken } = validationResult.data;
+
+        // Handle remember me token login
+        if (rememberMeToken && !username && !password) {
+            try {
+                const decoded = jwt.verify(rememberMeToken, JWT_SECRET as Secret) as any;
+                
+                // Check if remember me token is blacklisted
+                const blacklistKey = `blacklist:rememberme:${rememberMeToken}`;
+                const isBlacklisted = await redisClient.get(blacklistKey);
+                if (isBlacklisted) {
+                    return new Response(
+                        JSON.stringify({
+                            success: false,
+                            message: 'Remember me session has expired'
+                        }),
+                        { status: 401, headers: { 'Content-Type': 'application/json' } }
+                    );
+                }
+                
+                // Fetch user from database
+                const [user] = await db
+                    .select()
+                    .from(staffAccount)
+                    .where(eq(staffAccount.id, decoded.userId))
+                    .limit(1);
+                
+                if (!user || !user.isActive) {
+                    return new Response(
+                        JSON.stringify({
+                            success: false,
+                            message: 'User not found or inactive'
+                        }),
+                        { status: 401, headers: { 'Content-Type': 'application/json' } }
+                    );
+                }
+                
+                // Create new session from remember me token
+                const sessionId = randomBytes(16).toString('hex');
+                const refreshTokenPayload = {
+                    userId: user.id,
+                    sessionId: sessionId,
+                    tokenType: 'refresh',
+                    jti: `${sessionId}-refresh`
+                };
+                
+                const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production', {
+                    expiresIn: '30d',
+                    issuer: 'kalibro-library',
+                    subject: String(user.id)
+                });
+                
+                const now = new Date();
+                const timeUntilLogout = getTimeUntilNextLogout();
+                const sessionData = {
+                    id: sessionId,
+                    userId: user.id,
+                    token: undefined,
+                    refreshToken: hashToken(refreshToken),
+                    userAgent: request.headers.get('user-agent') || '',
+                    ipAddress: clientIP,
+                    createdAt: now,
+                    lastUsedAt: now,
+                    expiresAt: new Date(now.getTime() + timeUntilLogout),
+                    isActive: true
+                };
+                
+                await Promise.all([
+                    redisClient.setex(
+                        `session:${sessionId}`,
+                        Math.ceil(timeUntilLogout / 1000),
+                        JSON.stringify(sessionData)
+                    ),
+                    redisClient.sadd(`user:${user.id}:sessions`, sessionId)
+                ]);
+                
+                const tokenPayload = {
+                    userId: user.id,
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                    sessionId: sessionId,
+                    tokenType: 'access',
+                    jti: sessionId
+                };
+                
+                const token = jwt.sign(tokenPayload, JWT_SECRET as Secret, {
+                    expiresIn: '15m',
+                    issuer: 'kalibro-library',
+                    subject: String(user.id)
+                });
+                
+                cookies.set('token', token, {
+                    path: '/',
+                    httpOnly: true,
+                    sameSite: 'strict',
+                    secure: process.env.NODE_ENV === 'production',
+                    maxAge: 15 * 60
+                });
+                
+                cookies.set('refresh_token', refreshToken, {
+                    path: '/',
+                    httpOnly: true,
+                    sameSite: 'strict',
+                    secure: process.env.NODE_ENV === 'production',
+                    maxAge: 30 * 24 * 60 * 60
+                });
+                
+                console.log(`Remember me login: ${user.username} (${user.role}) from ${clientIP}`);
+                
+                // Log security event
+                await db.insert(securityLog).values({
+                    staffAccountId: user.id,
+                    userId: null,
+                    eventType: 'login',
+                    eventTime: new Date(),
+                    browser: getBrowserType(request.headers.get('user-agent')),
+                    ipAddress: clientIP
+                });
+                
+                return new Response(
+                    JSON.stringify({
+                        success: true,
+                        message: 'Remember me login successful'
+                    }),
+                    { status: 200, headers: { 'Content-Type': 'application/json' } }
+                );
+            } catch (error) {
+                console.error('Remember me token validation failed:', error);
+                return new Response(
+                    JSON.stringify({
+                        success: false,
+                        message: 'Remember me session expired. Please login again.'
+                    }),
+                    { status: 401, headers: { 'Content-Type': 'application/json' } }
+                );
+            }
+        }
+
+        const { username: usernameValue, password: passwordValue } = validationResult.data;
 
         // Find user in database by username or email (optimized to single query)
         const [foundUser] = await db
@@ -118,7 +276,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             .from(staffAccount)
             .where(
                 // Check both username and email in a single query
-                eq(staffAccount.username, username) || eq(staffAccount.email, username)
+                eq(staffAccount.username, usernameValue) || eq(staffAccount.email, usernameValue)
             )
             .limit(1);
 
@@ -127,7 +285,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         const targetHash = foundUser?.password || dummyHash;
 
         // Verify password
-        const isValidPassword = await bcrypt.compare(password, targetHash);
+        const isValidPassword = await bcrypt.compare(passwordValue, targetHash);
 
         // Get browser type from user-agent
         const userAgent = request.headers.get('user-agent');
@@ -172,13 +330,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         };
         
         const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production', {
-            expiresIn: '7d', // Refresh token: 7 days
+            expiresIn: '30d', // Refresh token: 30 days (extended to handle auto-logout at 3am)
             issuer: 'kalibro-library',
             subject: String(foundUser.id)
         });
 
         // Create session data with hashed refresh token
         const now = new Date();
+        const timeUntilLogout = getTimeUntilNextLogout();
         const sessionData = {
             id: sessionId,
             userId: foundUser.id,
@@ -188,7 +347,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             ipAddress: clientIP,
             createdAt: now,
             lastUsedAt: now,
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+            expiresAt: new Date(now.getTime() + timeUntilLogout), // Auto-logout at next 3:00 AM
             isActive: true
         };
         
@@ -196,7 +355,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         await Promise.all([
             redisClient.setex(
                 `session:${sessionId}`,
-                7 * 24 * 60 * 60, // 7 days in seconds
+                Math.ceil(timeUntilLogout / 1000), // Convert to seconds
                 JSON.stringify(sessionData)
             ),
             redisClient.sadd(`user:${foundUser.id}:sessions`, sessionId)
@@ -233,7 +392,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             httpOnly: true,
             sameSite: 'strict',
             secure: process.env.NODE_ENV === 'production',
-            maxAge: 7 * 24 * 60 * 60 // 7 days
+            maxAge: 30 * 24 * 60 * 60 // 30 days (extended to handle auto-logout at 3am)
         });
 
         // Log successful login (don't log password or sensitive data)
@@ -249,11 +408,28 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             ipAddress: clientIP
         });
 
+        // Generate remember me token if checkbox is checked (7 days)
+        let rememberMeTokenToReturn: string | undefined;
+        if (rememberMe) {
+            const rememberMePayload = {
+                userId: foundUser.id,
+                username: foundUser.username,
+                tokenType: 'remember_me',
+                jti: randomBytes(16).toString('hex')
+            };
+            rememberMeTokenToReturn = jwt.sign(rememberMePayload, JWT_SECRET as Secret, {
+                expiresIn: '7d',
+                issuer: 'kalibro-library',
+                subject: String(foundUser.id)
+            });
+        }
+
         // Return success response with user data (excluding password)
         return new Response(
             JSON.stringify({
                 success: true,
-                message: 'Login successful'
+                message: 'Login successful',
+                rememberMeToken: rememberMeTokenToReturn
             }),
             { 
                 status: 200, 

@@ -156,6 +156,7 @@ export const securityLog = pgTable('security_log', {
 export const staffPermission = pgTable('staff_permission', {
     id: serial('id').primaryKey(),
     staffUniqueId: varchar('staff_unique_id', { length: 36 }).references(() => staffAccount.uniqueId).unique().notNull(),
-    permissionKeys: jsonb('permission_keys').notNull(),
-    createdAt: timestamp('created_at').defaultNow()
+    permissionKeys: jsonb('permission_keys').notNull().default(sql`'[]'::jsonb`),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow()
 });

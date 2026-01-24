@@ -2,8 +2,44 @@ import type { PageServerLoad } from './$types.js';
 import { redirect } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
+import { decryptData } from '$lib/utils/encryption.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+
+export const actions = {
+    default: async ({ request }) => {
+        // Default action - returns empty to prevent 405 errors
+        return { success: true };
+    },
+    refreshDashboard: async ({ request, cookies, fetch }) => {
+        // Action to refresh dashboard data
+        const token = cookies.get('token');
+        
+        if (!token) {
+            return { success: false, error: 'Not authenticated' };
+        }
+        
+        try {
+            const dashboardResponse = await fetch('/api/dashboard', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cookie': `token=${token}`
+                }
+            });
+            
+            if (dashboardResponse.ok) {
+                const data = await dashboardResponse.json();
+                return { success: true, data: data.data };
+            }
+            
+            return { success: false, error: 'Failed to fetch dashboard data' };
+        } catch (error) {
+            console.error('Dashboard refresh error:', error);
+            return { success: false, error: 'Error refreshing dashboard' };
+        }
+    }
+};
 
 export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
     const token = cookies.get('token');
@@ -67,7 +103,25 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
                 const dashboardResult = await dashboardResponse.json();
                 
                 if (dashboardResult.success && dashboardResult.data) {
-                    response.dashboard = dashboardResult.data;
+                    try {
+                        // Decrypt the data if it's encrypted
+                        if (dashboardResult.encrypted) {
+                            response.dashboard = decryptData(dashboardResult.data);
+                        } else {
+                            response.dashboard = dashboardResult.data;
+                        }
+                    } catch (decryptError) {
+                        console.error('Failed to decrypt dashboard data:', decryptError);
+                        // Fallback to empty data if decryption fails
+                        response.dashboard = {
+                            totalBooks: 0,
+                            activeMembers: 0,
+                            booksBorrowed: 0,
+                            overdueBooks: 0,
+                            recentActivity: [],
+                            overdueBooksList: []
+                        };
+                    }
                 }
             } else {
                 console.warn('Dashboard API returned non-ok status:', dashboardResponse.status);

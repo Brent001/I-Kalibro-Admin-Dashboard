@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { book, user, bookBorrowing } from '$lib/server/db/schema/schema.js';
 import { eq, count, lt, and, isNull, desc, sql } from 'drizzle-orm';
+import { encryptData } from '$lib/utils/encryption.js';
 
 // Cache duration (5 minutes)
 const CACHE_DURATION = 5 * 60 * 1000;
@@ -16,9 +17,11 @@ export const GET: RequestHandler = async () => {
     
     // Return cached data if still valid
     if (cachedData && (now - lastCacheTime) < CACHE_DURATION) {
+      const encryptedCachedData = encryptData(cachedData);
       return json({
         success: true,
-        data: cachedData,
+        data: encryptedCachedData,
+        encrypted: true,
         cached: true
       });
     }
@@ -155,9 +158,13 @@ export const GET: RequestHandler = async () => {
     cachedData = dashboardData;
     lastCacheTime = now;
 
+    // Encrypt the response data
+    const encryptedData = encryptData(dashboardData);
+
     return json({
       success: true,
-      data: dashboardData,
+      data: encryptedData,
+      encrypted: true,
       cached: false
     });
 

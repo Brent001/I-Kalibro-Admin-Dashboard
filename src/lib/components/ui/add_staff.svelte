@@ -35,19 +35,9 @@
   let isLoading = false;
   let showPassword = false;
   let showConfirmPassword = false;
+  let selectedPermissions: Record<string, boolean> = {};
 
-  // Comment out permissions and selectedPermissions
-  // const permissions = [
-  //   { key: 'view_books', label: 'Books' },
-  //   { key: 'view_members', label: 'Members' },
-  //   { key: 'view_transactions', label: 'Transactions' },
-  //   { key: 'view_visits', label: 'Visits' },
-  //   { key: 'view_logs', label: 'Logs' },
-  //   { key: 'view_reports', label: 'Reports' },
-  //   { key: 'view_staff', label: 'Staff' },
-  //   { key: 'view_settings', label: 'Settings' }
-  // ];
-  // let selectedPermissions: Record<string, boolean> = {};
+  export let permissionsList: { key: string; label: string; icon: string }[] = [];
 
   function validateForm() {
     errors = {};
@@ -94,7 +84,7 @@
       role: 'staff'
     };
     errors = {};
-    // selectedPermissions = {};
+    selectedPermissions = {};
     isLoading = false;
     showPassword = false;
     showConfirmPassword = false;
@@ -107,13 +97,13 @@
   async function handleSubmit() {
     if (!validateForm()) return;
     isLoading = true;
-    // const allowedKeys = Object.entries(selectedPermissions)
-    //   .filter(([_, allowed]) => allowed)
-    //   .map(([key]) => key);
+    const allowedKeys = Object.entries(selectedPermissions)
+      .filter(([_, allowed]) => allowed)
+      .map(([key]) => key);
 
     dispatch('addStaff', {
-      formData
-      // permissionKeys: allowedKeys
+      formData,
+      permissionKeys: formData.role === 'staff' ? allowedKeys : []
     });
     isLoading = false;
     resetForm();
@@ -158,18 +148,18 @@
     <div class="fixed inset-0 bg-black/50 backdrop-blur-sm transition-all duration-300"></div>
     
     <div class="relative w-full max-w-5xl max-h-[95vh] transform transition-all duration-300 scale-100">
-      <div class="bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-slate-200/50 overflow-hidden flex flex-col max-h-[95vh]">
+      <div class="bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[95vh]">
         
         <!-- Header - Fixed -->
-        <div class="px-6 py-4 border-b border-slate-200/50 bg-white/80 flex-shrink-0">
+        <div class="px-6 py-4 border-b border-[#E8B923]/20 bg-gradient-to-r from-[#0D5C29] to-[#1a7a39] flex-shrink-0">
           <div class="flex items-start justify-between">
             <div>
-              <h3 class="text-xl font-bold text-slate-900" id="add-staff-title">Add New Staff Member</h3>
-              <p class="text-sm text-slate-600 mt-0.5">Create a new staff account for the library management system</p>
+              <h3 class="text-xl font-bold text-white" id="add-staff-title">Add New Staff Member</h3>
+              <p class="text-sm text-[#E8B923]/80 mt-0.5">Create a new staff account for the library management system</p>
             </div>
             <button
               type="button"
-              class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100/50 transition-colors duration-200 flex-shrink-0"
+              class="p-2 rounded-lg text-[#E8B923]/60 hover:text-[#E8B923] hover:bg-[#E8B923]/10 transition-colors duration-200 flex-shrink-0"
               on:click={closeModal}
               disabled={isLoading}
             >
@@ -186,7 +176,7 @@
             
             <!-- Account Information Section -->
             <div class="mb-6">
-              <h4 class="text-sm font-medium text-gray-700 mb-3 uppercase tracking-wide">Account Information</h4>
+              <h4 class="text-sm font-semibold text-[#0D5C29] mb-4 uppercase tracking-wide text-[#0D5C29] border-b border-[#E8B923]/30 pb-2">Account Information</h4>
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 
                 <!-- Name -->
@@ -318,7 +308,7 @@
 
             <!-- Security Section -->
             <div class="mb-6">
-              <h4 class="text-sm font-medium text-gray-700 mb-3 uppercase tracking-wide">Security</h4>
+              <h4 class="text-sm font-semibold text-[#0D5C29] mb-4 uppercase tracking-wide text-[#0D5C29] border-b border-[#E8B923]/30 pb-2">Security</h4>
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 
                 <!-- Password -->
@@ -432,52 +422,88 @@
               </div>
             </div>
 
-            <!-- Permissions Section Removed -->
-            {#if false}
-              <!--
-              {#if formData.role !== 'admin'}
-                <div class="mb-4">
-                  <h4 class="text-sm font-medium text-gray-700 mb-3 uppercase tracking-wide">Dashboard Access Permissions</h4>
-                  <div class="bg-slate-50 rounded-md p-3">
-                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                      {#each permissions as perm}
-                        <label class="flex items-center space-x-2 cursor-pointer group">
-                          <input
-                            type="checkbox"
-                            bind:checked={selectedPermissions[perm.key]}
-                            class="h-4 w-4 text-slate-600 border-gray-300 rounded focus:ring-slate-500"
-                            disabled={isLoading}
-                          />
-                          <span class="text-sm text-gray-700 group-hover:text-gray-900">
-                            {perm.label}
-                          </span>
-                        </label>
-                      {/each}
-                    </div>
-                    {#if Object.keys(selectedPermissions).length === 0}
-                      <p class="mt-3 text-sm text-red-600">At least one permission must be selected</p>
-                    {/if}
+            <!-- Permissions Section for Staff Role Only -->
+            {#if formData.role === 'staff' && permissionsList.length > 0}
+              <div class="mb-6">
+                <div class="flex items-center justify-between mb-4">
+                  <h4 class="text-sm font-semibold text-[#0D5C29] uppercase tracking-wide text-[#0D5C29] border-b border-[#E8B923]/30 pb-2 flex-1">Dashboard Access Permissions</h4>
+                  <span class="text-xs bg-[#E8B923]/20 text-[#0D5C29] px-2.5 py-0.5 rounded-full font-semibold ml-4">
+                    {Object.values(selectedPermissions).filter(Boolean).length} / {permissionsList.length}
+                  </span>
+                </div>
+                <div class="bg-gradient-to-br from-[#0D5C29]/5 to-[#4A7C59]/5 rounded-lg p-4 border border-[#E8B923]/30 space-y-3">
+                  <p class="text-xs text-gray-600">Select which areas this staff member can access when they log in:</p>
+                  
+                  <!-- Quick Actions -->
+                  <div class="flex gap-2 pb-3 border-b border-[#E8B923]/30">
+                    <button
+                      type="button"
+                      on:click={() => {
+                        permissionsList.forEach(p => selectedPermissions[p.key] = true);
+                        selectedPermissions = selectedPermissions;
+                      }}
+                      class="text-xs px-2.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
+                      disabled={isLoading}
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      on:click={() => {
+                        permissionsList.forEach(p => selectedPermissions[p.key] = false);
+                        selectedPermissions = selectedPermissions;
+                      }}
+                      class="text-xs px-2.5 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-50"
+                      disabled={isLoading}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+
+                  <!-- Permissions Grid -->
+                  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {#each permissionsList as perm}
+                      <label class="flex items-start space-x-2 cursor-pointer group p-2 rounded hover:bg-white transition-colors">
+                        <input
+                          type="checkbox"
+                          bind:checked={selectedPermissions[perm.key]}
+                          class="h-4 w-4 text-slate-600 border-gray-300 rounded focus:ring-slate-500 mt-0.5 flex-shrink-0"
+                          disabled={isLoading}
+                          title={perm.label}
+                        />
+                        <span class="text-xs text-gray-700 group-hover:text-gray-900 font-medium leading-tight flex-1">
+                          {perm.label}
+                        </span>
+                        {#if selectedPermissions[perm.key]}
+                          <span class="text-green-600 text-xs">✓</span>
+                        {/if}
+                      </label>
+                    {/each}
+                  </div>
+
+                  <!-- Info -->
+                  <div class="text-xs text-[#0D5C29] bg-[#E8B923]/10 p-2.5 rounded-lg border border-[#E8B923]/30 mt-2">
+                    💡 Staff members can only access sections that are checked. Unchecked sections will be hidden from their dashboard.
                   </div>
                 </div>
-              {/if}
-              -->
+              </div>
             {/if}
           </div>
 
           <!-- Footer - Fixed -->
-          <div class="px-6 py-4 border-t border-slate-200/50 bg-white/80 flex-shrink-0">
+          <div class="px-6 py-4 border-t border-[#E8B923]/20 bg-gradient-to-r from-[#0D5C29]/5 to-[#4A7C59]/5 flex-shrink-0">
             <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
               <button
                 type="button"
                 on:click={closeModal}
                 disabled={isLoading}
-                class="inline-flex justify-center items-center rounded-xl border border-slate-300 shadow-sm px-6 py-2.5 bg-white/80 text-base font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                class="inline-flex justify-center items-center rounded-lg border border-[#0D5C29] px-6 py-2.5 bg-white text-base font-medium text-[#0D5C29] hover:bg-[#0D5C29]/5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0D5C29] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                class="inline-flex justify-center items-center rounded-xl border border-transparent shadow-lg px-6 py-2.5 bg-slate-900 text-base font-medium text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                class="inline-flex justify-center items-center rounded-lg border border-transparent px-6 py-2.5 bg-[#0D5C29] text-base font-medium text-white hover:bg-[#0D5C29]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0D5C29] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isLoading}
               >
                 {#if isLoading}

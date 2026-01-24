@@ -265,7 +265,7 @@
         if (fieldIndex < fields.length) {
           const fieldName = fields[fieldIndex] as keyof BookRow;
           if (fieldName !== 'errors' && fieldName !== 'id' && fieldName !== 'status' && fieldName !== 'message') {
-            rows[rowIndex][fieldName] = value.trim();
+            (rows[rowIndex] as any)[fieldName] = value.trim();
           }
         }
       });
@@ -430,7 +430,7 @@
         <input 
           type="text" 
           readonly 
-          value={activeCell ? `Cell: Row ${rows.findIndex(r => r.id === activeCell.rowId) + 1}, ${columnHeaders.find(h => h.key === activeCell.field)?.label}` : ''} 
+          value={activeCell?.rowId && activeCell?.field ? `Cell: Row ${rows.findIndex(r => r.id === activeCell.rowId) + 1}, ${columnHeaders.find(h => h.key === activeCell.field)?.label}` : ''} 
           class="w-full px-2"
         />
       {:else}

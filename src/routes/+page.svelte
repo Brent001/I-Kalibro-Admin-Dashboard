@@ -9,11 +9,37 @@
   let username = '';
   let password = '';
   let errorMsg = '';
+  let isSubmitting = false;
+  let rememberMe = false;
   const dispatch = createEventDispatcher();
 
   onMount(async () => {
       if (data.redirect) {
           await goto(data.redirect);
+      }
+      
+      // Check for remember me token
+      const rememberMeToken = localStorage.getItem('rememberMe');
+      if (rememberMeToken) {
+        try {
+          isSubmitting = true;
+          const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rememberMeToken })
+          });
+          const result = await res.json();
+          if (result.success) {
+            await goto('/dashboard', { replaceState: true, noScroll: true });
+          } else {
+            localStorage.removeItem('rememberMe');
+          }
+        } catch (err) {
+          console.error('Remember me login failed:', err);
+          localStorage.removeItem('rememberMe');
+        } finally {
+          isSubmitting = false;
+        }
       }
   });
 
@@ -21,15 +47,20 @@
     e.preventDefault();
     errorMsg = '';
     if (username && password) {
+      isSubmitting = true;
       try {
         // Only staff accounts can log in here (admin/staff)
         const res = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({ username, password, rememberMe })
         });
         const result = await res.json();
         if (result.success) {
+          // Store remember me token if checkbox is checked
+          if (rememberMe && result.rememberMeToken) {
+            localStorage.setItem('rememberMe', result.rememberMeToken);
+          }
           // Use optimized redirect: replaceState removes history entry, noScroll skips scroll animation
           await goto('/dashboard', { replaceState: true, noScroll: true });
         } else {
@@ -37,6 +68,8 @@
         }
       } catch (err) {
         errorMsg = 'Network error. Please try again.';
+      } finally {
+        isSubmitting = false;
       }
     }
   }
@@ -129,10 +162,11 @@
               id="remember-me"
               name="remember-me"
               type="checkbox"
+              bind:checked={rememberMe}
               class="h-4 w-4 text-[#0D5C29] focus:ring-[#0D5C29] border-gray-300 rounded"
             />
             <label for="remember-me" class="ml-2 block text-sm text-gray-900">
-              Remember me
+              Remember me for 7 days
             </label>
           </div>
           <div class="text-sm">
@@ -145,9 +179,18 @@
         <div>
           <button
             type="submit"
-            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-[#0D5C29] hover:bg-[#0D5C29]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0D5C29] transition-colors duration-200"
+            disabled={isSubmitting}
+            class="group relative w-full flex items-center justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-[#0D5C29] hover:bg-[#0D5C29]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0D5C29] disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-200"
           >
-            Sign in to Dashboard
+            {#if isSubmitting}
+              <svg class="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Signing in...
+            {:else}
+              Sign in to Dashboard
+            {/if}
           </button>
         </div>
       </form>

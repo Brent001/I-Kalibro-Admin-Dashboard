@@ -112,10 +112,14 @@
 
   // Get statistics
   $: totalLogs = logs.length;
-  $: loginAttempts = logs.filter(l => l.eventType === 'login' || l.eventType === 'failed_login').length;
-  $: failedLogins = logs.filter(l => l.eventType === 'failed_login').length;
-  $: uniqueUsers = new Set(logs.map(l => l.accountId || l.userId)).size;
+  $: loginAttempts = logs.filter((l: any) => l.eventType === 'login' || l.eventType === 'failed_login').length;
+  $: failedLogins = logs.filter((l: any) => l.eventType === 'failed_login').length;
+  $: uniqueUsers = new Set(logs.map((l: any) => l.accountId || l.userId)).size;
 </script>
+
+<svelte:head>
+  <title>Security Logs | E-Kalibro Admin Portal</title>
+</svelte:head>
 
 <div class="space-y-6">
     <!-- Header -->
