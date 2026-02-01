@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { qrCodeToken } from '$lib/server/db/schema/schema.js';
+import { tbl_qr_token } from '$lib/server/db/schema/schema.js';
 import { eq } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 
@@ -16,9 +16,9 @@ export const GET: RequestHandler = async ({ url }) => {
     const type = url.searchParams.get('type');
     let codes;
     if (type && ALLOWED_TYPES.includes(type)) {
-      codes = await db.select().from(qrCodeToken).where(eq(qrCodeToken.type, type));
+      codes = await db.select().from(tbl_qr_token).where(eq(tbl_qr_token.tokenType, type));
     } else {
-      codes = await db.select().from(qrCodeToken);
+      codes = await db.select().from(tbl_qr_token);
     }
     return json({
       success: true,
@@ -47,16 +47,16 @@ export const POST: RequestHandler = async ({ request }) => {
       } else {
         token = `LIBVISIT-${nanoid()}`;
       }
-      const found = await db.select().from(qrCodeToken).where(eq(qrCodeToken.token, token)).limit(1);
+      const found = await db.select().from(tbl_qr_token).where(eq(tbl_qr_token.token, token)).limit(1);
       exists = found.length > 0;
     } while (exists);
 
-    const [inserted] = await db.insert(qrCodeToken).values({ token, type }).returning();
+    const [inserted] = await db.insert(tbl_qr_token).values({ token, tokenType: type, isUsed: false }).returning();
 
     return json({
       success: true,
       token: inserted.token,
-      type: inserted.type
+      tokenType: inserted.tokenType
     }, { status: 201 });
   } catch (err) {
     console.error('Error generating QR code:', err);
@@ -71,7 +71,7 @@ export const DELETE: RequestHandler = async ({ request }) => {
     if (!id) {
       return json({ success: false, message: "QR code id is required." }, { status: 400 });
     }
-    const deleted = await db.delete(qrCodeToken).where(eq(qrCodeToken.id, id)).returning();
+    const deleted = await db.delete(tbl_qr_token).where(eq(tbl_qr_token.id, id)).returning();
     if (deleted.length === 0) {
       return json({ success: false, message: "QR code not found." }, { status: 404 });
     }

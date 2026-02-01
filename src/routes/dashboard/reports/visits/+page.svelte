@@ -3,9 +3,9 @@
   import { slide } from 'svelte/transition';
   import { quintOut } from 'svelte/easing';
 
-  // Add this to get user role from SSR data (if available)
-  export let data: { user?: { role?: string } };
-  $: userRole = data?.user?.role || "";
+  // Add this to get user type from SSR data (if available)
+  export let data: { user?: { userType?: string } };
+  $: userType = data?.user?.userType || "";
 
   let visits: any[] = [];
   let loading = true;

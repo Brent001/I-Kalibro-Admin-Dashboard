@@ -5,7 +5,6 @@
   import { onMount } from "svelte";
 
   let searchTerm = "";
-  let selectedRole = "all";
   let selectedStatus = "all";
   let isAddStaffOpen = false;
   let isEditStaffOpen = false;
@@ -17,7 +16,6 @@
   let errorMsg = "";
   let staffPermissions: { [key: string]: any } = {};
 
-  const roleTypes = ['all', 'admin', 'staff'];
   const statusTypes = ['all', 'active', 'inactive'];
 
   // Permissions list for both add/edit modals
@@ -39,11 +37,10 @@
     try {
       const res = await fetch('/api/staff');
       const data = await res.json();
-      staff = data.data.staff.map((s: any) => ({
+      staff = data.data.map((s: any) => ({
         ...s,
-        tokenVersion: s.tokenVersion ?? 0,
-        createdAt: s.joined ?? s.createdAt,
-        updatedAt: s.updatedAt ?? s.createdAt
+        createdAt: s.createdAt || new Date().toISOString(),
+        updatedAt: s.updatedAt || new Date().toISOString()
       }));
     } catch (err) {
       errorMsg = "Failed to load staff.";
@@ -75,12 +72,11 @@
       member.email?.toLowerCase().includes(search) ||
       member.username?.toLowerCase().includes(search);
 
-    const matchesRole = selectedRole === 'all' || member.role === selectedRole;
     const matchesStatus = selectedStatus === 'all' ||
       (selectedStatus === 'active' && member.isActive) ||
       (selectedStatus === 'inactive' && !member.isActive);
 
-    return matchesSearch && matchesRole && matchesStatus;
+    return matchesSearch && matchesStatus;
   });
 
   function getStatusColor(isActive: boolean) {
@@ -89,15 +85,14 @@
       : 'bg-red-100 text-red-800';
   }
 
-  function getRoleColor(role: string) {
-    switch (role) {
-      case 'admin':
-        return 'bg-purple-100 text-purple-800';
-      case 'staff':
-        return 'bg-blue-100 text-blue-800';
-      default:
-        return 'bg-slate-100 text-slate-800';
-    }
+  function getDepartmentColor(department: string | null) {
+    const colors: { [key: string]: string } = {
+      'library': 'bg-purple-100 text-purple-800',
+      'circulation': 'bg-blue-100 text-blue-800',
+      'reference': 'bg-green-100 text-green-800',
+      'cataloging': 'bg-indigo-100 text-indigo-800'
+    };
+    return department ? (colors[department] || 'bg-slate-100 text-slate-800') : 'bg-slate-100 text-slate-800';
   }
 
   function formatDateTime(dateTimeString: string) {
@@ -177,13 +172,12 @@
         }
       }
 
-      // 2. Update permissions for staff role only
+      // 2. Update permissions for this staff member
       if (
         uniqueId &&
-        selectedStaff?.role === 'staff' &&
         Array.isArray(permissionKeys)
       ) {
-        const permRes = await fetch(`/api/staff/${uniqueId}/edit_permission`, {
+        const permRes = await fetch(`/api/staff/${uniqueId}/permissions`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ permissionKeys })
@@ -380,16 +374,6 @@
       <!-- Filters -->
       <div class="flex flex-col sm:flex-row gap-2">
         <select
-          bind:value={selectedRole}
-          class="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-gray-700 transition-colors duration-200 flex-1 text-sm"
-        >
-          {#each roleTypes as role}
-            <option value={role}>
-              {role === 'all' ? 'All Roles' : role.charAt(0).toUpperCase() + role.slice(1)}
-            </option>
-          {/each}
-        </select>
-        <select
           bind:value={selectedStatus}
           class="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-gray-700 transition-colors duration-200 flex-1 text-sm"
         >
@@ -473,8 +457,8 @@
                   <div class="text-xs text-slate-700">@{member.username}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getRoleColor(member.role)}`}>
-                    {member.role}
+                  <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getDepartmentColor(member.department)}`}>
+                    {member.department || 'General'}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -518,8 +502,8 @@
             <div class="flex-1">
               <h3 class="font-medium text-gray-900 text-sm">{member.name}</h3>
               <div class="flex items-center space-x-2 mt-1">
-                <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getRoleColor(member.role)}`}>
-                  {member.role}
+                <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getDepartmentColor(member.department)}`}>
+                  {member.department || 'General'}
                 </span>
                 <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(member.isActive)}`}>
                   {member.isActive ? 'Active' : 'Inactive'}
@@ -642,24 +626,15 @@
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getRoleColor(member.role)}`}>
-                    {member.role}
+                  <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getDepartmentColor(member.department)}`}>
+                    {member.department || 'General'}
                   </span>
                 </td>
                 <td class="px-6 py-4">
                   <div class="flex flex-wrap gap-2 justify-center">
-                    {#if member.role === 'admin'}
-                      <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                        </svg>
-                        All Permissions
-                      </span>
-                    {:else}
-                      <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        {staffPermissions[member.uniqueId]?.permissionKeys?.length || 0} / {permissionsList.length} permissions
-                      </span>
-                    {/if}
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      {staffPermissions[member.uniqueId]?.permissionKeys?.length || 0} / {permissionsList.length} permissions
+                    </span>
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-center">

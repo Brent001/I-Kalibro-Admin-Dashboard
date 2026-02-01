@@ -142,16 +142,20 @@
       const data: ApiResponse = await response.json();
       if (data.success) {
         // Transform API data to match your frontend expectations
-        books = data.data.books.map((book: ApiBook) => ({
-          ...book,
-          isbn: book.bookId,
-          copies: book.copiesAvailable,
-          available: book.copiesAvailable,
-          published: book.publishedYear?.toString() || 'Unknown',
-          status: book.copiesAvailable > 5 ? 'Available' : 
-                  book.copiesAvailable > 0 ? 'Limited' : 'Unavailable',
-          category: book.categoryId !== undefined ? categoryMap[book.categoryId] || book.category || 'General' : book.category || 'General'
-        }));
+        books = data.data.books.map((book: ApiBook) => {
+          const copies = parseInt(book.copiesAvailable?.toString() || '0', 10);
+          return {
+            ...book,
+            isbn: book.bookId,
+            copiesAvailable: copies,
+            copies: copies,
+            available: copies,
+            published: book.publishedYear?.toString() || 'Unknown',
+            status: copies > 5 ? 'Available' : 
+                    copies > 0 ? 'Limited' : 'Unavailable',
+            category: book.categoryId !== undefined ? categoryMap[book.categoryId] || book.category || 'General' : book.category || 'General'
+          };
+        });
         pagination = data.data.pagination;
       } else {
         throw new Error(data.message || 'Failed to fetch books');
@@ -287,17 +291,19 @@
     }
 
     try {
-      const response = await fetch(`/api/books?id=${bookId}`, {
+      const response = await fetch('/api/books', {
         method: 'DELETE',
-        credentials: 'include'
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: bookId, itemType: 'book' })
       });
 
       const data = await response.json();
       
       if (response.ok && data.success) {
-        // Refresh data
+        // Refresh data with current pagination and filters
         await Promise.all([
-          fetchBooks(),
+          fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
           fetchStats()
         ]);
       } else {
@@ -582,7 +588,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
               </svg>
             </div>
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Available</p>
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Available Copies</p>
             <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.availableCopies}</p>
           </div>
         </div>
@@ -606,7 +612,7 @@
               </svg>
             </div>
             <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Categories</p>
-            <p class="text-lg sm:text-xl font-bold text-gray-900">{categories.length - 1}</p>
+            <p class="text-lg sm:text-xl font-bold text-gray-900">{Math.max(0, stats.categoriesCount)}</p>
           </div>
         </div>
       </div>
@@ -967,12 +973,12 @@
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
                     <div class="mb-2">
-                      <span class="font-semibold">{book.copiesAvailable}</span> available
+                      <span class="font-semibold">{book.copiesAvailable || 0}</span> copies available
                     </div>
                     <div class="w-full bg-slate-200 rounded-full h-2">
                       <div
                         class="bg-green-600 h-2 rounded-full transition-all duration-300"
-                        style="width: {Math.min(book.copiesAvailable * 10, 100)}%"
+                        style="width: {Math.min((book.copiesAvailable || 0) * 10, 100)}%"
                       ></div>
                     </div>
                   </td>
@@ -1053,7 +1059,7 @@
               </span>
               <div class="text-right">
                 <div class="text-sm text-slate-900">
-                  <span class="font-semibold">{book.copiesAvailable}</span> available
+                  <span class="font-semibold">{book.copiesAvailable || 0}</span> copies
                 </div>
               </div>
             </div>
@@ -1062,7 +1068,7 @@
               <div class="w-full bg-slate-200 rounded-full h-2">
                 <div
                   class="bg-green-600 h-2 rounded-full transition-all duration-300"
-                  style="width: {Math.min(book.copiesAvailable * 10, 100)}%"
+                  style="width: {Math.min((book.copiesAvailable || 0) * 10, 100)}%"
                 ></div>
               </div>
             </div>

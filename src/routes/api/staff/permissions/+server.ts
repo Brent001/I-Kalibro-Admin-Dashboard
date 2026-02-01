@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { staffPermission, staffAccount } from '$lib/server/db/schema/schema.js';
+import { tbl_staff_permission, tbl_staff } from '$lib/server/db/schema/schema.js';
 import { eq } from 'drizzle-orm';
 
 // GET: Fetch all staff permissions
@@ -9,15 +9,21 @@ export const GET: RequestHandler = async () => {
   try {
     const permissions = await db
       .select()
-      .from(staffPermission);
+      .from(tbl_staff_permission);
 
-    // Convert to object with uniqueId as key for easier lookup
+    // Convert to object with staffUniqueId as key for easier lookup
     const permissionsMap: Record<string, any> = {};
     permissions.forEach(perm => {
       permissionsMap[perm.staffUniqueId] = {
         id: perm.id,
         staffUniqueId: perm.staffUniqueId,
-        permissionKeys: perm.permissionKeys,
+        canManageBooks: perm.canManageBooks,
+        canManageUsers: perm.canManageUsers,
+        canManageBorrowing: perm.canManageBorrowing,
+        canManageReservations: perm.canManageReservations,
+        canViewReports: perm.canViewReports,
+        canManageFines: perm.canManageFines,
+        customPermissions: perm.customPermissions,
         createdAt: perm.createdAt
       };
     });

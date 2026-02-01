@@ -30,11 +30,22 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
         }
 
         // Use user data from JWT token (no database query needed)
+        // Map userType to role for display purposes
+        const userType = decoded.userType || decoded.role || 'user';
+        const roleMap: { [key: string]: string } = {
+            'super_admin': 'admin',
+            'admin': 'admin',
+            'staff': 'staff',
+            'student': 'student',
+            'faculty': 'faculty'
+        };
+        const role = roleMap[userType] || 'user';
+
         const user = {
             id: userId,
             username: decoded.username,
             email: decoded.email,
-            role: decoded.role,
+            role: role,
             isActive: true
         };
 

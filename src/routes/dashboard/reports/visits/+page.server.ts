@@ -34,7 +34,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
             id: userId,
             username: decoded.username,
             email: decoded.email,
-            role: decoded.role,
+            userType: decoded.userType,
             isActive: true
         };
 
@@ -43,7 +43,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                role: user.role
+                userType: user.userType
             }
         };
 

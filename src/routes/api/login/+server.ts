@@ -1,7 +1,7 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { staffAccount, securityLog } from '$lib/server/db/schema/schema.js'; // updated import
-import { eq } from 'drizzle-orm';
+import { tbl_super_admin, tbl_admin, tbl_staff, tbl_user, tbl_security_log } from '$lib/server/db/schema/schema.js';
+import { eq, or } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt, { type Secret } from 'jsonwebtoken';
 import { z } from 'zod';
@@ -94,9 +94,69 @@ function getBrowserType(userAgent: string | null): string {
     return 'Other';
 }
 
+// Helper to find user across all tables (super_admin, admin, staff, user)
+async function findUserByUsernameOrEmail(usernameOrEmail: string): Promise<{
+    id: number;
+    uniqueId: string;
+    name: string;
+    username: string;
+    email: string;
+    password: string;
+    isActive: boolean;
+    userType: 'super_admin' | 'admin' | 'staff' | 'user';
+} | null> {
+    // Try super_admin
+    const [superAdmin] = await db
+        .select()
+        .from(tbl_super_admin)
+        .where(or(eq(tbl_super_admin.username, usernameOrEmail), eq(tbl_super_admin.email, usernameOrEmail)))
+        .limit(1);
+    
+    if (superAdmin && superAdmin.isActive) {
+        return { id: superAdmin.id, uniqueId: superAdmin.uniqueId!, name: superAdmin.name, username: superAdmin.username, email: superAdmin.email, password: superAdmin.password, isActive: superAdmin.isActive || false, userType: 'super_admin' as const };
+    }
+
+    // Try admin
+    const [admin] = await db
+        .select()
+        .from(tbl_admin)
+        .where(or(eq(tbl_admin.username, usernameOrEmail), eq(tbl_admin.email, usernameOrEmail)))
+        .limit(1);
+    
+    if (admin && admin.isActive) {
+        return { id: admin.id, uniqueId: admin.uniqueId!, name: admin.name, username: admin.username, email: admin.email, password: admin.password, isActive: admin.isActive || false, userType: 'admin' as const };
+    }
+
+    // Try staff
+    const [staff] = await db
+        .select()
+        .from(tbl_staff)
+        .where(or(eq(tbl_staff.username, usernameOrEmail), eq(tbl_staff.email, usernameOrEmail)))
+        .limit(1);
+    
+    if (staff && staff.isActive) {
+        return { id: staff.id, uniqueId: staff.uniqueId!, name: staff.name, username: staff.username, email: staff.email, password: staff.password, isActive: staff.isActive || false, userType: 'staff' as const };
+    }
+
+    // Try user (student/faculty)
+    const [user] = await db
+        .select()
+        .from(tbl_user)
+        .where(or(eq(tbl_user.username, usernameOrEmail), eq(tbl_user.email, usernameOrEmail)))
+        .limit(1);
+    
+    if (user && user.isActive && user.email) {
+        return { id: user.id, uniqueId: user.uniqueId!, name: user.name, username: user.username, email: user.email || '', password: user.password, isActive: user.isActive || false, userType: 'user' as const };
+    }
+
+    return null;
+}
+
 export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
     try {
         const clientIP = getClientAddress();
+        const userAgent = request.headers.get('user-agent');
+        const browserType = getBrowserType(userAgent);
         
         // Check rate limiting
         if (isRateLimited(clientIP)) {
@@ -149,14 +209,10 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                     );
                 }
                 
-                // Fetch user from database
-                const [user] = await db
-                    .select()
-                    .from(staffAccount)
-                    .where(eq(staffAccount.id, decoded.userId))
-                    .limit(1);
+                // Find user across all tables
+                const foundUser = await findUserByUsernameOrEmail(decoded.username);
                 
-                if (!user || !user.isActive) {
+                if (!foundUser || !foundUser.isActive) {
                     return new Response(
                         JSON.stringify({
                             success: false,
@@ -169,7 +225,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 // Create new session from remember me token
                 const sessionId = randomBytes(16).toString('hex');
                 const refreshTokenPayload = {
-                    userId: user.id,
+                    userId: foundUser.id,
                     sessionId: sessionId,
                     tokenType: 'refresh',
                     jti: `${sessionId}-refresh`
@@ -178,17 +234,17 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production', {
                     expiresIn: '30d',
                     issuer: 'kalibro-library',
-                    subject: String(user.id)
+                    subject: String(foundUser.id)
                 });
                 
                 const now = new Date();
                 const timeUntilLogout = getTimeUntilNextLogout();
                 const sessionData = {
                     id: sessionId,
-                    userId: user.id,
+                    userId: foundUser.id,
                     token: undefined,
                     refreshToken: hashToken(refreshToken),
-                    userAgent: request.headers.get('user-agent') || '',
+                    userAgent: userAgent || '',
                     ipAddress: clientIP,
                     createdAt: now,
                     lastUsedAt: now,
@@ -202,14 +258,15 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                         Math.ceil(timeUntilLogout / 1000),
                         JSON.stringify(sessionData)
                     ),
-                    redisClient.sadd(`user:${user.id}:sessions`, sessionId)
+                    redisClient.sadd(`user:${foundUser.id}:sessions`, sessionId)
                 ]);
                 
                 const tokenPayload = {
-                    userId: user.id,
-                    username: user.username,
-                    email: user.email,
-                    role: user.role,
+                    userId: foundUser.id,
+                    uniqueId: foundUser.uniqueId,
+                    username: foundUser.username,
+                    email: foundUser.email,
+                    userType: foundUser.userType,
                     sessionId: sessionId,
                     tokenType: 'access',
                     jti: sessionId
@@ -218,7 +275,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 const token = jwt.sign(tokenPayload, JWT_SECRET as Secret, {
                     expiresIn: '15m',
                     issuer: 'kalibro-library',
-                    subject: String(user.id)
+                    subject: String(foundUser.id)
                 });
                 
                 cookies.set('token', token, {
@@ -237,16 +294,15 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                     maxAge: 30 * 24 * 60 * 60
                 });
                 
-                console.log(`Remember me login: ${user.username} (${user.role}) from ${clientIP}`);
+                console.log(`Remember me login: ${foundUser.username} (${foundUser.userType}) from ${clientIP}`);
                 
                 // Log security event
-                await db.insert(securityLog).values({
-                    staffAccountId: user.id,
-                    userId: null,
+                await db.insert(tbl_security_log).values({
+                    userType: foundUser.userType,
+                    userId: foundUser.id,
                     eventType: 'login',
-                    eventTime: new Date(),
-                    browser: getBrowserType(request.headers.get('user-agent')),
-                    ipAddress: clientIP
+                    ipAddress: clientIP,
+                    userAgent: browserType
                 });
                 
                 return new Response(
@@ -270,15 +326,8 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
         const { username: usernameValue, password: passwordValue } = validationResult.data;
 
-        // Find user in database by username or email (optimized to single query)
-        const [foundUser] = await db
-            .select()
-            .from(staffAccount)
-            .where(
-                // Check both username and email in a single query
-                eq(staffAccount.username, usernameValue) || eq(staffAccount.email, usernameValue)
-            )
-            .limit(1);
+        // Find user across all tables
+        const foundUser = await findUserByUsernameOrEmail(usernameValue);
 
         // Always hash the provided password to prevent timing attacks
         const dummyHash = '$2b$12$dummy.hash.to.prevent.timing.attacks';
@@ -287,23 +336,19 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         // Verify password
         const isValidPassword = await bcrypt.compare(passwordValue, targetHash);
 
-        // Get browser type from user-agent
-        const userAgent = request.headers.get('user-agent');
-        const browserType = getBrowserType(userAgent);
-
         // Check if user exists and password is correct and account is active
         if (!foundUser || !isValidPassword || !foundUser.isActive) {
             recordFailedAttempt(clientIP);
 
             // --- LOG FAILED LOGIN ATTEMPT ---
-            await db.insert(securityLog).values({
-                staffAccountId: foundUser?.id ?? null,
-                userId: null,
+            await db.insert(tbl_security_log).values({
+                userType: foundUser?.userType ?? 'user',
+                userId: foundUser?.id ?? null,
                 eventType: 'failed_login',
-                eventTime: new Date(),
-                browser: browserType,
-                ipAddress: clientIP
-            });
+                ipAddress: clientIP,
+                userAgent: browserType,
+                timestamp: new Date()
+            } as any);
 
             // Generic error message to prevent user enumeration
             return new Response(
@@ -330,7 +375,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         };
         
         const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production', {
-            expiresIn: '30d', // Refresh token: 30 days (extended to handle auto-logout at 3am)
+            expiresIn: '30d',
             issuer: 'kalibro-library',
             subject: String(foundUser.id)
         });
@@ -341,13 +386,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         const sessionData = {
             id: sessionId,
             userId: foundUser.id,
-            token: undefined, // Will be set on token refresh
-            refreshToken: hashToken(refreshToken), // Store HASHED refresh token
-            userAgent: request.headers.get('user-agent') || '',
+            userType: foundUser.userType,
+            token: undefined,
+            refreshToken: hashToken(refreshToken),
+            userAgent: userAgent || '',
             ipAddress: clientIP,
             createdAt: now,
             lastUsedAt: now,
-            expiresAt: new Date(now.getTime() + timeUntilLogout), // Auto-logout at next 3:00 AM
+            expiresAt: new Date(now.getTime() + timeUntilLogout),
             isActive: true
         };
         
@@ -355,7 +401,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         await Promise.all([
             redisClient.setex(
                 `session:${sessionId}`,
-                Math.ceil(timeUntilLogout / 1000), // Convert to seconds
+                Math.ceil(timeUntilLogout / 1000),
                 JSON.stringify(sessionData)
             ),
             redisClient.sadd(`user:${foundUser.id}:sessions`, sessionId)
@@ -364,16 +410,17 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         // Create JWT token with sessionId included
         const tokenPayload = {
             userId: foundUser.id,
+            uniqueId: foundUser.uniqueId,
             username: foundUser.username,
             email: foundUser.email,
-            role: foundUser.role,
-            sessionId: sessionId, // IMPORTANT: Include sessionId for logout-all-devices tracking
+            userType: foundUser.userType,
+            sessionId: sessionId,
             tokenType: 'access',
-            jti: sessionId // JWT ID matches sessionId
+            jti: sessionId
         };
         
         const token = jwt.sign(tokenPayload, JWT_SECRET as Secret, {
-            expiresIn: '15m', // Access token: 15 minutes
+            expiresIn: '15m',
             issuer: 'kalibro-library',
             subject: String(foundUser.id)
         });
@@ -384,7 +431,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             httpOnly: true,
             sameSite: 'strict',
             secure: process.env.NODE_ENV === 'production',
-            maxAge: 15 * 60 // 15 minutes
+            maxAge: 15 * 60
         });
         
         cookies.set('refresh_token', refreshToken, {
@@ -392,27 +439,28 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             httpOnly: true,
             sameSite: 'strict',
             secure: process.env.NODE_ENV === 'production',
-            maxAge: 30 * 24 * 60 * 60 // 30 days (extended to handle auto-logout at 3am)
+            maxAge: 30 * 24 * 60 * 60
         });
 
         // Log successful login (don't log password or sensitive data)
-        console.log(`Successful login: ${foundUser.username} (${foundUser.role}) from ${clientIP}`);
+        console.log(`Successful login: ${foundUser.username} (${foundUser.userType}) from ${clientIP}`);
 
         // Log security event
-        await db.insert(securityLog).values({
-            staffAccountId: foundUser.id,
-            userId: null,
+        await db.insert(tbl_security_log).values({
+            userType: foundUser.userType,
+            userId: foundUser.id,
             eventType: 'login',
-            eventTime: new Date(),
-            browser: browserType,
-            ipAddress: clientIP
-        });
+            ipAddress: clientIP,
+            userAgent: browserType,
+            timestamp: new Date()
+        } as any);
 
         // Generate remember me token if checkbox is checked (7 days)
         let rememberMeTokenToReturn: string | undefined;
         if (rememberMe) {
             const rememberMePayload = {
                 userId: foundUser.id,
+                uniqueId: foundUser.uniqueId,
                 username: foundUser.username,
                 tokenType: 'remember_me',
                 jti: randomBytes(16).toString('hex')
@@ -467,21 +515,10 @@ export const GET: RequestHandler = async ({ request }) => {
         const token = authHeader.substring(7);
         const decoded = jwt.verify(token, JWT_SECRET) as any;
 
-        // Optionally verify user still exists and is active
-        const [user] = await db
-            .select({
-                id: staffAccount.id, // changed from account
-                name: staffAccount.name,
-                username: staffAccount.username,
-                email: staffAccount.email,
-                role: staffAccount.role,
-                isActive: staffAccount.isActive
-            })
-            .from(staffAccount) // changed from account
-            .where(eq(staffAccount.id, decoded.userId)) // changed from account
-            .limit(1);
+        // Find user across all tables
+        const foundUser = await findUserByUsernameOrEmail(decoded.username);
 
-        if (!user || !user.isActive) {
+        if (!foundUser || !foundUser.isActive) {
             return new Response(
                 JSON.stringify({ success: false, message: 'Invalid token' }),
                 { status: 401, headers: { 'Content-Type': 'application/json' } }
@@ -491,7 +528,14 @@ export const GET: RequestHandler = async ({ request }) => {
         return new Response(
             JSON.stringify({
                 success: true,
-                user
+                user: {
+                    id: foundUser.id,
+                    name: foundUser.name,
+                    username: foundUser.username,
+                    email: foundUser.email,
+                    userType: foundUser.userType,
+                    isActive: foundUser.isActive
+                }
             }),
             { status: 200, headers: { 'Content-Type': 'application/json' } }
         );

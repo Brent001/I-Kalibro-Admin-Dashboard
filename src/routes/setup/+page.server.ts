@@ -1,7 +1,7 @@
 import type { PageServerLoad, Actions } from './$types.js';
 import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { staffAccount } from '$lib/server/db/schema/schema.js'; // updated import
+import { tbl_super_admin } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
@@ -51,7 +51,7 @@ async function isSetupCompleted(): Promise<boolean> {
     try {
         const [{ userCount }] = await db
             .select({ userCount: count() })
-            .from(staffAccount); // updated
+            .from(tbl_super_admin);
         
         return userCount > 0;
     } catch (error) {
@@ -89,13 +89,13 @@ function validateFormData(formFields: Record<string, string>): ValidationResult 
 async function checkDuplicates(email: string, username: string) {
     try {
         const [emailExists, usernameExists] = await Promise.all([
-            db.select({ id: staffAccount.id })
-                .from(staffAccount) // updated
-                .where(eq(staffAccount.email, email)) // updated
+            db.select({ id: tbl_super_admin.id })
+                .from(tbl_super_admin)
+                .where(eq(tbl_super_admin.email, email))
                 .limit(1),
-            db.select({ id: staffAccount.id })
-                .from(staffAccount) // updated
-                .where(eq(staffAccount.username, username)) // updated
+            db.select({ id: tbl_super_admin.id })
+                .from(tbl_super_admin)
+                .where(eq(tbl_super_admin.username, username))
                 .limit(1)
         ]);
 
@@ -138,21 +138,19 @@ async function createAdminAccount(
 ) {
     try {
         const [admin] = await db
-            .insert(staffAccount) // updated
+            .insert(tbl_super_admin)
             .values({
                 name,
                 email,
                 username,
                 password: hashedPassword,
-                role: 'admin',
                 isActive: true
             })
             .returning({
-                id: staffAccount.id, // updated
-                name: staffAccount.name,
-                email: staffAccount.email,
-                username: staffAccount.username,
-                role: staffAccount.role
+                id: tbl_super_admin.id,
+                name: tbl_super_admin.name,
+                email: tbl_super_admin.email,
+                username: tbl_super_admin.username
             });
 
         return admin;
@@ -163,16 +161,11 @@ async function createAdminAccount(
 }
 
 // Page load
-export const load: PageServerLoad = async ({ locals }) => {
-    // If user is already authenticated, redirect to dashboard
-    if (locals.user) {
-        throw redirect(302, '/');
-    }
-
+export const load: PageServerLoad = async () => {
     const setupCompleted = await isSetupCompleted();
     
     if (setupCompleted) {
-        // Redirect to login if setup is completed but not authenticated
+        // Redirect to login if setup is completed
         throw redirect(302, '/');
     }
 
@@ -249,18 +242,17 @@ export const actions: Actions = {
             // Create admin account
             const admin = await createAdminAccount(name, email, username, hashedPassword);
 
-            console.log(`[Setup] Admin account created successfully: ${admin.email} (ID: ${admin.id})`);
+            console.log(`[Setup] Super admin account created successfully: ${admin.email} (ID: ${admin.id})`);
 
             // Return success response - let the client handle redirect
             return {
                 success: true,
-                message: 'Admin account created successfully',
+                message: 'Super admin account created successfully',
                 admin: {
                     id: admin.id,
                     name: admin.name,
                     email: admin.email,
-                    username: admin.username,
-                    role: admin.role
+                    username: admin.username
                 }
             };
 

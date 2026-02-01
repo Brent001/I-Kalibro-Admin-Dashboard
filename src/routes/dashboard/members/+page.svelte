@@ -55,7 +55,29 @@
       const res = await fetch('/api/user');
       const data = await res.json();
       if (res.ok && data.success) {
-        members = data.data.members;
+        // Map API response to component data structure
+        members = (data.users || []).map((user: any) => ({
+          id: user.id,
+          uniqueId: user.uniqueId,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          username: user.username,
+          isActive: user.isActive,
+          type: user.userType === 'student' ? 'Student' : user.userType === 'faculty' ? 'Faculty' : user.userType,
+          // Student fields
+          enrollmentNo: user.studentData?.enrollmentNo || '',
+          course: user.studentData?.course || '',
+          year: user.studentData?.year || '',
+          department: user.studentData?.department || user.facultyData?.department || '',
+          gender: user.studentData?.gender || user.facultyData?.gender || '',
+          age: user.studentData?.age || user.facultyData?.age || '',
+          // Faculty fields
+          facultyNumber: user.facultyData?.facultyNumber || '',
+          designation: user.facultyData?.position || '',
+          // Default empty booksCount
+          booksCount: 0
+        }));
       } else {
         errorMsg = data.message || "Failed to load members.";
       }
@@ -139,10 +161,15 @@
   async function handleMemberAdded(event: CustomEvent<any>) {
     const member = event.detail;
     try {
+      // Convert type to userType for API
+      const payload = {
+        ...member,
+        userType: member.type?.toLowerCase() === 'student' ? 'student' : 'faculty'
+      };
       const res = await fetch('/api/user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(member)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -165,7 +192,7 @@
       name: member.name || '',
       email: member.email || '',
       phone: member.phone || '',
-      age: member.age || '',
+      age: member.age ? String(member.age) : '',
       enrollmentNo: member.enrollmentNo || '',
       course: member.course || '',
       year: member.year || '',
@@ -304,7 +331,8 @@
       {#if userRole === 'admin'}
       <button
         on:click={openAddModal}
-        class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-green-900 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-200"
+        class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-200"
+        style="background-color: #0D5C29"
       >
         <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
@@ -353,70 +381,72 @@
     {/if}
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-green-100 rounded-xl">
-            <!-- Total: Group/People Icon -->
-            <svg class="h-6 w-6 text-green-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
-            </svg>
+    {#if loading && members.length === 0}
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {#each Array(4) as _, i}
+          <div class="group relative bg-white rounded-xl shadow-sm border border-slate-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+            <div class="animate-pulse flex flex-col items-center">
+              <div class="h-10 w-10 bg-slate-200 rounded-lg mb-3"></div>
+              <div class="h-6 w-16 bg-slate-200 rounded mb-2"></div>
+              <div class="h-3 w-20 bg-slate-200 rounded"></div>
+            </div>
           </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Total</p>
-            <p class="text-2xl font-bold text-slate-900">{members.length}</p>
+        {/each}
+      </div>
+    {:else}
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="group relative bg-white rounded-xl shadow-sm border border-slate-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+          <div class="flex flex-col items-center text-center">
+            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-green-400 to-green-600 shadow-sm">
+              <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+              </svg>
+            </div>
+            <p class="text-xs font-medium text-slate-600 uppercase tracking-wider mb-1">Total Members</p>
+            <p class="text-lg sm:text-xl font-bold text-slate-900">{members.length}</p>
+          </div>
+        </div>
+        <div class="group relative bg-white rounded-xl shadow-sm border border-slate-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+          <div class="flex flex-col items-center text-center">
+            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-green-400 to-green-600 shadow-sm">
+              <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/>
+              </svg>
+            </div>
+            <p class="text-xs font-medium text-slate-600 uppercase tracking-wider mb-1">Active</p>
+            <p class="text-lg sm:text-xl font-bold text-slate-900">{members.filter(m => m.isActive).length}</p>
+          </div>
+        </div>
+        <div class="group relative bg-white rounded-xl shadow-sm border border-slate-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+          <div class="flex flex-col items-center text-center">
+            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-green-400 to-green-600 shadow-sm">
+              <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="8" r="4"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/>
+              </svg>
+            </div>
+            <p class="text-xs font-medium text-slate-600 uppercase tracking-wider mb-1">Students</p>
+            <p class="text-lg sm:text-xl font-bold text-slate-900">{members.filter(m => m.type === 'Student').length}</p>
+          </div>
+        </div>
+        <div class="group relative bg-white rounded-xl shadow-sm border border-slate-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+          <div class="flex flex-col items-center text-center">
+            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-amber-400 to-amber-600 shadow-sm">
+              <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="2" y="7" width="20" height="14" rx="2"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16 3v4M8 3v4"/>
+              </svg>
+            </div>
+            <p class="text-xs font-medium text-slate-600 uppercase tracking-wider mb-1">Faculty</p>
+            <p class="text-lg sm:text-xl font-bold text-slate-900">{members.filter(m => m.type === 'Faculty').length}</p>
           </div>
         </div>
       </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-yellow-100 rounded-xl">
-            <!-- Active: Check Circle Icon -->
-            <svg class="h-6 w-6 text-yellow-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/>
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Active</p>
-            <p class="text-2xl font-bold text-slate-900">{members.filter(m => m.isActive).length}</p>
-          </div>
-        </div>
-      </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-green-100 rounded-xl">
-            <!-- Students: Person Icon -->
-            <svg class="h-6 w-6 text-green-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="12" cy="8" r="4"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 20v-2a6 6 0 0112 0v2"/>
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Students</p>
-            <p class="text-2xl font-bold text-slate-900">{members.filter(m => m.type === 'Student').length}</p>
-          </div>
-        </div>
-      </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-amber-100 rounded-xl">
-            <!-- Faculty & Staff: Briefcase Icon -->
-            <svg class="h-6 w-6 text-amber-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <rect x="2" y="7" width="20" height="14" rx="2"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16 3v4M8 3v4"/>
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Faculty & Staff</p>
-            <p class="text-2xl font-bold text-slate-900">{members.filter(m => m.type === 'Faculty' || m.type === 'Staff').length}</p>
-          </div>
-        </div>
-      </div>
-    </div>
+    {/if}
 
     <!-- Filters and Search -->
-    <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
+    <div class="bg-white p-4 lg:p-6 rounded-xl shadow-lg border border-slate-200">
       <div class="flex flex-col lg:flex-row gap-4">
         <div class="flex-1">
           <div class="relative">
@@ -428,12 +458,12 @@
               type="text"
               placeholder="Search by name, email, or ID..."
               bind:value={searchTerm}
-              class="pl-10 pr-4 py-3 w-full border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors duration-200"
+              class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200"
               disabled={loading}
             />
             {#if loading}
               <div class="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <div class="animate-spin rounded-full h-4 w-4 border-2 border-green-300 border-t-green-600"></div>
+                <div class="animate-spin rounded-full h-4 w-4 border-2 border-slate-300 border-t-slate-600"></div>
               </div>
             {/if}
           </div>
@@ -441,7 +471,7 @@
         <div>
           <select
             bind:value={selectedType}
-            class="px-4 py-3 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-slate-700 transition-colors duration-200"
+            class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200"
             disabled={loading}
           >
             {#each memberTypes as type}
@@ -542,10 +572,10 @@
 
     <!-- Desktop Table View -->
     {#if !loading || members.length > 0}
-      <div class="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
+      <div class="bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
         <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-green-200">
-            <thead class="bg-green-50">
+          <table class="min-w-full divide-y divide-slate-200">
+            <thead class="bg-slate-50">
               <tr>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Member Details
@@ -567,9 +597,9 @@
                 </th>
               </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-green-100">
+            <tbody class="bg-white divide-y divide-slate-100">
               {#each filteredMembers as member}
-                <tr class="hover:bg-green-50 transition-colors duration-200">
+                <tr class="hover:bg-slate-50 transition-colors duration-200">
                   <td class="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div class="text-sm font-semibold text-slate-900">{member.username}</div>
@@ -642,7 +672,7 @@
     {#if !loading || members.length > 0}
       <div class="grid grid-cols-1 gap-4 lg:hidden">
         {#each filteredMembers as member}
-          <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          <div class="bg-white p-4 rounded-xl shadow-lg border border-slate-200">
             <div class="flex items-start justify-between mb-3">
               <div class="flex-1 min-w-0">
                 <h3 class="text-base font-semibold text-slate-900 truncate">{member.name}</h3>
@@ -727,22 +757,22 @@
     {/if}
 
     <!-- Pagination -->
-    <div class="bg-white px-4 lg:px-6 py-4 border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="bg-white px-4 lg:px-6 py-4 border border-amber-200 rounded-xl shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
       <div class="text-sm text-slate-700 order-2 sm:order-1">
         Showing <span class="font-semibold">1</span> to <span class="font-semibold">{filteredMembers.length}</span> of
         <span class="font-semibold">{filteredMembers.length}</span> results
       </div>
       <nav class="relative z-0 inline-flex rounded-lg shadow-sm -space-x-px order-1 sm:order-2">
-        <button class="relative inline-flex items-center px-3 py-2 border border-green-300 text-sm font-medium rounded-l-lg text-green-500 bg-white hover:bg-green-50 transition-colors duration-200">
+        <button class="relative inline-flex items-center px-3 py-2 border border-amber-300 text-sm font-medium rounded-l-lg text-slate-500 bg-white hover:bg-yellow-50 transition-colors duration-200">
           <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
           </svg>
           <span class="hidden sm:inline">Previous</span>
         </button>
-        <button class="relative inline-flex items-center px-4 py-2 border border-green-300 text-sm font-medium text-slate-700 bg-green-50" disabled>
+        <button class="relative inline-flex items-center px-4 py-2 border border-amber-300 text-sm font-medium text-slate-700 bg-yellow-50" disabled>
           1
         </button>
-        <button class="relative inline-flex items-center px-3 py-2 border border-green-300 text-sm font-medium rounded-r-lg text-green-500 bg-white hover:bg-green-50 transition-colors duration-200">
+        <button class="relative inline-flex items-center px-3 py-2 border border-amber-300 text-sm font-medium rounded-r-lg text-slate-500 bg-white hover:bg-yellow-50 transition-colors duration-200">
           <span class="hidden sm:inline">Next</span>
           <svg class="h-4 w-4 ml-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>

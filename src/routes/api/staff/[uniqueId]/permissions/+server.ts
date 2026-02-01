@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { staffPermission, staffAccount } from '$lib/server/db/schema/schema.js';
+import { tbl_staff_permission, tbl_staff } from '$lib/server/db/schema/schema.js';
 import { eq } from 'drizzle-orm';
 
 // PATCH: Update staff permissions
@@ -9,7 +9,7 @@ export const PATCH: RequestHandler = async ({ request, params }) => {
   try {
     const { uniqueId } = params;
     const body = await request.json();
-    const { permissionKeys } = body;
+    const { canManageBooks, canManageUsers, canManageBorrowing, canManageReservations, canViewReports, canManageFines, customPermissions } = body;
 
     if (!uniqueId) {
       return json(
@@ -18,18 +18,11 @@ export const PATCH: RequestHandler = async ({ request, params }) => {
       );
     }
 
-    if (!Array.isArray(permissionKeys)) {
-      return json(
-        { success: false, message: 'Permission keys must be an array' },
-        { status: 400 }
-      );
-    }
-
     // Verify staff member exists
     const staff = await db
       .select()
-      .from(staffAccount)
-      .where(eq(staffAccount.uniqueId, uniqueId));
+      .from(tbl_staff)
+      .where(eq(tbl_staff.uniqueId, uniqueId));
 
     if (staff.length === 0) {
       return json(
@@ -38,54 +31,47 @@ export const PATCH: RequestHandler = async ({ request, params }) => {
       );
     }
 
-    // Only allow staff role to have restricted permissions
-    if (staff[0].role === 'admin') {
-      return json(
-        { success: false, message: 'Admin roles cannot have restricted permissions' },
-        { status: 403 }
-      );
-    }
+    const staffMember = staff[0];
 
     // Check if permission record exists
     const existingPermission = await db
       .select()
-      .from(staffPermission)
-      .where(eq(staffPermission.staffUniqueId, uniqueId));
+      .from(tbl_staff_permission)
+      .where(eq(tbl_staff_permission.staffUniqueId, uniqueId));
 
-    let result;
-
+    // Update or insert permissions
     if (existingPermission.length > 0) {
-      // Update existing permission record
-      result = await db
-        .update(staffPermission)
+      await db.update(tbl_staff_permission)
         .set({
-          permissionKeys: permissionKeys
+          canManageBooks: canManageBooks ?? existingPermission[0].canManageBooks,
+          canManageUsers: canManageUsers ?? existingPermission[0].canManageUsers,
+          canManageBorrowing: canManageBorrowing ?? existingPermission[0].canManageBorrowing,
+          canManageReservations: canManageReservations ?? existingPermission[0].canManageReservations,
+          canViewReports: canViewReports ?? existingPermission[0].canViewReports,
+          canManageFines: canManageFines ?? existingPermission[0].canManageFines,
+          customPermissions: customPermissions ?? existingPermission[0].customPermissions
         })
-        .where(eq(staffPermission.staffUniqueId, uniqueId))
-        .returning();
+        .where(eq(tbl_staff_permission.staffUniqueId, uniqueId));
     } else {
-      // Create new permission record
-      result = await db
-        .insert(staffPermission)
-        .values({
-          staffUniqueId: uniqueId,
-          permissionKeys: permissionKeys
-        })
-        .returning();
+      await db.insert(tbl_staff_permission).values({
+        staffUniqueId: uniqueId,
+        canManageBooks: canManageBooks ?? false,
+        canManageUsers: canManageUsers ?? false,
+        canManageBorrowing: canManageBorrowing ?? false,
+        canManageReservations: canManageReservations ?? false,
+        canViewReports: canViewReports ?? false,
+        canManageFines: canManageFines ?? false,
+        customPermissions: customPermissions ?? null
+      });
     }
 
     return json({
       success: true,
-      message: 'Staff permissions updated successfully',
-      data: {
-        staffUniqueId: uniqueId,
-        permissionKeys: permissionKeys,
-        updatedAt: new Date().toISOString()
-      }
+      message: 'Permissions updated successfully'
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error updating staff permissions:', err);
-    throw error(500, { message: 'Failed to update staff permissions' });
+    throw error(500, { message: 'Failed to update permissions' });
   }
 };
 
@@ -103,15 +89,21 @@ export const GET: RequestHandler = async ({ params }) => {
 
     const permission = await db
       .select()
-      .from(staffPermission)
-      .where(eq(staffPermission.staffUniqueId, uniqueId));
+      .from(tbl_staff_permission)
+      .where(eq(tbl_staff_permission.staffUniqueId, uniqueId));
 
     if (permission.length === 0) {
       return json({
         success: true,
         data: {
           staffUniqueId: uniqueId,
-          permissionKeys: []
+          canManageBooks: false,
+          canManageUsers: false,
+          canManageBorrowing: false,
+          canManageReservations: false,
+          canViewReports: false,
+          canManageFines: false,
+          customPermissions: null
         }
       });
     }

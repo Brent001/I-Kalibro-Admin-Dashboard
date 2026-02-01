@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { staffAccount, staffPermission } from '$lib/server/db/schema/schema.js';
+import { tbl_staff, tbl_staff_permission } from '$lib/server/db/schema/schema.js';
 import { eq } from 'drizzle-orm';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -11,33 +11,44 @@ export const GET: RequestHandler = async ({ params }) => {
     throw error(400, { message: 'Missing staff unique_id' });
   }
 
-  // Fetch staff account to check role
+  // Fetch staff to check if exists
   const staff = await db
-    .select({ role: staffAccount.role })
-    .from(staffAccount)
-    .where(eq(staffAccount.uniqueId, unique_id))
+    .select({ id: tbl_staff.id })
+    .from(tbl_staff)
+    .where(eq(tbl_staff.uniqueId, unique_id))
     .limit(1);
 
   if (staff.length === 0) {
     throw error(404, { message: 'Staff not found' });
   }
 
-  const role = staff[0].role;
+  // Fetch permissions
+  const result = await db
+    .select()
+    .from(tbl_staff_permission)
+    .where(eq(tbl_staff_permission.staffId, staff[0].id))
+    .limit(1);
 
-  if (role === 'admin') {
-    // Admin: no restriction, return empty array or all permissions if you want
+  if (result.length === 0) {
     return json({
       success: true,
-      data: []
+      data: {
+        canManageBooks: false,
+        canManageUsers: false,
+        canManageBorrowing: false,
+        canManageReservations: false,
+        canViewReports: false,
+        canManageFines: false,
+        customPermissions: null
+      }
     });
   }
 
-  if (role === 'staff') {
-    // Staff: fetch permission keys
-    const result = await db
-      .select({ permissionKeys: staffPermission.permissionKeys })
-      .from(staffPermission)
-      .where(eq(staffPermission.staffUniqueId, unique_id))
+  return json({
+    success: true,
+    data: result[0]
+  });
+};
       .limit(1);
 
     if (result.length === 0) {

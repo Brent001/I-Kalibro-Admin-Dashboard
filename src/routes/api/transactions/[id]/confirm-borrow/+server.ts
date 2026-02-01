@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { bookReservation, bookBorrowing, staffAccount } from '$lib/server/db/schema/schema.js';
+import { tbl_book_borrowing, tbl_staff } from '$lib/server/db/schema/schema.js';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -51,11 +51,11 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     throw error(401, { message: 'Invalid token payload.' });
   }
 
-  // Get staff account from database
+  // Get staff from database
   const staffDb = await db
     .select()
-    .from(staffAccount)
-    .where(eq(staffAccount.id, staffId))
+    .from(tbl_staff)
+    .where(eq(tbl_staff.id, staffId))
     .limit(1);
 
   if (!staffDb.length || !staffDb[0].isActive) {
@@ -86,42 +86,37 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     throw error(401, { message: 'Invalid staff password.' });
   }
 
-  // Find reservation
+  // Get borrowing record from params
   const id = Number(params.id);
-  if (!id) throw error(400, { message: 'Invalid reservation ID' });
+  if (!id) throw error(400, { message: 'Invalid borrowing ID' });
 
-  const [reservation] = await db
+  const [borrowing] = await db
     .select()
-    .from(bookReservation)
-    .where(eq(bookReservation.id, id))
+    .from(tbl_book_borrowing)
+    .where(eq(tbl_book_borrowing.id, id))
     .limit(1);
 
-  if (!reservation) throw error(404, { message: 'Reservation not found' });
-  if (reservation.status !== 'active') throw error(400, { message: 'Reservation not active' });
+  if (!borrowing) throw error(404, { message: 'Borrowing record not found' });
+  if (borrowing.status !== 'pending') throw error(400, { message: 'Borrowing not in pending status' });
 
-  // Create borrowing record
+  // Update borrowing record with confirmed status
   const today = new Date();
   let dueDate: Date;
   if (customDueDate) {
     dueDate = new Date(customDueDate);
   } else {
     dueDate = new Date(today);
-    dueDate.setDate(today.getDate() + 1);
+    dueDate.setDate(today.getDate() + 14); // Default 14 days
     dueDate.setHours(8, 0, 0, 0); // Set to 8:00 AM
   }
 
-  await db.insert(bookBorrowing).values({
-    userId: reservation.userId,
-    bookId: reservation.bookId,
-    borrowDate: today,
-    dueDate: dueDate,
-    status: 'borrowed'
-  });
-
-  // Delete reservation after borrowing
-  await db
-    .delete(bookReservation)
-    .where(eq(bookReservation.id, id));
+  await db.update(tbl_book_borrowing)
+    .set({
+      dueDate: dueDate,
+      status: 'borrowed',
+      approvedBy: staffId
+    })
+    .where(eq(tbl_book_borrowing.id, id));
 
   return json({ success: true });
 };

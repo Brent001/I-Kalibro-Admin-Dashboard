@@ -124,9 +124,10 @@ export const GET: RequestHandler = async ({ request, getClientAddress, cookies }
         // The JWT already contains all necessary user info
         const user = {
             id: userId,
+            uniqueId: decoded.uniqueId,
             username: decoded.username,
             email: decoded.email,
-            role: decoded.role,
+            userType: decoded.userType,
             isActive: true  // If token is valid, user is active
         };
 
@@ -136,9 +137,10 @@ export const GET: RequestHandler = async ({ request, getClientAddress, cookies }
             data: {
                 user: {
                     id: user.id,
+                    uniqueId: user.uniqueId,
                     username: user.username,
                     email: user.email,
-                    role: user.role,
+                    userType: user.userType,
                     isActive: user.isActive
                 },
                 sessionInfo: {

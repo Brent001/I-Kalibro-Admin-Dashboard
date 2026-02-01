@@ -1,294 +1,284 @@
+// src/routes/api/staff/+server.ts - Staff management with new role hierarchy
+
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
+import jwt from 'jsonwebtoken';
+import { eq, and } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
-import { staffAccount, staffPermission } from '$lib/server/db/schema/schema.js';
-import { eq, count } from 'drizzle-orm';
+import {
+    tbl_staff,
+    tbl_staff_permission,
+    tbl_admin,
+    tbl_super_admin
+} from '$lib/server/db/schema/schema.js';
 import bcrypt from 'bcrypt';
+import { isSessionRevoked } from '$lib/server/db/auth.js';
+import { randomBytes } from 'crypto';
 
-// GET: Return all staff (admin and staff roles)
-export const GET: RequestHandler = async () => {
-  try {
-    const staffList = await db
-      .select()
-      .from(staffAccount);
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
-    const staff = staffList
-      .filter(a => a.role === 'admin' || a.role === 'staff')
-      .map(a => ({
-        id: a.id,
-        uniqueId: a.uniqueId,
-        name: a.name,
-        email: a.email,
-        username: a.username,
-        role: a.role,
-        isActive: a.isActive,
-        joined: a.createdAt,
-      }));
+interface AuthenticatedUser {
+    id: number;
+    userType: 'super_admin' | 'admin' | 'staff';
+}
 
-    return json({
-      success: true,
-      data: { staff }
-    });
-  } catch (err) {
-    console.error('Error fetching staff:', err);
-    throw error(500, { message: 'Internal server error' });
-  }
+async function authenticateUser(request: Request): Promise<AuthenticatedUser | null> {
+    try {
+        let token: string | null = null;
+
+        const authHeader = request.headers.get('authorization');
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.substring(7);
+        }
+
+        if (!token) {
+            const cookieHeader = request.headers.get('cookie');
+            if (cookieHeader) {
+                const cookies = Object.fromEntries(
+                    cookieHeader.split('; ').map(c => c.split('='))
+                );
+                token = cookies.token;
+            }
+        }
+
+        if (!token || await isSessionRevoked(token)) return null;
+
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        const userId = decoded.userId;
+
+        if (!userId) return null;
+
+        // Check super_admin
+        const [superAdmin] = await db
+            .select({ id: tbl_super_admin.id })
+            .from(tbl_super_admin)
+            .where(and(eq(tbl_super_admin.id, userId), eq(tbl_super_admin.isActive, true)))
+            .limit(1);
+
+        if (superAdmin) return { id: userId, userType: 'super_admin' };
+
+        // Check admin
+        const [admin] = await db
+            .select({ id: tbl_admin.id })
+            .from(tbl_admin)
+            .where(and(eq(tbl_admin.id, userId), eq(tbl_admin.isActive, true)))
+            .limit(1);
+
+        if (admin) return { id: userId, userType: 'admin' };
+
+        // Check staff
+        const [staff] = await db
+            .select({ id: tbl_staff.id })
+            .from(tbl_staff)
+            .where(and(eq(tbl_staff.id, userId), eq(tbl_staff.isActive, true)))
+            .limit(1);
+
+        if (staff) return { id: userId, userType: 'staff' };
+
+        return null;
+    } catch (err) {
+        console.error('Auth error:', err);
+        return null;
+    }
+}
+
+// GET - Fetch all staff members
+export const GET: RequestHandler = async ({ request }) => {
+    try {
+        const user = await authenticateUser(request);
+        if (!user || !['super_admin', 'admin'].includes(user.userType)) {
+            throw error(401, { message: 'Unauthorized' });
+        }
+
+        const staffMembers = await db
+            .select()
+            .from(tbl_staff)
+            .where(eq(tbl_staff.isActive, true));
+
+        // Fetch permissions for each staff member
+        const staffWithPermissions = await Promise.all(
+            staffMembers.map(async (staff) => {
+                const [permissions] = await db
+                    .select()
+                    .from(tbl_staff_permission)
+                    .where(eq(tbl_staff_permission.staffUniqueId, staff.uniqueId))
+                    .limit(1);
+
+                return {
+                    ...staff,
+                    permissions: permissions || null
+                };
+            })
+        );
+
+        return json({
+            success: true,
+            data: staffWithPermissions
+        });
+    } catch (err: any) {
+        console.error('GET /api/staff error:', err);
+        return json(
+            { success: false, message: err.message || 'Failed to fetch staff' },
+            { status: err.status || 500 }
+        );
+    }
 };
 
-// POST: Add new staff (admin or staff)
+// POST - Create new staff member
 export const POST: RequestHandler = async ({ request }) => {
-  try {
-    const body = await request.json();
-    const { name, email, username, password, role, permissionKeys } = body;
+    try {
+        const user = await authenticateUser(request);
+        if (!user || !['super_admin', 'admin'].includes(user.userType)) {
+            throw error(401, { message: 'Unauthorized' });
+        }
 
-    if (!name || !email || !username || !password || !role) {
-      return new Response(
-        JSON.stringify({ message: 'Missing required fields: name, email, username, password, role' }),
-        { status: 400 }
-      );
+        const body = await request.json();
+        const {
+            name,
+            email,
+            username,
+            password,
+            department,
+            position,
+            permissions
+        } = body;
+
+        if (!name || !email || !username || !password) {
+            throw error(400, { message: 'name, email, username, and password are required' });
+        }
+
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const uniqueId = randomBytes(18).toString('hex');
+
+        const [staff] = await db
+            .insert(tbl_staff)
+            .values({
+                uniqueId,
+                name,
+                email,
+                username,
+                password: hashedPassword,
+                department: department || null,
+                position: position || null,
+                isActive: true
+            })
+            .returning();
+
+        // Create default permissions if not provided
+        const staffPermissions = permissions || {
+            canManageBooks: false,
+            canManageUsers: false,
+            canManageBorrowing: true,
+            canManageReservations: true,
+            canViewReports: false,
+            canManageFines: true,
+            customPermissions: []
+        };
+
+        const [perm] = await db
+            .insert(tbl_staff_permission)
+            .values({
+                staffUniqueId: uniqueId,
+                ...staffPermissions
+            })
+            .returning();
+
+        return json({
+            success: true,
+            message: 'Staff member created successfully',
+            data: { ...staff, permissions: perm }
+        });
+    } catch (err: any) {
+        console.error('POST /api/staff error:', err);
+        return json(
+            { success: false, message: err.message || 'Failed to create staff' },
+            { status: err.status || 500 }
+        );
     }
-
-    if (!['admin', 'staff'].includes(role)) {
-      throw error(400, { message: 'Invalid role. Must be admin or staff.' });
-    }
-
-    // Check for existing email/username
-    const existingEmail = await db
-      .select({ id: staffAccount.id })
-      .from(staffAccount)
-      .where(eq(staffAccount.email, email))
-      .limit(1);
-
-    if (existingEmail.length > 0) {
-      throw error(409, { message: 'Email already exists' });
-    }
-
-    const existingUsername = await db
-      .select({ id: staffAccount.id })
-      .from(staffAccount)
-      .where(eq(staffAccount.username, username))
-      .limit(1);
-
-    if (existingUsername.length > 0) {
-      throw error(409, { message: 'Username already exists' });
-    }
-
-    const [newStaff] = await db
-      .insert(staffAccount)
-      .values({
-        name,
-        email,
-        username,
-        password: await bcrypt.hash(password, 10),
-        role,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-      .returning({
-        id: staffAccount.id,
-        uniqueId: staffAccount.uniqueId,
-        name: staffAccount.name,
-        email: staffAccount.email,
-        username: staffAccount.username,
-        role: staffAccount.role,
-        isActive: staffAccount.isActive,
-        createdAt: staffAccount.createdAt
-      });
-
-    // Only insert permissions for staff
-    // if (role === 'staff' && permissionKeys && typeof permissionKeys === 'object') {
-    //   if (!newStaff.uniqueId) {
-    //     throw error(500, { message: 'Failed to generate uniqueId for staff.' });
-    //   }
-    //   await db.insert(staffPermission).values({
-    //     staffUniqueId: newStaff.uniqueId,
-    //     permissionKeys // store as object
-    //   });
-    // }
-
-    return json({
-      success: true,
-      message: 'Staff added successfully',
-      data: {
-        id: newStaff.id,
-        uniqueId: newStaff.uniqueId,
-        name: newStaff.name,
-        email: newStaff.email,
-        username: newStaff.username,
-        role: newStaff.role,
-        isActive: newStaff.isActive,
-        joined: newStaff.createdAt,
-      }
-    }, { status: 201 });
-
-  } catch (err: any) {
-    console.error('Error adding staff:', err);
-    if (err.status) throw err;
-    throw error(500, { message: 'Internal server error' });
-  }
 };
 
-// PUT: Update staff details
+// PUT - Update staff member
 export const PUT: RequestHandler = async ({ request }) => {
-  try {
-    const body = await request.json();
-    const { id, isActive } = body;
+    try {
+        const user = await authenticateUser(request);
+        if (!user || !['super_admin', 'admin'].includes(user.userType)) {
+            throw error(401, { message: 'Unauthorized' });
+        }
 
-    if (!id || typeof isActive !== 'boolean') {
-      throw error(400, { message: 'Staff ID and isActive are required' });
+        const body = await request.json();
+        const { id, uniqueId, password, permissions, ...updateData } = body;
+
+        if (!id) {
+            throw error(400, { message: 'id is required' });
+        }
+
+        let updatePayload: any = updateData;
+
+        // Hash password if provided
+        if (password) {
+            updatePayload.password = await bcrypt.hash(password, 10);
+        }
+
+        const [staff] = await db
+            .update(tbl_staff)
+            .set(updatePayload)
+            .where(eq(tbl_staff.id, id))
+            .returning();
+
+        // Update permissions if provided
+        if (permissions && uniqueId) {
+            await db
+                .update(tbl_staff_permission)
+                .set(permissions)
+                .where(eq(tbl_staff_permission.staffUniqueId, uniqueId));
+        }
+
+        return json({
+            success: true,
+            message: 'Staff member updated successfully',
+            data: staff
+        });
+    } catch (err: any) {
+        console.error('PUT /api/staff error:', err);
+        return json(
+            { success: false, message: err.message || 'Failed to update staff' },
+            { status: err.status || 500 }
+        );
     }
-
-    // Check if staff exists
-    const existingStaff = await db
-      .select({ id: staffAccount.id, uniqueId: staffAccount.uniqueId })
-      .from(staffAccount)
-      .where(eq(staffAccount.id, id))
-      .limit(1);
-
-    if (existingStaff.length === 0) {
-      throw error(404, { message: 'Staff not found' });
-    }
-
-    await db
-      .update(staffAccount)
-      .set({ isActive, updatedAt: new Date() })
-      .where(eq(staffAccount.id, id));
-
-    return json({
-      success: true,
-      message: `Staff ${isActive ? 'enabled' : 'disabled'} successfully`
-    });
-
-  } catch (err: any) {
-    console.error('Error updating staff status:', err);
-    if (err.status) throw err;
-    throw error(500, { message: 'Internal server error' });
-  }
 };
 
-// PATCH: Update staff password and permissions
-export const PATCH: RequestHandler = async ({ request }) => {
-  try {
-    const body = await request.json();
-    const { id, username, password, permissionKeys } = body;
-
-    if (!id) {
-      throw error(400, { message: 'Staff ID is required' });
-    }
-
-    // Check if staff exists
-    const staff = await db
-      .select({ id: staffAccount.id, uniqueId: staffAccount.uniqueId, username: staffAccount.username, role: staffAccount.role })
-      .from(staffAccount)
-      .where(eq(staffAccount.id, id))
-      .limit(1);
-
-    if (staff.length === 0) {
-      throw error(404, { message: 'Staff not found' });
-    }
-
-    // Update username if provided and changed
-    if (username && username !== staff[0].username) {
-      // Check for duplicate username
-      const existingUsername = await db
-        .select({ id: staffAccount.id })
-        .from(staffAccount)
-        .where(eq(staffAccount.username, username))
-        .limit(1);
-
-      if (existingUsername.length > 0) {
-        throw error(409, { message: 'Username already exists' });
-      }
-
-      await db
-        .update(staffAccount)
-        .set({ username, updatedAt: new Date() })
-        .where(eq(staffAccount.id, id));
-    }
-
-    // Update password if provided
-    if (password && password.length >= 8) {
-      await db
-        .update(staffAccount)
-        .set({ password: await bcrypt.hash(password, 10), updatedAt: new Date() })
-        .where(eq(staffAccount.id, id));
-    }
-
-    // Update permissions if provided and staff is not admin
-    // if (permissionKeys && typeof permissionKeys === 'object' && staff[0].role === 'staff') {
-    //   const uniqueId = staff[0].uniqueId;
-    //   if (!uniqueId) {
-    //     throw error(400, { message: 'Staff uniqueId is missing.' });
-    //   }
-    //   // Upsert permissions
-    //   const existingPerm = await db
-    //     .select()
-    //     .from(staffPermission)
-    //     .where(eq(staffPermission.staffUniqueId, uniqueId))
-    //     .limit(1);
-
-    //   if (existingPerm.length > 0) {
-    //     await db
-    //       .update(staffPermission)
-    //       .set({ permissionKeys })
-    //       .where(eq(staffPermission.staffUniqueId, uniqueId));
-    //   } else {
-    //     await db.insert(staffPermission).values({
-    //       staffUniqueId: uniqueId,
-    //       permissionKeys
-    //     });
-    //   }
-    // }
-
-    return json({
-      success: true,
-      message: 'Staff updated successfully'
-    });
-  } catch (err: any) {
-    console.error('Error updating staff:', err);
-    if (err.status) throw err;
-    throw error(500, { message: 'Internal server error' });
-  }
-};
-
-// DELETE: Permanently remove staff
+// DELETE - Deactivate staff member
 export const DELETE: RequestHandler = async ({ request }) => {
-  try {
-    const body = await request.json();
-    const { id } = body;
+    try {
+        const user = await authenticateUser(request);
+        if (!user || !['super_admin', 'admin'].includes(user.userType)) {
+            throw error(401, { message: 'Unauthorized' });
+        }
 
-    if (!id) {
-      throw error(400, { message: 'Staff ID is required' });
+        const body = await request.json();
+        const { id } = body;
+
+        if (!id) {
+            throw error(400, { message: 'id is required' });
+        }
+
+        const [staff] = await db
+            .update(tbl_staff)
+            .set({ isActive: false })
+            .where(eq(tbl_staff.id, id))
+            .returning();
+
+        return json({
+            success: true,
+            message: 'Staff member deactivated successfully',
+            data: staff
+        });
+    } catch (err: any) {
+        console.error('DELETE /api/staff error:', err);
+        return json(
+            { success: false, message: err.message || 'Failed to delete staff' },
+            { status: err.status || 500 }
+        );
     }
-
-    // Check if staff exists
-    const existingStaff = await db
-      .select({ id: staffAccount.id, uniqueId: staffAccount.uniqueId })
-      .from(staffAccount)
-      .where(eq(staffAccount.id, id))
-      .limit(1);
-
-    if (existingStaff.length === 0) {
-      throw error(404, { message: 'Staff not found' });
-    }
-
-    // Delete permissions first
-    // if (!existingStaff[0].uniqueId) {
-    //   throw error(400, { message: 'Staff uniqueId is missing.' });
-    // }
-    // await db.delete(staffPermission).where(eq(staffPermission.staffUniqueId, existingStaff[0].uniqueId));
-    // Delete staff account
-    await db.delete(staffAccount).where(eq(staffAccount.id, id));
-
-    return json({
-      success: true,
-      message: 'Staff permanently deleted'
-    });
-
-  } catch (err: any) {
-    console.error('Error deleting staff:', err);
-    if (err.status) throw err;
-    throw error(500, { message: 'Internal server error' });
-  }
 };

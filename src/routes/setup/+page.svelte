@@ -54,7 +54,7 @@
 </script>
 
 <svelte:head>
-  <title>Admin Setup | e-Kalibro Admin Portal</title>
+  <title>System Setup | e-Kalibro Admin Portal</title>
 </svelte:head>
 
 <!-- Only show setup form if setup is required -->
@@ -66,7 +66,7 @@
       <!-- Header -->
       <div class="text-center">
         <h2 class="text-3xl font-bold text-[#0D5C29]">
-          Admin Setup
+          System Setup
         </h2>
         <p class="mt-2 text-sm text-gray-600">
           Create your administrator account
@@ -263,7 +263,7 @@
               </svg>
               Creating Account...
             {:else}
-              Create Admin Account
+              Create Super Admin Account
             {/if}
           </button>
         </div>

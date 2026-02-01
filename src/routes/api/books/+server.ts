@@ -1,584 +1,614 @@
-// src/routes/api/books/+server.ts - Updated for originPlace field
+// src/routes/api/books/+server.ts - Fixed TypeScript errors
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
-import { eq, ilike, and, or, gt, count, not, inArray, isNotNull } from 'drizzle-orm';
+import { eq, ilike, and, or, gt, lt, inArray, isNull, count, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
-import { book, staffAccount, category, bookBorrowing } from '$lib/server/db/schema/schema.js';
+import {
+    tbl_book,
+    tbl_book_copy,
+    tbl_magazine,
+    tbl_magazine_copy,
+    tbl_research_document,
+    tbl_research_copy,
+    tbl_multimedia,
+    tbl_multimedia_copy,
+    tbl_category,
+    tbl_super_admin,
+    tbl_admin,
+    tbl_staff
+} from '$lib/server/db/schema/schema.js';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
 interface AuthenticatedUser {
-  id: number;
-  role: string;
-  username: string;
-  email: string;
+    id: number;
+    userType: 'super_admin' | 'admin' | 'staff' | 'user';
+    username: string;
+    email: string;
 }
 
+// Authenticate user across all role types
 async function authenticateUser(request: Request): Promise<AuthenticatedUser | null> {
-  try {
-    let token: string | null = null;
+    try {
+        let token: string | null = null;
 
-    const authHeader = request.headers.get('authorization');
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    }
-
-    if (!token) {
-      const cookieHeader = request.headers.get('cookie');
-      if (cookieHeader) {
-        const cookies = Object.fromEntries(
-          cookieHeader.split('; ').map(c => c.split('='))
-        );
-        token = cookies.token;
-      }
-    }
-
-    if (!token) return null;
-
-    // Check if session has been revoked
-    if (await isSessionRevoked(token)) {
-      return null;
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-    const userId = decoded.userId || decoded.id;
-
-    if (!userId) return null;
-
-    const [user] = await db
-      .select({
-        id: staffAccount.id,
-        username: staffAccount.username,
-        email: staffAccount.email,
-        role: staffAccount.role,
-        isActive: staffAccount.isActive
-      })
-      .from(staffAccount)
-      .where(eq(staffAccount.id, userId))
-      .limit(1);
-
-    if (!user || !user.isActive) return null;
-
-    return {
-      id: user.id,
-      role: user.role || '',
-      username: user.username || '',
-      email: user.email || ''
-    };
-  } catch (err: any) {
-    console.error('Authentication error:', err);
-    return null;
-  }
-}
-
-function validateYear(year: number): boolean {
-  const currentYear = new Date().getFullYear();
-  return year >= 1000 && year <= currentYear;
-}
-
-// Function to normalize category names for comparison
-function normalizeCategoryName(name: string): string {
-  return name.trim().toLowerCase();
-}
-
-// GET - Fetch books with enhanced filtering
-export const GET: RequestHandler = async ({ request, url }) => {
-  try {
-    const user = await authenticateUser(request);
-    if (!user) {
-      throw error(401, { message: 'Unauthorized' });
-    }
-
-    const searchParams = url.searchParams;
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const limit = Math.min(parseInt(searchParams.get('limit') || '10', 10), 100);
-    const search = searchParams.get('q') || '';
-    // Support both single 'category' param (comma-separated) and multiple 'categories' params
-    const categoryNames = (() => {
-      const categoryParam = searchParams.get('category');
-      if (categoryParam) {
-        return categoryParam.split(',').filter(c => c.trim());
-      }
-      return searchParams.getAll('categories').filter(c => c.trim());
-    })();
-    const author = searchParams.get('author') || '';
-    const available = searchParams.get('available');
-    const bookId = searchParams.get('bookId') || '';
-    const language = searchParams.get('language') || searchParams.get('lang') || '';
-
-    if (page < 1 || limit < 1) {
-      throw error(400, { message: 'Invalid pagination parameters. Page and limit must be >= 1' });
-    }
-
-    const offset = (page - 1) * limit;
-    const conditions = [];
-
-    if (search) {
-      conditions.push(
-        or(
-          ilike(book.title, `%${search}%`),
-          ilike(book.author, `%${search}%`),
-          ilike(book.bookId, `%${search}%`)
-        )
-      );
-    }
-
-    // Handle multiple categories by name
-    if (categoryNames.length > 0) {
-      // Fetch all categories to find matching names case-insensitively
-      const allCategories = await db
-        .select({ id: category.id, name: category.name })
-        .from(category);
-      
-      // Find category IDs for all requested category names
-      const categoryIds: number[] = [];
-      for (const categoryName of categoryNames) {
-        if (categoryName.trim()) {
-          const matchingCategory = allCategories.find(cat => 
-            normalizeCategoryName(cat.name || '') === normalizeCategoryName(categoryName.trim())
-          );
-          if (matchingCategory) {
-            categoryIds.push(matchingCategory.id);
-          }
+        const authHeader = request.headers.get('authorization');
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.substring(7);
         }
-      }
-      
-      if (categoryIds.length > 0) {
-        conditions.push(inArray(book.categoryId, categoryIds));
-      } else {
-        // If no categories found, return empty results
-        return json({
-          success: true,
-          data: {
-            books: [],
-            pagination: {
-              currentPage: page,
-              totalPages: 0,
-              totalCount: 0,
-              limit,
-              hasNextPage: false,
-              hasPrevPage: false
+
+        if (!token) {
+            const cookieHeader = request.headers.get('cookie');
+            if (cookieHeader) {
+                const cookies = Object.fromEntries(
+                    cookieHeader.split('; ').map(c => c.split('='))
+                );
+                token = cookies.token;
             }
-          }
-        });
-      }
-    }
-
-    if (author) {
-      conditions.push(ilike(book.author, `%${author}%`));
-    }
-
-    if (available === 'true') {
-      conditions.push(gt(book.copiesAvailable, 0));
-    }
-
-    if (bookId) {
-      conditions.push(ilike(book.bookId, `%${bookId}%`));
-    }
-
-    if (language) {
-      conditions.push(ilike(book.language, `%${language}%`));
-    }
-
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const totalCountResult = await db
-      .select({ count: count() })
-      .from(book)
-      .where(whereClause);
-
-    const totalCount = totalCountResult[0]?.count || 0;
-
-    // Join with category table to get category name
-    const books = await db
-      .select({
-        id: book.id,
-        bookId: book.bookId,
-        title: book.title,
-        author: book.author,
-        publishedYear: book.publishedYear,
-        copiesAvailable: book.copiesAvailable,
-        categoryId: book.categoryId,
-        category: category.name,
-        language: book.language,
-        originPlace: book.originPlace,
-        publisher: book.publisher,
-        location: book.location,
-        description: book.description
-      })
-      .from(book)
-      .leftJoin(category, eq(book.categoryId, category.id))
-      .where(whereClause)
-      .limit(limit)
-      .offset(offset)
-      .orderBy(book.title);
-
-    const totalPages = Math.ceil(totalCount / limit);
-    const hasNextPage = page < totalPages;
-    const hasPrevPage = page > 1;
-
-    return json({
-      success: true,
-      data: {
-        books,
-        pagination: {
-          currentPage: page,
-          totalPages,
-          totalCount,
-          limit,
-          hasNextPage,
-          hasPrevPage
         }
-      }
-    });
 
-  } catch (err: any) {
-    console.error('Error fetching books:', err);
-    if (err.status) {
-      throw err;
+        if (!token) return null;
+
+        if (await isSessionRevoked(token)) {
+            return null;
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        const userId = decoded.userId || decoded.id;
+
+        if (!userId) return null;
+
+        // Try to find user in staff tables (admin operations)
+        const [superAdmin] = await db
+            .select({ id: tbl_super_admin.id, username: tbl_super_admin.username, email: tbl_super_admin.email, isActive: tbl_super_admin.isActive })
+            .from(tbl_super_admin)
+            .where(and(eq(tbl_super_admin.id, userId), eq(tbl_super_admin.isActive, true)))
+            .limit(1);
+
+        if (superAdmin) return { id: userId, userType: 'super_admin', username: superAdmin.username, email: superAdmin.email };
+
+        const [admin] = await db
+            .select({ id: tbl_admin.id, username: tbl_admin.username, email: tbl_admin.email, isActive: tbl_admin.isActive })
+            .from(tbl_admin)
+            .where(and(eq(tbl_admin.id, userId), eq(tbl_admin.isActive, true)))
+            .limit(1);
+
+        if (admin) return { id: userId, userType: 'admin', username: admin.username, email: admin.email };
+
+        const [staff] = await db
+            .select({ id: tbl_staff.id, username: tbl_staff.username, email: tbl_staff.email, isActive: tbl_staff.isActive })
+            .from(tbl_staff)
+            .where(and(eq(tbl_staff.id, userId), eq(tbl_staff.isActive, true)))
+            .limit(1);
+
+        if (staff) return { id: userId, userType: 'staff', username: staff.username, email: staff.email };
+
+        return null;
+    } catch (err: any) {
+        console.error('Authentication error:', err);
+        return null;
     }
-    throw error(500, { message: 'Internal server error' });
-  }
+}
+
+// GET - Fetch books/items with filtering
+export const GET: RequestHandler = async ({ request, url }) => {
+    try {
+        const user = await authenticateUser(request);
+        if (!user) {
+            throw error(401, { message: 'Unauthorized' });
+        }
+
+        const searchParams = url.searchParams;
+        const page = parseInt(searchParams.get('page') || '1', 10);
+        const limit = Math.min(parseInt(searchParams.get('limit') || '10', 10), 100);
+        const search = searchParams.get('q') || '';
+        const itemType = searchParams.get('itemType') || 'book'; // 'book', 'magazine', 'research', 'multimedia'
+        const categoryId = searchParams.get('categoryId') ? parseInt(searchParams.get('categoryId')!, 10) : undefined;
+        const categoryName = searchParams.get('category') || '';
+        const language = searchParams.get('lang') || searchParams.get('language') || '';
+        const offset = (page - 1) * limit;
+
+        let results: any[] = [];
+        let totalCount = 0;
+
+        // Fetch items based on type
+        if (itemType === 'book') {
+            const whereConditions: SQL<unknown>[] = [eq(tbl_book.isActive, true)];
+            if (search) {
+                whereConditions.push(
+                    or(
+                        ilike(tbl_book.title, `%${search}%`),
+                        ilike(tbl_book.author, `%${search}%`),
+                        ilike(tbl_book.isbn, `%${search}%`)
+                    )!
+                );
+            }
+            if (categoryId) {
+                whereConditions.push(eq(tbl_book.categoryId, categoryId));
+            }
+            if (categoryName && categoryName !== 'all') {
+                const matchingCategories = await db
+                    .select({ id: tbl_category.id })
+                    .from(tbl_category)
+                    .where(ilike(tbl_category.name, categoryName));
+                const categoryIds = matchingCategories.map(c => c.id);
+                if (categoryIds.length > 0) {
+                    whereConditions.push(inArray(tbl_book.categoryId, categoryIds));
+                } else {
+                    // No matching category, return empty results
+                    return json({
+                        success: true,
+                        data: {
+                            books: [],
+                            pagination: {
+                                currentPage: page,
+                                totalPages: 0,
+                                totalCount: 0,
+                                limit: limit,
+                                hasNextPage: false,
+                                hasPrevPage: false
+                            }
+                        }
+                    });
+                }
+            }
+            if (language) {
+                whereConditions.push(ilike(tbl_book.language, language));
+            }
+
+            // Get total count
+            const countResult = await db
+                .select({ count: count() })
+                .from(tbl_book)
+                .where(and(...whereConditions));
+            totalCount = Number(countResult[0]?.count || 0);
+
+            // Get paginated results
+            results = await db
+                .select()
+                .from(tbl_book)
+                .where(and(...whereConditions))
+                .orderBy(tbl_book.title)
+                .limit(limit)
+                .offset(offset);
+        } else if (itemType === 'magazine') {
+            const whereConditions: SQL<unknown>[] = [eq(tbl_magazine.isActive, true)];
+            if (search) {
+                whereConditions.push(
+                    or(
+                        ilike(tbl_magazine.title, `%${search}%`),
+                        ilike(tbl_magazine.publisher, `%${search}%`)
+                    )!
+                );
+            }
+            if (categoryId) {
+                whereConditions.push(eq(tbl_magazine.categoryId, categoryId));
+            }
+            if (categoryName && categoryName !== 'all') {
+                const matchingCategories = await db
+                    .select({ id: tbl_category.id })
+                    .from(tbl_category)
+                    .where(ilike(tbl_category.name, categoryName));
+                const categoryIds = matchingCategories.map(c => c.id);
+                if (categoryIds.length > 0) {
+                    whereConditions.push(inArray(tbl_magazine.categoryId, categoryIds));
+                } else {
+                    return json({
+                        success: true,
+                        data: {
+                            books: [],
+                            pagination: {
+                                currentPage: page,
+                                totalPages: 0,
+                                totalCount: 0,
+                                limit: limit,
+                                hasNextPage: false,
+                                hasPrevPage: false
+                            }
+                        }
+                    });
+                }
+            }
+            if (language) {
+                whereConditions.push(ilike(tbl_magazine.language, language));
+            }
+
+            const countResult = await db
+                .select({ count: count() })
+                .from(tbl_magazine)
+                .where(and(...whereConditions));
+            totalCount = Number(countResult[0]?.count || 0);
+
+            results = await db
+                .select()
+                .from(tbl_magazine)
+                .where(and(...whereConditions))
+                .orderBy(tbl_magazine.title)
+                .limit(limit)
+                .offset(offset);
+        } else if (itemType === 'research') {
+            const whereConditions: SQL<unknown>[] = [eq(tbl_research_document.isActive, true)];
+            if (search) {
+                whereConditions.push(
+                    or(
+                        ilike(tbl_research_document.title, `%${search}%`),
+                        ilike(tbl_research_document.author, `%${search}%`)
+                    )!
+                );
+            }
+            if (categoryId) {
+                whereConditions.push(eq(tbl_research_document.categoryId, categoryId));
+            }
+            if (categoryName && categoryName !== 'all') {
+                const matchingCategories = await db
+                    .select({ id: tbl_category.id })
+                    .from(tbl_category)
+                    .where(ilike(tbl_category.name, categoryName));
+                const categoryIds = matchingCategories.map(c => c.id);
+                if (categoryIds.length > 0) {
+                    whereConditions.push(inArray(tbl_research_document.categoryId, categoryIds));
+                } else {
+                    return json({
+                        success: true,
+                        data: {
+                            books: [],
+                            pagination: {
+                                currentPage: page,
+                                totalPages: 0,
+                                totalCount: 0,
+                                limit: limit,
+                                hasNextPage: false,
+                                hasPrevPage: false
+                            }
+                        }
+                    });
+                }
+            }
+
+            const countResult = await db
+                .select({ count: count() })
+                .from(tbl_research_document)
+                .where(and(...whereConditions));
+            totalCount = Number(countResult[0]?.count || 0);
+
+            results = await db
+                .select()
+                .from(tbl_research_document)
+                .where(and(...whereConditions))
+                .orderBy(tbl_research_document.title)
+                .limit(limit)
+                .offset(offset);
+        } else if (itemType === 'multimedia') {
+            const whereConditions: SQL<unknown>[] = [eq(tbl_multimedia.isActive, true)];
+            if (search) {
+                whereConditions.push(
+                    or(
+                        ilike(tbl_multimedia.title, `%${search}%`),
+                        ilike(tbl_multimedia.creator, `%${search}%`)
+                    )!
+                );
+            }
+            if (categoryId) {
+                whereConditions.push(eq(tbl_multimedia.categoryId, categoryId));
+            }
+            if (categoryName && categoryName !== 'all') {
+                const matchingCategories = await db
+                    .select({ id: tbl_category.id })
+                    .from(tbl_category)
+                    .where(ilike(tbl_category.name, categoryName));
+                const categoryIds = matchingCategories.map(c => c.id);
+                if (categoryIds.length > 0) {
+                    whereConditions.push(inArray(tbl_multimedia.categoryId, categoryIds));
+                } else {
+                    return json({
+                        success: true,
+                        data: {
+                            books: [],
+                            pagination: {
+                                currentPage: page,
+                                totalPages: 0,
+                                totalCount: 0,
+                                limit: limit,
+                                hasNextPage: false,
+                                hasPrevPage: false
+                            }
+                        }
+                    });
+                }
+            }
+
+            const countResult = await db
+                .select({ count: count() })
+                .from(tbl_multimedia)
+                .where(and(...whereConditions));
+            totalCount = Number(countResult[0]?.count || 0);
+
+            results = await db
+                .select()
+                .from(tbl_multimedia)
+                .where(and(...whereConditions))
+                .orderBy(tbl_multimedia.title)
+                .limit(limit)
+                .offset(offset);
+        } else {
+            // Unknown item type
+            return json({
+                success: false,
+                message: 'Unknown item type'
+            }, { status: 400 });
+        }
+
+        const hasMore = offset + limit < totalCount;
+        const totalPages = Math.ceil(totalCount / limit);
+
+        return json({
+            success: true,
+            data: {
+                books: results,
+                pagination: {
+                    currentPage: page,
+                    totalPages: totalPages,
+                    totalCount: totalCount,
+                    limit: limit,
+                    hasNextPage: hasMore,
+                    hasPrevPage: page > 1
+                }
+            }
+        });
+    } catch (err: any) {
+        console.error('GET /api/books error:', err);
+        return json({
+            success: false,
+            message: err.message || 'Failed to fetch items'
+        }, { status: err.status || 500 });
+    }
 };
 
-// POST - Create new book with originPlace support
+// POST - Create a new book
 export const POST: RequestHandler = async ({ request }) => {
-  try {
-    const user = await authenticateUser(request);
-    if (!user) {
-      throw error(401, { message: 'Unauthorized' });
+    try {
+        const user = await authenticateUser(request);
+        if (!user || !['super_admin', 'admin', 'staff'].includes(user.userType)) {
+            throw error(401, { message: 'Unauthorized - Admin access required' });
+        }
+
+        const body = await request.json();
+        const { itemType = 'book', ...itemData } = body;
+
+        let result;
+
+        if (itemType === 'book') {
+            // Normalize incoming identifiers
+            const incomingBookId = itemData.bookId ? String(itemData.bookId).trim() : '';
+            const incomingIsbn = itemData.isbn ? String(itemData.isbn).trim() : '';
+
+            // Check uniqueness before attempting insert to return a friendly error
+            if (incomingBookId) {
+                const [existingById] = await db
+                    .select({ id: tbl_book.id })
+                    .from(tbl_book)
+                    .where(eq(tbl_book.bookId, incomingBookId))
+                    .limit(1);
+                if (existingById) {
+                    return json({ success: false, message: 'Book ID already exists' }, { status: 409 });
+                }
+            }
+
+            if (incomingIsbn) {
+                const [existingByIsbn] = await db
+                    .select({ id: tbl_book.id })
+                    .from(tbl_book)
+                    .where(eq(tbl_book.isbn, incomingIsbn))
+                    .limit(1);
+                if (existingByIsbn) {
+                    return json({ success: false, message: 'ISBN already exists' }, { status: 409 });
+                }
+            }
+
+            const newBookId = incomingBookId || `BK-${Date.now()}`;
+
+            const [book] = await db
+                .insert(tbl_book)
+                .values({
+                    bookId: newBookId,
+                    title: itemData.title,
+                    author: itemData.author,
+                    isbn: incomingIsbn || null,
+                    publisher: itemData.publisher,
+                    publishedYear: itemData.publishedYear,
+                    edition: itemData.edition,
+                    language: itemData.language || 'English',
+                    pages: itemData.pages,
+                    categoryId: itemData.categoryId,
+                    location: itemData.location,
+                    totalCopies: itemData.totalCopies || 0,
+                    availableCopies: itemData.totalCopies || 0,
+                    description: itemData.description,
+                    coverImage: itemData.coverImage,
+                    isActive: true
+                })
+                .returning();
+            result = book;
+        } else if (itemType === 'magazine') {
+            const [magazine] = await db
+                .insert(tbl_magazine)
+                .values({
+                    magazineId: itemData.magazineId || `MG-${Date.now()}`,
+                    title: itemData.title,
+                    publisher: itemData.publisher,
+                    issn: itemData.issn,
+                    issueNumber: itemData.issueNumber,
+                    volume: itemData.volume,
+                    publishedDate: itemData.publishedDate,
+                    language: itemData.language || 'English',
+                    categoryId: itemData.categoryId,
+                    location: itemData.location,
+                    totalCopies: itemData.totalCopies || 0,
+                    availableCopies: itemData.totalCopies || 0,
+                    description: itemData.description,
+                    coverImage: itemData.coverImage,
+                    isActive: true
+                })
+                .returning();
+            result = magazine;
+        } else if (itemType === 'research') {
+            const [research] = await db
+                .insert(tbl_research_document)
+                .values({
+                    researchId: itemData.researchId || `RS-${Date.now()}`,
+                    title: itemData.title,
+                    author: itemData.author,
+                    advisor: itemData.advisor,
+                    department: itemData.department,
+                    degreeProgram: itemData.degreeProgram,
+                    publicationYear: itemData.publicationYear,
+                    abstract: itemData.abstract,
+                    keywords: itemData.keywords,
+                    categoryId: itemData.categoryId,
+                    location: itemData.location,
+                    totalCopies: itemData.totalCopies || 0,
+                    availableCopies: itemData.totalCopies || 0,
+                    pdfFile: itemData.pdfFile,
+                    isActive: true
+                })
+                .returning();
+            result = research;
+        } else if (itemType === 'multimedia') {
+            const [multimedia] = await db
+                .insert(tbl_multimedia)
+                .values({
+                    multimediaId: itemData.multimediaId || `MM-${Date.now()}`,
+                    title: itemData.title,
+                    type: itemData.type,
+                    creator: itemData.creator,
+                    publisher: itemData.publisher,
+                    releaseYear: itemData.releaseYear,
+                    duration: itemData.duration,
+                    categoryId: itemData.categoryId,
+                    location: itemData.location,
+                    totalCopies: itemData.totalCopies || 0,
+                    availableCopies: itemData.totalCopies || 0,
+                    description: itemData.description,
+                    isActive: true
+                })
+                .returning();
+            result = multimedia;
+        }
+
+        return json({
+            success: true,
+            message: 'Item created successfully',
+            data: result
+        });
+    } catch (err: any) {
+        console.error('POST /api/books error:', err);
+        return json({
+            success: false,
+            message: err.message || 'Failed to create item'
+        }, { status: err.status || 500 });
     }
-
-    if (user.role !== 'admin' && user.role !== 'staff') {
-      throw error(403, { message: 'Insufficient permissions to add books' });
-    }
-
-    const body = await request.json();
-
-    // Validate required fields
-    const requiredFields = ['bookId', 'title', 'author', 'publishedYear', 'copiesAvailable', 'categoryId'];
-    const missingFields = requiredFields.filter(field => !body[field]);
-    if (missingFields.length > 0) {
-      throw error(400, { message: `Missing required fields: ${missingFields.join(', ')}` });
-    }
-
-    // Validate bookId format
-    if (!/^[A-Z0-9\-]+$/i.test(body.bookId.trim())) {
-      throw error(400, { message: 'Book ID must be alphanumeric and may include dashes.' });
-    }
-
-    // Validate year
-    if (!validateYear(body.publishedYear)) {
-      throw error(400, { message: `Published year must be between 1000 and ${new Date().getFullYear()}` });
-    }
-
-    // Check if bookId already exists
-    const existingBookId = await db
-      .select({ id: book.id })
-      .from(book)
-      .where(eq(book.bookId, body.bookId.trim()))
-      .limit(1);
-    
-    if (existingBookId.length > 0) {
-      throw error(409, { message: `A book with Book ID "${body.bookId}" already exists.` });
-    }
-
-    // Verify category exists
-    const [categoryExists] = await db
-      .select({ id: category.id })
-      .from(category)
-      .where(eq(category.id, body.categoryId))
-      .limit(1);
-
-    if (!categoryExists) {
-      throw error(400, { message: 'Invalid category ID' });
-    }
-
-    // Prepare book data for insertion (only fields in schema)
-    const bookData = {
-      bookId: body.bookId.trim(),
-      title: body.title.trim(),
-      author: body.author.trim(),
-      language: body.language ? body.language.trim() : null,
-      originPlace: body.originPlace ? body.originPlace.trim() : null,
-      publishedYear: body.publishedYear,
-      copiesAvailable: body.copiesAvailable,
-      categoryId: body.categoryId,
-      publisher: body.publisher ? body.publisher.trim() : null,
-      location: body.location ? body.location.trim() : null,
-      description: body.description ? body.description.trim() : null
-    };
-
-    // Insert the book
-    const [newBook] = await db
-      .insert(book)
-      .values(bookData)
-      .returning({
-        id: book.id,
-        bookId: book.bookId,
-        title: book.title,
-        author: book.author,
-        language: book.language,
-        originPlace: book.originPlace,
-        publishedYear: book.publishedYear,
-        copiesAvailable: book.copiesAvailable,
-        categoryId: book.categoryId,
-        publisher: book.publisher,
-        location: book.location,
-        description: book.description
-      });
-
-    // Get category name for response
-    const [cat] = await db
-      .select({ name: category.name })
-      .from(category)
-      .where(eq(category.id, Number(newBook.categoryId)))
-      .limit(1);
-
-    return json({
-      success: true,
-      data: { 
-        book: { ...newBook, category: cat?.name },
-        message: `Book "${newBook.title}" has been successfully added to the library.`
-      },
-      message: 'Book created successfully'
-    }, { status: 201 });
-
-  } catch (err) {
-    console.error('Error creating book:', err instanceof Error ? err.message : err);
-    if ((err as any).status) {
-      throw err;
-    }
-    throw error(500, { message: 'Internal server error while creating book' });
-  }
 };
 
-// PUT - Update book with originPlace support
+// PUT - Update an item
 export const PUT: RequestHandler = async ({ request, url }) => {
-  try {
-    const user = await authenticateUser(request);
-    if (!user) {
-      throw error(401, { message: 'Unauthorized' });
+    try {
+        const user = await authenticateUser(request);
+        if (!user || !['super_admin', 'admin', 'staff'].includes(user.userType)) {
+            throw error(401, { message: 'Unauthorized - Admin access required' });
+        }
+
+        const body = await request.json();
+        const { id, itemType = 'book', ...updateData } = body;
+
+        if (!id) {
+            throw error(400, { message: 'ID is required' });
+        }
+
+        let result;
+
+        if (itemType === 'book') {
+            const [book] = await db
+                .update(tbl_book)
+                .set(updateData)
+                .where(eq(tbl_book.id, id))
+                .returning();
+            result = book;
+        } else if (itemType === 'magazine') {
+            const [magazine] = await db
+                .update(tbl_magazine)
+                .set(updateData)
+                .where(eq(tbl_magazine.id, id))
+                .returning();
+            result = magazine;
+        } else if (itemType === 'research') {
+            const [research] = await db
+                .update(tbl_research_document)
+                .set(updateData)
+                .where(eq(tbl_research_document.id, id))
+                .returning();
+            result = research;
+        } else if (itemType === 'multimedia') {
+            const [multimedia] = await db
+                .update(tbl_multimedia)
+                .set(updateData)
+                .where(eq(tbl_multimedia.id, id))
+                .returning();
+            result = multimedia;
+        }
+
+        return json({
+            success: true,
+            message: 'Item updated successfully',
+            data: result
+        });
+    } catch (err: any) {
+        console.error('PUT /api/books error:', err);
+        return json({
+            success: false,
+            message: err.message || 'Failed to update item'
+        }, { status: err.status || 500 });
     }
-
-    if (user.role !== 'admin' && user.role !== 'staff') {
-      throw error(403, { message: 'Insufficient permissions to update books' });
-    }
-
-    const bookId = url.searchParams.get('id');
-    if (!bookId || isNaN(parseInt(bookId))) {
-      throw error(400, { message: 'Valid book ID is required' });
-    }
-
-    const body = await request.json();
-
-    // Validate bookId if present
-    if (body.bookId !== undefined) {
-      if (!/^[A-Z0-9\-]+$/i.test(body.bookId.trim())) {
-        throw error(400, { message: 'Book ID must be alphanumeric and may include dashes.' });
-      }
-      // Check uniqueness
-      const conflict = await db
-        .select({ id: book.id })
-        .from(book)
-        .where(and(
-          eq(book.bookId, body.bookId.trim()),
-          not(eq(book.id, parseInt(bookId)))
-        ))
-        .limit(1);
-      
-      if (conflict.length > 0) {
-        throw error(409, { message: `A book with Book ID "${body.bookId}" already exists.` });
-      }
-    }
-
-    // Validate categoryId if present
-    if (body.categoryId !== undefined) {
-      if (typeof body.categoryId !== 'number' || body.categoryId === null || isNaN(body.categoryId)) {
-        throw error(400, { message: 'categoryId must be a valid number' });
-      }
-      const categoryExists = await db
-        .select({ id: category.id })
-        .from(category)
-        .where(eq(category.id, body.categoryId as number))
-        .limit(1);
-
-      if (categoryExists.length === 0) {
-        throw error(400, { message: 'Invalid categoryId' });
-      }
-    }
-
-    // Check if book exists
-    const existingBook = await db
-      .select({ 
-        id: book.id, 
-        title: book.title
-      })
-      .from(book)
-      .where(eq(book.id, parseInt(bookId)))
-      .limit(1);
-
-    if (existingBook.length === 0) {
-      throw error(404, { message: 'Book not found' });
-    }
-
-    // Validate updates
-    const validationErrors: string[] = [];
-
-    if (body.title !== undefined) {
-      if (typeof body.title !== 'string' || body.title.trim().length === 0) {
-        validationErrors.push('Title cannot be empty');
-      } else if (body.title.length > 200) {
-        validationErrors.push('Title must be less than 200 characters');
-      }
-    }
-
-    if (body.author !== undefined) {
-      if (typeof body.author !== 'string' || body.author.trim().length === 0) {
-        validationErrors.push('Author cannot be empty');
-      } else if (body.author.length > 100) {
-        validationErrors.push('Author must be less than 100 characters');
-      }
-    }
-
-    if (body.publishedYear !== undefined && !validateYear(body.publishedYear)) {
-      validationErrors.push(`Published year must be between 1000 and ${new Date().getFullYear()}`);
-    }
-
-    if (body.copiesAvailable !== undefined && body.copiesAvailable < 0) {
-      validationErrors.push('Number of copies must be non-negative');
-    }
-
-    if (validationErrors.length > 0) {
-      throw error(400, { message: validationErrors.join('; ') });
-    }
-
-    // Build update object (only schema fields)
-    const updateData: any = {};
-    if (body.title !== undefined) updateData.title = body.title.trim();
-    if (body.author !== undefined) updateData.author = body.author.trim();
-    if (body.publishedYear !== undefined) updateData.publishedYear = body.publishedYear;
-    if (body.copiesAvailable !== undefined) updateData.copiesAvailable = body.copiesAvailable;
-    if (body.categoryId !== undefined) updateData.categoryId = body.categoryId;
-    if (body.bookId !== undefined) updateData.bookId = body.bookId.trim();
-    if (body.language !== undefined) updateData.language = body.language ? body.language.trim() : null;
-    if (body.originPlace !== undefined) updateData.originPlace = body.originPlace ? body.originPlace.trim() : null;
-    if (body.publisher !== undefined) updateData.publisher = body.publisher ? body.publisher.trim() : null;
-    if (body.location !== undefined) updateData.location = body.location ? body.location.trim() : null;
-    if (body.description !== undefined) updateData.description = body.description ? body.description.trim() : null;
-
-    updateData.updatedAt = new Date();
-
-    const [updatedBook] = await db
-      .update(book)
-      .set(updateData)
-      .where(eq(book.id, parseInt(bookId)))
-      .returning({
-        id: book.id,
-        bookId: book.bookId,
-        title: book.title,
-        author: book.author,
-        language: book.language,
-        originPlace: book.originPlace,
-        publishedYear: book.publishedYear,
-        copiesAvailable: book.copiesAvailable,
-        categoryId: book.categoryId,
-        publisher: book.publisher,
-        location: book.location,
-        description: book.description
-      });
-
-    // Get category name for response
-    const [cat] = await db
-      .select({ name: category.name })
-      .from(category)
-      .where(eq(category.id, updatedBook.categoryId!))
-      .limit(1);
-
-    return json({
-      success: true,
-      data: { 
-        book: { ...updatedBook, category: cat?.name },
-        message: `Book "${updatedBook.title}" has been successfully updated.`
-      },
-      message: 'Book updated successfully'
-    });
-
-  } catch (err: any) {
-    console.error('Error updating book:', err);
-    if (err.status) {
-      throw err;
-    }
-    throw error(500, { message: 'Internal server error while updating book' });
-  }
 };
 
-// DELETE - Delete book
+// DELETE - Delete an item
 export const DELETE: RequestHandler = async ({ request, url }) => {
-  try {
-    const user = await authenticateUser(request);
-    if (!user) {
-      throw error(401, { message: 'Unauthorized' });
+    try {
+        const user = await authenticateUser(request);
+        if (!user || !['super_admin', 'admin', 'staff'].includes(user.userType)) {
+            throw error(401, { message: 'Unauthorized - Admin access required' });
+        }
+
+        const body = await request.json();
+        const { id, itemType = 'book' } = body;
+
+        if (!id) {
+            throw error(400, { message: 'ID is required' });
+        }
+
+        // Soft delete by setting isActive to false
+        if (itemType === 'book') {
+            await db.update(tbl_book).set({ isActive: false }).where(eq(tbl_book.id, id));
+        } else if (itemType === 'magazine') {
+            await db.update(tbl_magazine).set({ isActive: false }).where(eq(tbl_magazine.id, id));
+        } else if (itemType === 'research') {
+            await db.update(tbl_research_document).set({ isActive: false }).where(eq(tbl_research_document.id, id));
+        } else if (itemType === 'multimedia') {
+            await db.update(tbl_multimedia).set({ isActive: false }).where(eq(tbl_multimedia.id, id));
+        }
+
+        return json({
+            success: true,
+            message: 'Item deleted successfully'
+        });
+    } catch (err: any) {
+        console.error('DELETE /api/books error:', err);
+        return json({
+            success: false,
+            message: err.message || 'Failed to delete item'
+        }, { status: err.status || 500 });
     }
-
-    // Only admins can delete books
-    if (user.role !== 'admin') {
-      throw error(403, { message: 'Only administrators can delete books' });
-    }
-
-    const bookId = url.searchParams.get('id');
-    if (!bookId || isNaN(parseInt(bookId))) {
-      throw error(400, { message: 'Valid book ID is required' });
-    }
-
-    // Check if book exists
-    const existingBook = await db
-      .select({ id: book.id, title: book.title })
-      .from(book)
-      .where(eq(book.id, parseInt(bookId)))
-      .limit(1);
-
-    if (existingBook.length === 0) {
-      throw error(404, { message: 'Book not found' });
-    }
-
-    // Prevent deletion if book is currently borrowed
-    const issuedCount = await db
-      .select({ count: count() })
-      .from(bookBorrowing)
-      .where(and(
-        eq(bookBorrowing.bookId, parseInt(bookId)),
-        eq(bookBorrowing.status, 'borrowed')
-      ));
-    
-    if (issuedCount[0]?.count > 0) {
-      throw error(400, { message: 'Cannot delete book: It is currently borrowed.' });
-    }
-
-    await db
-      .delete(book)
-      .where(eq(book.id, parseInt(bookId)));
-
-    // Log the action
-    console.log(`Book deleted by ${user.username} (ID: ${user.id}):`, {
-      bookId: parseInt(bookId),
-      title: existingBook[0].title,
-      timestamp: new Date().toISOString()
-    });
-
-    return json({
-      success: true,
-      message: `Book "${existingBook[0].title}" has been successfully deleted from the library.`
-    });
-
-  } catch (err) {
-    console.error('Error deleting book:', err instanceof Error ? err.message : err);
-    if ((err as any).status) {
-      throw err;
-    }
-    throw error(500, { message: 'Internal server error while deleting book' });
-  }
 };

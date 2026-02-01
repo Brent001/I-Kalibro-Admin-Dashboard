@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { book, user, bookBorrowing } from '$lib/server/db/schema/schema.js';
+import { tbl_book, tbl_book_borrowing, tbl_user, tbl_book_copy } from '$lib/server/db/schema/schema.js';
 import { eq, count, lt, and, isNull, desc, sql } from 'drizzle-orm';
 import { encryptData } from '$lib/utils/encryption.js';
 
@@ -40,64 +40,64 @@ export const GET: RequestHandler = async () => {
       recentActivityResult
     ] = await Promise.all([
       // Total books count
-      db.select({ count: count() }).from(book),
+      db.select({ count: count() }).from(tbl_book),
       
       // Active members count
       db.select({ count: count() })
-        .from(user)
-        .where(eq(user.isActive, true)),
+        .from(tbl_user)
+        .where(eq(tbl_user.isActive, true)),
       
       // Currently borrowed books count
       db.select({ count: count() })
-        .from(bookBorrowing)
+        .from(tbl_book_borrowing)
         .where(and(
-          eq(bookBorrowing.status, 'borrowed'),
-          isNull(bookBorrowing.returnDate)
+          eq(tbl_book_borrowing.status, 'borrowed'),
+          isNull(tbl_book_borrowing.returnDate)
         )),
       
       // Overdue books count (optimized with single query)
       db.select({ count: count() })
-        .from(bookBorrowing)
+        .from(tbl_book_borrowing)
         .where(and(
-          eq(bookBorrowing.status, 'borrowed'),
-          lt(bookBorrowing.dueDate, todayStr),
-          isNull(bookBorrowing.returnDate)
+          eq(tbl_book_borrowing.status, 'borrowed'),
+          lt(tbl_book_borrowing.dueDate, todayStr),
+          isNull(tbl_book_borrowing.returnDate)
         )),
       
       // Overdue books list with details (limited to 10 most overdue)
       db.select({
-        id: bookBorrowing.id,
-        bookTitle: book.title,
-        memberName: user.name,
-        dueDate: bookBorrowing.dueDate,
-        userId: bookBorrowing.userId,
-        bookId: bookBorrowing.bookId
+        id: tbl_book_borrowing.id,
+        bookTitle: tbl_book.title,
+        memberName: tbl_user.name,
+        dueDate: tbl_book_borrowing.dueDate,
+        userId: tbl_book_borrowing.userId,
+        bookId: tbl_book_borrowing.bookId
       })
-        .from(bookBorrowing)
-        .leftJoin(book, eq(bookBorrowing.bookId, book.id))
-        .leftJoin(user, eq(bookBorrowing.userId, user.id))
+        .from(tbl_book_borrowing)
+        .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
+        .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
         .where(and(
-          eq(bookBorrowing.status, 'borrowed'),
-          lt(bookBorrowing.dueDate, todayStr),
-          isNull(bookBorrowing.returnDate)
+          eq(tbl_book_borrowing.status, 'borrowed'),
+          lt(tbl_book_borrowing.dueDate, todayStr),
+          isNull(tbl_book_borrowing.returnDate)
         ))
-        .orderBy(bookBorrowing.dueDate) // Oldest overdue first
+        .orderBy(tbl_book_borrowing.dueDate) // Oldest overdue first
         .limit(10),
       
       // Recent activity (last 10 transactions)
       db.select({
-        id: bookBorrowing.id,
-        type: bookBorrowing.status,
-        bookTitle: book.title,
-        memberName: user.name,
-        time: bookBorrowing.createdAt,
-        borrowDate: bookBorrowing.borrowDate,
-        returnDate: bookBorrowing.returnDate
+        id: tbl_book_borrowing.id,
+        type: tbl_book_borrowing.status,
+        bookTitle: tbl_book.title,
+        memberName: tbl_user.name,
+        time: tbl_book_borrowing.createdAt,
+        borrowDate: tbl_book_borrowing.borrowDate,
+        returnDate: tbl_book_borrowing.returnDate
       })
-        .from(bookBorrowing)
-        .leftJoin(book, eq(bookBorrowing.bookId, book.id))
-        .leftJoin(user, eq(bookBorrowing.userId, user.id))
-        .orderBy(desc(bookBorrowing.createdAt))
+        .from(tbl_book_borrowing)
+        .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
+        .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
+        .orderBy(desc(tbl_book_borrowing.createdAt))
         .limit(10)
     ]);
 

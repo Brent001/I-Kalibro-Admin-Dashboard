@@ -4,7 +4,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
 import { db } from '$lib/server/db/index.js';
-import { book, staffAccount } from '$lib/server/db/schema/schema.js';
+import { tbl_book, tbl_staff, tbl_admin, tbl_super_admin } from '$lib/server/db/schema/schema.js';
 import { eq, not, isNotNull } from 'drizzle-orm';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
 
@@ -48,26 +48,77 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
 
     if (!userId) return null;
 
-    const [user] = await db
-      .select({
-        id: staffAccount.id,
-        username: staffAccount.username,
-        email: staffAccount.email,
-        role: staffAccount.role,
-        isActive: staffAccount.isActive
-      })
-      .from(staffAccount)
-      .where(eq(staffAccount.id, userId))
-      .limit(1);
+    // Check all admin roles
+    try {
+      const [superAdmin] = await db
+        .select({
+          id: tbl_super_admin.id,
+          username: tbl_super_admin.username,
+          email: tbl_super_admin.email,
+          isActive: tbl_super_admin.isActive
+        })
+        .from(tbl_super_admin)
+        .where(eq(tbl_super_admin.id, userId))
+        .limit(1);
+      if (superAdmin && superAdmin.isActive) {
+        return {
+          id: superAdmin.id,
+          role: 'super_admin',
+          username: superAdmin.username || '',
+          email: superAdmin.email || ''
+        };
+      }
+    } catch (e) {
+      console.warn('Error checking super_admin:', e);
+    }
 
-    if (!user || !user.isActive) return null;
+    try {
+      const [admin] = await db
+        .select({
+          id: tbl_admin.id,
+          username: tbl_admin.username,
+          email: tbl_admin.email,
+          isActive: tbl_admin.isActive
+        })
+        .from(tbl_admin)
+        .where(eq(tbl_admin.id, userId))
+        .limit(1);
+      if (admin && admin.isActive) {
+        return {
+          id: admin.id,
+          role: 'admin',
+          username: admin.username || '',
+          email: admin.email || ''
+        };
+      }
+    } catch (e) {
+      console.warn('Error checking admin:', e);
+    }
 
-    return {
-      id: user.id,
-      role: user.role || '',
-      username: user.username || '',
-      email: user.email || ''
-    };
+    try {
+      const [staff] = await db
+        .select({
+          id: tbl_staff.id,
+          username: tbl_staff.username,
+          email: tbl_staff.email,
+          isActive: tbl_staff.isActive
+        })
+        .from(tbl_staff)
+        .where(eq(tbl_staff.id, userId))
+        .limit(1);
+      if (staff && staff.isActive) {
+        return {
+          id: staff.id,
+          role: 'staff',
+          username: staff.username || '',
+          email: staff.email || ''
+        };
+      }
+    } catch (e) {
+      console.warn('Error checking staff:', e);
+    }
+
+    return null;
   } catch (err) {
     console.error('Authentication error:', err);
     return null;
@@ -83,9 +134,9 @@ export const GET: RequestHandler = async ({ request }) => {
 
     // Fetch distinct languages from books table, excluding null values
     const languagesResult = await db
-      .select({ language: book.language })
-      .from(book)
-      .where(isNotNull(book.language));
+      .select({ language: tbl_book.language })
+      .from(tbl_book)
+      .where(isNotNull(tbl_book.language));
 
     // Extract unique language values
     const languages = [...new Set(
@@ -110,6 +161,6 @@ export const GET: RequestHandler = async ({ request }) => {
       throw err;
     }
 
-    throw error(500, { message: 'Internal server error' });
+    throw error(500, { message: 'Internal server error: ' + (err?.message || 'Unknown error') });
   }
 };

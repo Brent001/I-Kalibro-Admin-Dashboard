@@ -2,12 +2,12 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { 
-  libraryVisit, 
-  bookBorrowing, 
-  user, 
-  book, 
-  category,
-  bookReservation 
+  tbl_qr_scan_log, 
+  tbl_book_borrowing, 
+  tbl_user, 
+  tbl_book, 
+  tbl_category,
+  tbl_fine
 } from '$lib/server/db/schema/schema.js';
 import { and, eq, gte, lte, desc, sql, count, lt, or, isNull } from 'drizzle-orm';
 import { updateAllOverdueFines, calculateFineAmount, calculateDaysOverdue } from '$lib/server/utils/fineCalculation.js';
@@ -55,50 +55,49 @@ export const GET: RequestHandler = async ({ url }) => {
     // Overview Statistics
     const totalVisits = await db
       .select({ count: count() })
-      .from(libraryVisit)
-      .where(and(gte(libraryVisit.timeIn, start), lte(libraryVisit.timeIn, end)))
+      .from(tbl_qr_scan_log)
+      .where(and(gte(tbl_qr_scan_log.scannedAt, start), lte(tbl_qr_scan_log.scannedAt, end)))
       .then(result => result[0]?.count || 0);
 
     const totalTransactions = await db
       .select({ count: count() })
-      .from(bookBorrowing)
-      .where(and(gte(bookBorrowing.createdAt, start), lte(bookBorrowing.createdAt, end)))
+      .from(tbl_book_borrowing)
+      .where(and(gte(tbl_book_borrowing.createdAt, start), lte(tbl_book_borrowing.createdAt, end)))
       .then(result => result[0]?.count || 0);
 
     const activeBorrowings = await db
       .select({ count: count() })
-      .from(bookBorrowing)
-      .where(eq(bookBorrowing.status, 'borrowed'))
+      .from(tbl_book_borrowing)
+      .where(eq(tbl_book_borrowing.status, 'borrowed'))
       .then(result => result[0]?.count || 0);
 
     // Overdue Books with calculated fines
     const overdueBorrowingsRaw = await db
       .select({
-        id: bookBorrowing.id,
-        bookTitle: book.title,
-        borrowerName: user.name,
-        dueDate: bookBorrowing.dueDate,
-        status: bookBorrowing.status,
-        fine: bookBorrowing.fine,
-        createdAt: bookBorrowing.createdAt
+        id: tbl_book_borrowing.id,
+        bookTitle: tbl_book.title,
+        borrowerName: tbl_user.name,
+        dueDate: tbl_book_borrowing.dueDate,
+        status: tbl_book_borrowing.status,
+        createdAt: tbl_book_borrowing.createdAt
       })
-      .from(bookBorrowing)
-      .leftJoin(book, eq(bookBorrowing.bookId, book.id))
-      .leftJoin(user, eq(bookBorrowing.userId, user.id))
+      .from(tbl_book_borrowing)
+      .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
+      .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
       .where(and(
-        lt(bookBorrowing.dueDate, new Date().toISOString()),
-        or(eq(bookBorrowing.status, 'borrowed'), eq(bookBorrowing.status, 'overdue')),
-        isNull(bookBorrowing.returnDate)
+        lt(tbl_book_borrowing.dueDate, new Date().toISOString().split('T')[0]),
+        or(eq(tbl_book_borrowing.status, 'borrowed'), eq(tbl_book_borrowing.status, 'overdue')),
+        isNull(tbl_book_borrowing.returnDate)
       ))
-      .orderBy(desc(bookBorrowing.createdAt));
+      .orderBy(desc(tbl_book_borrowing.createdAt));
 
     const overdueBooks = overdueBorrowingsRaw.length;
 
     const overdueList = overdueBorrowingsRaw.slice(0, 10).map(item => {
       const dueDate = item.dueDate ? new Date(item.dueDate) : new Date();
       const daysOverdue = calculateDaysOverdue(dueDate);
-      // Use the fine from DB (already calculated by updateAllOverdueFines)
-      const fine = item.fine || 0;
+      // Calculate fine based on days overdue (10 pesos per day)
+      const fine = daysOverdue * 10;
       
       return {
         bookTitle: item.bookTitle || 'Unknown Book',
@@ -108,38 +107,33 @@ export const GET: RequestHandler = async ({ url }) => {
       };
     });
 
-    // Calculate total penalties from all overdue books
+    // Calculate total penalties from all unpaid fines
     const totalPenaltiesResult = await db
       .select({
-        total: sql<number>`COALESCE(SUM(${bookBorrowing.fine}), 0)`
+        total: sql<string>`COALESCE(SUM(${tbl_fine.fineAmount}), 0)`
       })
-      .from(bookBorrowing)
-      .where(
-        and(
-          or(eq(bookBorrowing.status, 'borrowed'), eq(bookBorrowing.status, 'overdue')),
-          isNull(bookBorrowing.returnDate)
-        )
-      )
-      .then(result => result[0]?.total || 0);
+      .from(tbl_fine)
+      .where(eq(tbl_fine.status, 'unpaid'))
+      .then(result => result[0]?.total || '0');
 
     const totalPenalties = Number(totalPenaltiesResult);
 
     const availableBooks = await db
       .select({ count: count() })
-      .from(book)
-      .where(gte(book.copiesAvailable, 1))
+      .from(tbl_book)
+      .where(sql`1=1`) // All books are available by default
       .then(result => result[0]?.count || 0);
 
     // Daily Visits for Chart
     const dailyVisitsRaw = await db
       .select({
-        date: sql<string>`DATE(${libraryVisit.timeIn})`,
+        date: sql<string>`DATE(${tbl_qr_scan_log.scannedAt})`,
         count: count()
       })
-      .from(libraryVisit)
-      .where(and(gte(libraryVisit.timeIn, start), lte(libraryVisit.timeIn, end)))
-      .groupBy(sql`DATE(${libraryVisit.timeIn})`)
-      .orderBy(sql`DATE(${libraryVisit.timeIn})`);
+      .from(tbl_qr_scan_log)
+      .where(and(gte(tbl_qr_scan_log.scannedAt, start), lte(tbl_qr_scan_log.scannedAt, end)))
+      .groupBy(sql`DATE(${tbl_qr_scan_log.scannedAt})`)
+      .orderBy(sql`DATE(${tbl_qr_scan_log.scannedAt})`);
 
     const dailyVisits = dailyVisitsRaw.map(item => ({
       date: item.date,
@@ -148,41 +142,35 @@ export const GET: RequestHandler = async ({ url }) => {
 
     // Transaction Types Distribution
     const borrowedCount = await db.select({ count: count() })
-      .from(bookBorrowing)
-      .where(and(eq(bookBorrowing.status, 'borrowed'), gte(bookBorrowing.createdAt, start), lte(bookBorrowing.createdAt, end)))
+      .from(tbl_book_borrowing)
+      .where(and(eq(tbl_book_borrowing.status, 'borrowed'), gte(tbl_book_borrowing.createdAt, start), lte(tbl_book_borrowing.createdAt, end)))
       .then(r => r[0]?.count || 0);
 
     const returnedCount = await db.select({ count: count() })
-      .from(bookBorrowing)
-      .where(and(eq(bookBorrowing.status, 'returned'), gte(bookBorrowing.createdAt, start), lte(bookBorrowing.createdAt, end)))
+      .from(tbl_book_borrowing)
+      .where(and(eq(tbl_book_borrowing.status, 'returned'), gte(tbl_book_borrowing.createdAt, start), lte(tbl_book_borrowing.createdAt, end)))
       .then(r => r[0]?.count || 0);
 
     const overdueCount = await db.select({ count: count() })
-      .from(bookBorrowing)
-      .where(and(eq(bookBorrowing.status, 'overdue'), gte(bookBorrowing.createdAt, start), lte(bookBorrowing.createdAt, end)))
-      .then(r => r[0]?.count || 0);
-
-    const reservedCount = await db.select({ count: count() })
-      .from(bookReservation)
-      .where(and(eq(bookReservation.status, 'active'), gte(bookReservation.createdAt, start), lte(bookReservation.createdAt, end)))
+      .from(tbl_book_borrowing)
+      .where(and(eq(tbl_book_borrowing.status, 'overdue'), gte(tbl_book_borrowing.createdAt, start), lte(tbl_book_borrowing.createdAt, end)))
       .then(r => r[0]?.count || 0);
 
     const transactionTypes = [
       { type: 'Borrowed', count: borrowedCount },
       { type: 'Returned', count: returnedCount },
-      { type: 'Overdue', count: overdueCount },
-      { type: 'Reserved', count: reservedCount }
+      { type: 'Overdue', count: overdueCount }
     ];
 
     // Category Distribution
     const categoryStatsRaw = await db
       .select({
-        category: category.name,
+        category: tbl_category.name,
         count: count()
       })
-      .from(book)
-      .leftJoin(category, eq(book.categoryId, category.id))
-      .groupBy(category.name)
+      .from(tbl_book)
+      .leftJoin(tbl_category, eq(tbl_book.categoryId, tbl_category.id))
+      .groupBy(tbl_category.id, tbl_category.name)
       .orderBy(desc(count()));
 
     const totalBooksCount = categoryStatsRaw.reduce((sum, cat) => sum + cat.count, 0);
@@ -192,20 +180,19 @@ export const GET: RequestHandler = async ({ url }) => {
       percentage: totalBooksCount > 0 ? Math.round((item.count / totalBooksCount) * 100) : 0
     }));
 
-    // Penalty Trends (weekly aggregation using stored fines)
+    // Penalty Trends (weekly aggregation using fine table)
     const penaltyTrendsRaw = await db
       .select({
-        week: sql<string>`DATE_TRUNC('week', ${bookBorrowing.createdAt})`,
-        totalFine: sql<number>`COALESCE(SUM(${bookBorrowing.fine}), 0)`
+        week: sql<string>`DATE_TRUNC('week', ${tbl_fine.createdAt})`,
+        totalFine: sql<number>`COALESCE(SUM(${tbl_fine.fineAmount}), 0)`
       })
-      .from(bookBorrowing)
+      .from(tbl_fine)
       .where(and(
-        or(eq(bookBorrowing.status, 'overdue'), eq(bookBorrowing.status, 'returned')),
-        gte(bookBorrowing.createdAt, start),
-        lte(bookBorrowing.createdAt, end)
+        gte(tbl_fine.createdAt, start),
+        lte(tbl_fine.createdAt, end)
       ))
-      .groupBy(sql`DATE_TRUNC('week', ${bookBorrowing.createdAt})`)
-      .orderBy(sql`DATE_TRUNC('week', ${bookBorrowing.createdAt})`);
+      .groupBy(sql`DATE_TRUNC('week', ${tbl_fine.createdAt})`)
+      .orderBy(sql`DATE_TRUNC('week', ${tbl_fine.createdAt})`);
 
     const penaltyTrends = penaltyTrendsRaw.map(item => ({
       date: item.week,
@@ -215,33 +202,33 @@ export const GET: RequestHandler = async ({ url }) => {
     // Member Activity Summary
     const studentCount = await db
       .select({ count: count() })
-      .from(user)
-      .where(and(eq(user.role, 'student'), eq(user.isActive, true)))
+      .from(tbl_user)
+      .where(and(eq(tbl_user.userType, 'student'), eq(tbl_user.isActive, true)))
       .then(result => result[0]?.count || 0);
 
     const facultyCount = await db
       .select({ count: count() })
-      .from(user)
-      .where(and(eq(user.role, 'faculty'), eq(user.isActive, true)))
+      .from(tbl_user)
+      .where(and(eq(tbl_user.userType, 'faculty'), eq(tbl_user.isActive, true)))
       .then(result => result[0]?.count || 0);
 
     const newStudents = await db
       .select({ count: count() })
-      .from(user)
+      .from(tbl_user)
       .where(and(
-        eq(user.role, 'student'),
-        gte(user.createdAt, start),
-        lte(user.createdAt, end)
+        eq(tbl_user.userType, 'student'),
+        gte(tbl_user.createdAt, start),
+        lte(tbl_user.createdAt, end)
       ))
       .then(result => result[0]?.count || 0);
 
     const newFaculty = await db
       .select({ count: count() })
-      .from(user)
+      .from(tbl_user)
       .where(and(
-        eq(user.role, 'faculty'),
-        gte(user.createdAt, start),
-        lte(user.createdAt, end)
+        eq(tbl_user.userType, 'faculty'),
+        gte(tbl_user.createdAt, start),
+        lte(tbl_user.createdAt, end)
       ))
       .then(result => result[0]?.count || 0);
 
@@ -253,17 +240,17 @@ export const GET: RequestHandler = async ({ url }) => {
     // Top Books by Borrow Count
     const topBooksRaw = await db
       .select({
-        title: book.title,
-        author: book.author,
+        title: tbl_book.title,
+        author: tbl_book.author,
         borrowCount: count()
       })
-      .from(bookBorrowing)
-      .leftJoin(book, eq(bookBorrowing.bookId, book.id))
+      .from(tbl_book_borrowing)
+      .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
       .where(and(
-        gte(bookBorrowing.createdAt, start),
-        lte(bookBorrowing.createdAt, end)
+        gte(tbl_book_borrowing.createdAt, start),
+        lte(tbl_book_borrowing.createdAt, end)
       ))
-      .groupBy(book.id, book.title, book.author)
+      .groupBy(tbl_book.id, tbl_book.title, tbl_book.author)
       .orderBy(desc(count()))
       .limit(5);
 
