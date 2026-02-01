@@ -1,6 +1,6 @@
 // $lib/server/utils/fineCalculation.ts
 import { db } from '$lib/server/db/index.js';
-import { bookBorrowing } from '$lib/server/db/schema/schema.js';
+import { tbl_book_borrowing } from '$lib/server/db/schema/schema.js';
 import { and, eq, lt, or, isNull } from 'drizzle-orm';
 
 /**
@@ -52,8 +52,8 @@ export async function updateBorrowingFine(borrowingId: number): Promise<number> 
     // Get the borrowing record
     const borrowing = await db
       .select()
-      .from(bookBorrowing)
-      .where(eq(bookBorrowing.id, borrowingId))
+      .from(tbl_book_borrowing)
+      .where(eq(tbl_book_borrowing.id, borrowingId))
       .limit(1)
       .then(rows => rows[0]);
 
@@ -63,24 +63,25 @@ export async function updateBorrowingFine(borrowingId: number): Promise<number> 
 
     // Only calculate fines for active borrowed/overdue books
     if (borrowing.status !== 'borrowed' && borrowing.status !== 'overdue') {
-      return borrowing.fine || 0;
+      return 0;
     }
 
     const dueDate = new Date(borrowing.dueDate);
     const currentDate = new Date();
     const calculatedFine = calculateFineAmount(dueDate, currentDate);
 
-    // Update the fine and status if overdue
+    // Update the status if overdue
     const newStatus = calculatedFine > 0 ? 'overdue' : borrowing.status;
 
-    await db
-      .update(bookBorrowing)
-      .set({
-        fine: calculatedFine,
-        status: newStatus,
-        fineLastCalculated: currentDate
-      })
-      .where(eq(bookBorrowing.id, borrowingId));
+    if (newStatus !== borrowing.status) {
+      await db
+        .update(tbl_book_borrowing)
+        .set({
+          status: newStatus,
+          updatedAt: currentDate
+        })
+        .where(eq(tbl_book_borrowing.id, borrowingId));
+    }
 
     return calculatedFine;
   } catch (error) {
@@ -101,19 +102,18 @@ export async function updateAllOverdueFines(): Promise<Array<{ id: number; fine:
     // Get all active borrowings that are potentially overdue
     const activeBorrowings = await db
       .select({
-        id: bookBorrowing.id,
-        dueDate: bookBorrowing.dueDate,
-        status: bookBorrowing.status,
-        currentFine: bookBorrowing.fine
+        id: tbl_book_borrowing.id,
+        dueDate: tbl_book_borrowing.dueDate,
+        status: tbl_book_borrowing.status
       })
-      .from(bookBorrowing)
+      .from(tbl_book_borrowing)
       .where(
         and(
           or(
-            eq(bookBorrowing.status, 'borrowed'),
-            eq(bookBorrowing.status, 'overdue')
+            eq(tbl_book_borrowing.status, 'borrowed'),
+            eq(tbl_book_borrowing.status, 'overdue')
           ),
-          isNull(bookBorrowing.returnDate)
+          isNull(tbl_book_borrowing.returnDate)
         )
       );
 
@@ -125,19 +125,18 @@ export async function updateAllOverdueFines(): Promise<Array<{ id: number; fine:
       const calculatedFine = calculateFineAmount(dueDate, currentDate);
       const newStatus = calculatedFine > 0 ? 'overdue' : 'borrowed';
 
-      // Only update if fine has changed or status needs updating
-      if (calculatedFine !== borrowing.currentFine || newStatus !== borrowing.status) {
+      // Only update status if it needs updating
+      if (newStatus !== borrowing.status) {
         await db
-          .update(bookBorrowing)
+          .update(tbl_book_borrowing)
           .set({
-            fine: calculatedFine,
             status: newStatus,
-            fineLastCalculated: currentDate
+            updatedAt: currentDate
           })
-          .where(eq(bookBorrowing.id, borrowing.id));
-
-        updates.push({ id: borrowing.id, fine: calculatedFine });
+          .where(eq(tbl_book_borrowing.id, borrowing.id));
       }
+
+      updates.push({ id: borrowing.id, fine: calculatedFine });
     }
 
     return updates;
@@ -157,8 +156,8 @@ export async function getBorrowingWithFine(borrowingId: number) {
   
   return await db
     .select()
-    .from(bookBorrowing)
-    .where(eq(bookBorrowing.id, borrowingId))
+    .from(tbl_book_borrowing)
+    .where(eq(tbl_book_borrowing.id, borrowingId))
     .limit(1)
     .then(rows => rows[0]);
 }

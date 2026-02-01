@@ -19,10 +19,11 @@
   // Create a persistent user store that survives navigation
   const userStore = writable<{
     id?: string;
+    uniqueId?: string;
     name?: string;
     username?: string;
     email?: string;
-    role?: string;
+    userType?: string;
     isActive?: boolean;
   } | null>(null);
   
@@ -32,10 +33,11 @@
   // Subscribe to stores for reactivity
   type UserType = {
     id?: string;
+    uniqueId?: string;
     name?: string;
     username?: string;
     email?: string;
-    role?: string;
+    userType?: string;
     isActive?: boolean;
   } | null;
 
@@ -55,7 +57,7 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2 2z"/>
         <path stroke-linecap="round" stroke-linejoin="round" d="M8 5a2 2 0 012-2h4a2 2 0 012 2v4H8V5z"/>
       </svg>`,
-      roles: ["admin", "staff"]
+      userTypes: ["admin", "super_admin", "staff"]
     },
     { 
       name: "Books", 
@@ -63,7 +65,7 @@
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
       </svg>`,
-      roles: ["admin", "staff"]
+      userTypes: ["admin", "super_admin", "staff"]
     },
     { 
       name: "Members", 
@@ -71,7 +73,7 @@
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
       </svg>`,
-      roles: ["admin", "staff"]
+      userTypes: ["admin", "super_admin", "staff"]
     },
     { 
       name: "Staff", 
@@ -79,7 +81,7 @@
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
       </svg>`,
-      roles: ["admin"]
+      userTypes: ["admin", "super_admin"]
     },
     { 
       name: "Transactions", 
@@ -87,7 +89,7 @@
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
       </svg>`,
-      roles: ["admin", "staff"]
+      userTypes: ["admin", "super_admin", "staff"]
     },
     { 
       name: "Reports", 
@@ -95,16 +97,16 @@
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
       </svg>`,
-      roles: ["admin", "staff"]
+      userTypes: ["admin", "super_admin", "staff"]
     },
     { 
       name: "Logs", 
-      href: "/dashboard/logs", 
+      href: "/dashboard/security_logs", 
       icon: `<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
       <rect x="4" y="4" width="16" height="16" rx="2"/>
       <path stroke-linecap="round" stroke-linejoin="round" d="M8 9h8M8 13h6M8 17h4"/>
     </svg>`,
-      roles: ["admin"]
+      userTypes: ["admin", "super_admin"]
     },
     { 
       name: "Settings", 
@@ -113,14 +115,14 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
       </svg>`,
-      roles: ["admin"]
+      userTypes: ["admin", "super_admin"]
     },
   ];
 
-  // Create a derived store for filtered navigation based on user role
+  // Create a derived store for filtered navigation based on user userType
   const navigation = derived(userStore, ($user) => {
-    if (!$user || !$user.role) return allNavigation;
-    return allNavigation.filter(item => item.roles.includes($user.role!));
+    if (!$user || !$user.userType) return allNavigation;
+    return allNavigation.filter(item => item.userTypes.includes($user.userType!));
   });
 
   let currentPath = "";
@@ -373,9 +375,13 @@
     }
   });
 
-  // Add a helper to capitalize the role
+  // Add a helper to capitalize the role/userType (convert snake_case to Title Case)
   function capitalize(str: string | undefined) {
-    return str ? str.charAt(0).toUpperCase() + str.slice(1) : "";
+    if (!str) return "";
+    return str
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   }
 </script>
 
@@ -408,7 +414,7 @@
       <ul class="space-y-1">
         {#each $navigation as item}
           <li>
-            {#if !(user?.role && item.roles.includes(user.role))}
+            {#if !(user?.userType && item.userTypes.includes(user.userType))}
               <!-- Skeleton loading with improved styling -->
               <div class="px-4 py-3 rounded-lg bg-gradient-to-r from-[#4A7C59]/20 via-[#E8B923]/10 to-[#4A7C59]/20 animate-pulse h-10 border border-[#B8860B]/20 shadow-sm">
                 <div class="flex items-center space-x-3">
@@ -425,6 +431,7 @@
                     : 'text-white hover:bg-[#4A7C59]/30 hover:text-[#E8B923] hover:border-[#B8860B]/30'}"
                 on:click|preventDefault={async () => {
                   sidebarOpen.set(false);
+                  // Navigate to security logs - server will redirect with proper uid if needed
                   await goto(item.href, { noScroll: true });
                 }}
               >
@@ -447,7 +454,7 @@
         </div>
         <div>
           <p class="text-sm font-medium text-white">{user?.username || 'User'}</p>
-          <p class="text-xs text-[#E8B923]">{capitalize(user?.role || 'guest')}</p>
+          <p class="text-xs text-[#E8B923]">{capitalize(user?.userType || 'guest')}</p>
         </div>
       </div>
 
@@ -505,8 +512,8 @@
           </button>
           <div class="h-8 w-px bg-[#4A7C59]/30"></div>
           <h1 class="text-sm sm:text-2xl font-bold text-[#0D5C29]">
-            {#if currentPath === "/dashboard" && user?.role}
-              {capitalize(user.role)} Dashboard
+            {#if currentPath === "/dashboard" && user?.userType}
+              {capitalize(user.userType)} Dashboard
             {:else}
               {$navigation.find(nav => nav.href === currentPath)?.name || "Dashboard"}
             {/if}

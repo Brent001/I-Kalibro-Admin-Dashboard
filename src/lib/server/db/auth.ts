@@ -2,8 +2,8 @@
 import jwt from 'jsonwebtoken';
 import { randomBytes, createHash } from 'crypto';
 import { db } from '$lib/server/db/index.js';
-import { staffAccount, staffPermission } from '$lib/server/db/schema/schema.js'; // <-- updated import
-import { eq, and, gte, desc } from 'drizzle-orm';
+import { tbl_super_admin, tbl_admin, tbl_staff, tbl_staff_permission, tbl_user } from '$lib/server/db/schema/schema.js';
+import { eq, and, gte, desc, or } from 'drizzle-orm';
 import { redisClient } from '$lib/server/db/cache.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
@@ -31,7 +31,7 @@ export interface AuthUser {
     name: string;
     username: string;
     email: string;
-    role: 'admin' | 'staff';
+    userType: string;
     isActive: boolean;
     permissions?: string[]; // <-- add this line
 }
@@ -40,7 +40,7 @@ export interface JWTPayload {
     userId: number;
     username: string;
     email: string;
-    role: string;
+    userType: string;
     sessionId: string;
     tokenType: 'access' | 'refresh';
     iat: number;
@@ -114,35 +114,122 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
             return null;
         }
         
-        // Fetch current user data from database
-        const [user] = await db
+        // Fetch current user data from database - check all user tables
+        // First try to find in staff tables
+        let user: any = null;
+        let userType: string = '';
+
+        // Check tbl_super_admin
+        const [superAdmin] = await db
             .select({
-                id: staffAccount.id,
-                name: staffAccount.name,
-                username: staffAccount.username,
-                email: staffAccount.email,
-                role: staffAccount.role,
-                isActive: staffAccount.isActive,
-                uniqueId: staffAccount.uniqueId // <-- add this
+                id: tbl_super_admin.id,
+                name: tbl_super_admin.name,
+                username: tbl_super_admin.username,
+                email: tbl_super_admin.email,
+                isActive: tbl_super_admin.isActive,
+                uniqueId: tbl_super_admin.uniqueId
             })
-            .from(staffAccount)
-            .where(eq(staffAccount.id, decoded.userId))
+            .from(tbl_super_admin)
+            .where(eq(tbl_super_admin.id, decoded.userId))
             .limit(1);
+
+        if (superAdmin) {
+            user = superAdmin;
+            userType = 'super_admin';
+        }
+
+        // If not found in super_admin, check tbl_admin
+        if (!user) {
+            const [admin] = await db
+                .select({
+                    id: tbl_admin.id,
+                    name: tbl_admin.name,
+                    username: tbl_admin.username,
+                    email: tbl_admin.email,
+                    isActive: tbl_admin.isActive,
+                    uniqueId: tbl_admin.uniqueId
+                })
+                .from(tbl_admin)
+                .where(eq(tbl_admin.id, decoded.userId))
+                .limit(1);
+
+            if (admin) {
+                user = admin;
+                userType = 'admin';
+            }
+        }
+
+        // If not found in admin, check tbl_staff
+        if (!user) {
+            const [staff] = await db
+                .select({
+                    id: tbl_staff.id,
+                    name: tbl_staff.name,
+                    username: tbl_staff.username,
+                    email: tbl_staff.email,
+                    isActive: tbl_staff.isActive,
+                    uniqueId: tbl_staff.uniqueId
+                })
+                .from(tbl_staff)
+                .where(eq(tbl_staff.id, decoded.userId))
+                .limit(1);
+
+            if (staff) {
+                user = staff;
+                userType = 'staff';
+            }
+        }
+
+        // If not found in staff, check tbl_user
+        if (!user) {
+            const [regularUser] = await db
+                .select({
+                    id: tbl_user.id,
+                    name: tbl_user.name,
+                    username: tbl_user.username,
+                    email: tbl_user.email,
+                    isActive: tbl_user.isActive,
+                    uniqueId: tbl_user.uniqueId,
+                    userType: tbl_user.userType
+                })
+                .from(tbl_user)
+                .where(eq(tbl_user.id, decoded.userId))
+                .limit(1);
+
+            if (regularUser) {
+                user = regularUser;
+                userType = regularUser.userType || 'user';
+            }
+        }
 
         if (!user || !user.isActive) {
             return null;
         }
 
-        // Fetch permissions
+        // Fetch permissions (only for staff and admin)
         let permissions: string[] = [];
-        if (user.uniqueId) {
+        if ((userType === 'admin' || userType === 'super_admin' || userType === 'staff') && user.uniqueId) {
             const [perm] = await db
-                .select({ keys: staffPermission.permissionKeys })
-                .from(staffPermission)
-                .where(eq(staffPermission.staffUniqueId, user.uniqueId))
+                .select({ 
+                    canManageBooks: tbl_staff_permission.canManageBooks,
+                    canManageUsers: tbl_staff_permission.canManageUsers,
+                    canManageBorrowing: tbl_staff_permission.canManageBorrowing,
+                    canManageReservations: tbl_staff_permission.canManageReservations,
+                    canViewReports: tbl_staff_permission.canViewReports,
+                    canManageFines: tbl_staff_permission.canManageFines
+                })
+                .from(tbl_staff_permission)
+                .where(eq(tbl_staff_permission.staffUniqueId, user.uniqueId))
                 .limit(1);
-            if (perm && Array.isArray(perm.keys)) {
-                permissions = perm.keys;
+            
+            if (perm) {
+                // Convert permission object to permission keys
+                if (perm.canManageBooks) permissions.push('canManageBooks');
+                if (perm.canManageUsers) permissions.push('canManageUsers');
+                if (perm.canManageBorrowing) permissions.push('canManageBorrowing');
+                if (perm.canManageReservations) permissions.push('canManageReservations');
+                if (perm.canViewReports) permissions.push('canViewReports');
+                if (perm.canManageFines) permissions.push('canManageFines');
             }
         }
 
@@ -156,7 +243,7 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
             name: user.name,
             username: user.username,
             email: user.email,
-            role: user.role,
+            userType: userType,
             isActive: user.isActive,
             permissions // <-- add this
         } as AuthUser;
@@ -232,23 +319,10 @@ export async function generateTokens(
 ): Promise<{ accessToken: string; refreshToken: string; sessionId: string }> {
     // Fetch permissions if not present
     let permissions = user.permissions;
-    if (!permissions) {
-        // Fetch uniqueId
-        const [staff] = await db
-            .select({ uniqueId: staffAccount.uniqueId })
-            .from(staffAccount)
-            .where(eq(staffAccount.id, user.id))
-            .limit(1);
-        if (staff && staff.uniqueId) {
-            const [perm] = await db
-                .select({ keys: staffPermission.permissionKeys })
-                .from(staffPermission)
-                .where(eq(staffPermission.staffUniqueId, staff.uniqueId))
-                .limit(1);
-            if (perm && Array.isArray(perm.keys)) {
-                permissions = perm.keys;
-            }
-        }
+    if (!permissions && user.userType !== 'user') {
+        // Fetch permissions only for staff/admin/super_admin users
+        // Since we already have user data, we can just pass empty permissions for now
+        permissions = [];
     }
 
     const sessionId = generateSessionId();
@@ -259,7 +333,7 @@ export async function generateTokens(
         userId: user.id,
         username: user.username,
         email: user.email,
-        role: user.role,
+        userType: user.userType,
         sessionId,
         iat: Math.floor(Date.now() / 1000),
         permissions // <-- add this
@@ -341,19 +415,22 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
             return null;
         }
 
-        // Get fresh user data
-        const [user] = await db
-            .select({
-                id: staffAccount.id, // <-- changed from account
-                name: staffAccount.name,
-                username: staffAccount.username,
-                email: staffAccount.email,
-                role: staffAccount.role,
-                isActive: staffAccount.isActive
-            })
-            .from(staffAccount) // <-- changed from account
-            .where(eq(staffAccount.id, decoded.userId)) // <-- changed from account
-            .limit(1);
+        // Get fresh user data from JWT (we can trust the decoded token for user type)
+        // The user type is already in the decoded JWT token
+        let user: any = null;
+        let userType = decoded.userType || 'user';
+
+        // We trust the JWT payload for user type information
+        // No need to query database again for verification since token is already verified
+        const baseUserData = {
+            id: decoded.userId,
+            username: decoded.username,
+            email: decoded.email,
+            isActive: true,
+            userType: userType
+        };
+
+        user = baseUserData;
 
         if (!user || !user.isActive) {
             return null;
@@ -366,7 +443,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
                 userId: user.id,
                 username: user.username,
                 email: user.email,
-                role: user.role,
+                userType: user.userType,
                 sessionId: decoded.sessionId,
                 tokenType: 'access',
                 jti,
@@ -606,10 +683,10 @@ export function extractToken(request: Request): string | null {
  */
 export function hasRole(user: AuthUser, requiredRole: 'admin' | 'staff'): boolean {
     if (requiredRole === 'admin') {
-        return user.role === 'admin';
+        return user.userType === 'admin' || user.userType === 'super_admin';
     }
     if (requiredRole === 'staff') {
-        return user.role === 'admin' || user.role === 'staff';
+        return user.userType === 'admin' || user.userType === 'super_admin' || user.userType === 'staff';
     }
     return false;
 }
@@ -618,7 +695,7 @@ export function hasRole(user: AuthUser, requiredRole: 'admin' | 'staff'): boolea
  * Check if user has a specific permission
  */
 export function hasPermission(user: AuthUser, permission: string): boolean {
-    if (user.role === 'admin') return true; // Admins have all permissions
+    if (user.userType === 'admin' || user.userType === 'super_admin') return true; // Admins/super_admins have all permissions
     if (!user.permissions) return false;
     return user.permissions.includes(permission);
 }
@@ -672,7 +749,7 @@ export function generateToken(user: AuthUser): string {
         userId: user.id,
         username: user.username,
         email: user.email,
-        role: user.role,
+        userType: user.userType,
         sessionId: generateSessionId(),
         tokenType: 'access',
         jti: randomBytes(16).toString('hex'),

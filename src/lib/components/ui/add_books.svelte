@@ -12,9 +12,8 @@
     publisher: '',
     publishedYear: '',
     language: 'English',
-    copiesAvailable: 1,
+    totalCopies: 1,
     location: '',
-    originPlace: '',
     bookId: '',
     description: ''
   };
@@ -82,7 +81,7 @@
         newErrors.publishedYear = `Year must be between 1000 and ${currentYear}`;
       }
     }
-    if (formData.copiesAvailable < 1) newErrors.copiesAvailable = 'Number of copies must be at least 1';
+    if (formData.totalCopies < 1) newErrors.totalCopies = 'Number of copies must be at least 1';
     if (!formData.bookId.trim()) {
       newErrors.bookId = 'Book ID is required';
     } else if (!/^[A-Z0-9\-]+$/i.test(formData.bookId.trim())) {
@@ -102,12 +101,11 @@
         title: formData.title.trim(),
         author: formData.author.trim(),
         publishedYear: parseInt(formData.publishedYear),
-        copiesAvailable: parseInt(formData.copiesAvailable.toString()),
+        totalCopies: parseInt(formData.totalCopies.toString()),
         categoryId: parseInt(formData.categoryId),
         publisher: formData.publisher.trim(),
         language: formData.language,
         location: formData.location.trim() || null,
-        originPlace: formData.originPlace.trim() || null,
         description: formData.description.trim() || null
       };
 
@@ -152,9 +150,8 @@
       publisher: '',
       publishedYear: '',
       language: 'English',
-      copiesAvailable: 1,
+      totalCopies: 1,
       location: '',
-      originPlace: '',
       bookId: '',
       description: ''
     };
@@ -386,24 +383,24 @@
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Number of Copies *</label>
                     <input 
                       type="number" 
-                      bind:value={formData.copiesAvailable} 
+                      bind:value={formData.totalCopies} 
                       disabled={isSubmitting}
-                      class="w-full px-3 sm:px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-50 text-sm sm:text-base {errors.copiesAvailable ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white'}" 
+                      class="w-full px-3 sm:px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-50 text-sm sm:text-base {errors.totalCopies ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-white'}" 
                       min="1" 
                       placeholder="1" 
                     />
-                    {#if errors.copiesAvailable}
+                    {#if errors.totalCopies}
                       <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
                         <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                           <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
                         </svg>
-                        {errors.copiesAvailable}
+                        {errors.totalCopies}
                       </p>
                     {/if}
                   </div>
                   
                   <!-- Location/Shelf -->
-                  <div>
+                  <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Location/Shelf</label>
                     <input 
                       type="text" 
@@ -412,19 +409,7 @@
                       class="w-full px-3 sm:px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-50 bg-white text-sm sm:text-base" 
                       placeholder="e.g., A1-B2, Section 3" 
                     />
-                  </div>
-                  
-                  <!-- Origin Place -->
-                  <div class="md:col-span-2">
-                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Origin Place</label>
-                    <input 
-                      type="text" 
-                      bind:value={formData.originPlace} 
-                      disabled={isSubmitting}
-                      class="w-full px-3 sm:px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 disabled:opacity-50 disabled:bg-slate-50 bg-white text-sm sm:text-base" 
-                      placeholder="e.g., Manila, Philippines" 
-                    />
-                    <p class="text-xs text-slate-500 mt-1.5">Where the book was published or originated</p>
+                    <p class="text-xs text-slate-500 mt-1.5">Physical location of the book in the library</p>
                   </div>
                 </div>
               </div>
