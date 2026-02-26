@@ -8,7 +8,7 @@
   let showProfile = false;
   const dropdownOpen = writable(false);
   
-  let settings: Record<string, any> = {
+  let settings: any = {
     libraryName: 'Metro Dagupan Colleges Library',
     libraryCode: 'MDC-LIB',
     address: 'Dagupan City, Pangasinan',
@@ -38,9 +38,41 @@
   async function handleSave() {
     isSaving = true;
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      saveSuccess = true;
-      setTimeout(() => saveSuccess = false, 3000);
+      // Save general settings (excluding fineCalculation) and fineCalculation separately.
+      const general = { ...settings };
+      delete general.fineCalculation;
+
+      const saveGeneral = fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(general),
+        credentials: 'same-origin'
+      }).catch(e => ({ ok: false, _err: e }));
+
+      const saveFine = fetch('/api/settings/finecal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings.fineCalculation),
+        credentials: 'same-origin'
+      }).catch(e => ({ ok: false, _err: e }));
+
+      const [resGeneral, resFine] = await Promise.all([saveGeneral, saveFine]);
+
+      const generalOk = resGeneral && resGeneral.ok;
+      const fineOk = resFine && resFine.ok;
+
+      if (!generalOk && !fineOk) {
+        const gErr = resGeneral && ('_err' in resGeneral ? (resGeneral._err ? String((resGeneral as any)._err) : undefined) : undefined);
+        const fErr = resFine && ('_err' in resFine ? (resFine._err ? String((resFine as any)._err) : undefined) : undefined);
+        console.error('Failed saving settings:', gErr, fErr);
+        saveSuccess = false;
+      } else {
+        saveSuccess = true;
+        setTimeout(() => saveSuccess = false, 3000);
+      }
+    } catch (e) {
+      console.error('Save error:', e);
+      saveSuccess = false;
     } finally {
       isSaving = false;
     }
@@ -78,6 +110,12 @@
       description: 'Status & maintenance' 
     },
     { 
+      id: 'finecalc',
+      name: 'Fine Calculation',
+      icon: '<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12A9 9 0 1112 3a9 9 0 019 9z"/></svg>',
+      description: 'Configure exemptions and test fine calculations'
+    },
+    { 
       id: 'profile', 
       name: 'Profile', 
       icon: '<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>',
@@ -95,9 +133,102 @@
     confirmPassword: ''
   };
 
+
+  // Fine calculation settings
+  settings.fineCalculation = settings.fineCalculation || {
+    excludeSundays: true,
+    excludeCampusClosedDays: false,
+    closedWeekdays: [], // 0 = Sunday, 1 = Monday ... 6 = Saturday
+    // store holiday/closure entries with date, description, and type
+    holidays: [] as { date: string; description: string; type: 'holiday' | 'closed' }[]
+  };
+
+  let newHoliday: string = '';
+  let newHolidayDesc: string = '';
+  let newHolidayType: 'holiday' | 'closed' = 'holiday';
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  function addHoliday() {
+    if (!newHoliday) return;
+    const exists = settings.fineCalculation.holidays.some((h: any) => h.date === newHoliday && h.type === newHolidayType);
+    if (!exists) {
+      settings.fineCalculation.holidays.push({ date: newHoliday, description: newHolidayDesc || (newHolidayType === 'closed' ? 'One-time closure' : 'Holiday'), type: newHolidayType });
+      newHoliday = '';
+      newHolidayDesc = '';
+      newHolidayType = 'holiday';
+    }
+  }
+
+  function removeHoliday(idx: number) {
+    settings.fineCalculation.holidays.splice(idx, 1);
+  }
+
+  function toggleWeekday(day: number) {
+    const idx = settings.fineCalculation.closedWeekdays.indexOf(day);
+    if (idx === -1) settings.fineCalculation.closedWeekdays.push(day);
+    else settings.fineCalculation.closedWeekdays.splice(idx, 1);
+
+    // Keep the `excludeSundays` checkbox in sync when user toggles Sunday manually.
+    if (day === 0) {
+      settings.fineCalculation.excludeSundays = settings.fineCalculation.closedWeekdays.includes(0);
+    }
+  }
+
+  function isClosedWeekday(day: number) {
+    return settings.fineCalculation.closedWeekdays.includes(day);
+  }
+
+  // When the excludeSundays checkbox changes, ensure Sunday (0) is present/removed
+  // in the `closedWeekdays` array so both controls remain consistent.
+  $: if (settings && settings.fineCalculation) {
+    const cw = settings.fineCalculation.closedWeekdays || [];
+    const hasSunday = cw.includes(0);
+    if (settings.fineCalculation.excludeSundays && !hasSunday) {
+      settings.fineCalculation.closedWeekdays = [...cw, 0];
+    } else if (!settings.fineCalculation.excludeSundays && hasSunday) {
+      settings.fineCalculation.closedWeekdays = cw.filter((d: number) => d !== 0);
+    }
+  }
+
+  onMount(() => {
+    try {
+      const params = new URLSearchParams(location.search);
+      const t = params.get('tab');
+      if (t) activeTab = t;
+    } catch (e) {
+      // ignore when not in browser
+    }
+  });
+
+  // load fineCalculation settings from dedicated API
+  onMount(async () => {
+    try {
+      const res = await fetch('/api/settings/finecal', { credentials: 'same-origin' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success) {
+          if (data.fineCalculation) settings.fineCalculation = data.fineCalculation;
+        }
+      }
+    } catch (e) {
+      // ignore load errors silently
+      console.error('Failed to load fineCalculation:', e);
+    }
+  });
+
   function selectTab(tabId: string) {
     activeTab = tabId;
     dropdownOpen.set(false);
+
+    // update URL query param without navigating
+    try {
+      const params = new URLSearchParams(location.search);
+      params.set('tab', tabId);
+      const newUrl = `${location.pathname}?${params.toString()}`;
+      history.replaceState(null, '', newUrl);
+    } catch (e) {
+      // ignore when not in browser
+    }
   }
 </script>
 
@@ -413,7 +544,88 @@
           </div>
         </div>
 
-      {:else if activeTab === 'profile'}
+          {:else if activeTab === 'finecalc'}
+            <div class="p-6 sm:p-8 animate-fade-in">
+              <div class="mb-8">
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Fine Calculation & Exemptions</h3>
+                <p class="text-sm text-slate-500">Configure days to exempt (holidays, Sundays, campus-closed weekdays) and test fine calculations</p>
+              </div>
+
+              <div class="max-w-3xl space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <label class="flex items-center gap-3">
+                    <input type="checkbox" bind:checked={settings.fineCalculation.excludeSundays} class="h-4 w-4" />
+                    <span class="text-sm text-slate-700">Exclude Sundays from fine calculation</span>
+                  </label>
+                  <label class="flex items-center gap-3">
+                    <input type="checkbox" bind:checked={settings.fineCalculation.excludeCampusClosedDays} class="h-4 w-4" />
+                    <span class="text-sm text-slate-700">Exclude campus-closed weekdays</span>
+                  </label>
+                </div>
+
+                <div class="space-y-2">
+                  <div class="text-sm font-medium text-slate-700">Campus Closed Weekdays</div>
+                  <div class="flex gap-2 flex-wrap">
+                    {#each dayNames as dn, i}
+                      {@const selected = isClosedWeekday(i)}
+                      <label class={`inline-flex items-center gap-2 px-3 py-1 border rounded-md text-sm cursor-pointer select-none ${selected ? 'bg-[#0D5C29] text-white border-[#0D5C29]' : 'bg-white text-slate-700'}`} on:click={() => toggleWeekday(i)}>
+                        <input type="checkbox" checked={selected} readonly class="sr-only" />
+                        {dn}
+                      </label>
+                    {/each}
+                  </div>
+                </div>
+
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <div class="text-sm font-medium text-slate-700">Holidays & One-time Closures (exclude from fines)</div>
+                    <div class="text-xs text-slate-500">Add dates in YYYY-MM-DD</div>
+                  </div>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <input type="date" bind:value={newHoliday} class="px-3 py-2 border border-gray-300 rounded-lg" />
+                    <input type="text" placeholder="Description (optional)" bind:value={newHolidayDesc} class="px-3 py-2 border border-gray-300 rounded-lg" />
+                    <div class="flex gap-2">
+                      <select bind:value={newHolidayType} class="px-3 py-2 border border-gray-300 rounded-lg">
+                        <option value="holiday">Holiday</option>
+                        <option value="closed">One-time Closure</option>
+                      </select>
+                      <button on:click={addHoliday} class="px-4 py-2 bg-[#0D5C29] text-white rounded-md">Add</button>
+                    </div>
+                  </div>
+                  <div class="mt-4 overflow-x-auto">
+                    <table class="min-w-full text-sm">
+                      <thead>
+                        <tr class="text-left text-xs text-slate-500">
+                          <th class="px-3 py-2">Date</th>
+                          <th class="px-3 py-2">Type</th>
+                          <th class="px-3 py-2">Description</th>
+                          <th class="px-3 py-2">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {#each settings.fineCalculation.holidays as h, idx}
+                          <tr class="border-t">
+                            <td class="px-3 py-2">{h.date}</td>
+                            <td class="px-3 py-2">{h.type === 'holiday' ? 'Holiday' : 'Closure'}</td>
+                            <td class="px-3 py-2">{h.description}</td>
+                            <td class="px-3 py-2">
+                              <button on:click={() => removeHoliday(idx)} class="text-sm text-red-600">Remove</button>
+                            </td>
+                          </tr>
+                        {/each}
+                        {#if settings.fineCalculation.holidays.length === 0}
+                          <tr>
+                            <td class="px-3 py-4 text-xs text-slate-500" colspan="4">No entries added</td>
+                          </tr>
+                        {/if}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          {:else if activeTab === 'profile'}
         <div class="p-6 sm:p-8 animate-fade-in">
           <div class="mb-8">
             <h3 class="text-lg font-semibold text-slate-900 mb-2">Personal Profile</h3>

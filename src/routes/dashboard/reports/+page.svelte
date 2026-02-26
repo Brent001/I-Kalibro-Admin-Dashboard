@@ -1,824 +1,726 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { writable, derived } from 'svelte/store';
-  import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
+  import * as Lucide from 'lucide-svelte';
+  const Icons = Lucide as any;
 
-  // --- Types ---
+  // ─── Types ─────────────────────────────────────────────────────────────────
   interface Overview {
-    totalVisits: number;
-    totalTransactions: number;
-    activeBorrowings: number;
-    overdueBooks: number;
-    totalPenalties: number;
-    availableBooks: number;
+    totalVisits: number; activeMembers: number; activeStudents: number; activeFaculty: number; newMembers: number;
+    activeBorrowings: number; totalBorrowedPeriod: number; totalReturnedPeriod: number;
+    totalOverdue: number; overdueByType: { books: number; magazines: number; thesis: number; journals: number };
+    totalPendingReservations: number; totalReservationsPeriod: number; totalPendingReturnRequests: number;
+    totalUnpaidFines: number; totalPaidFines: number; paymentsCount: number;
+    totalItems: number; totalBooks: number; totalMagazines: number; totalThesis: number; totalJournals: number;
+    totalBookCopies: number; availableBookCopies: number;
   }
-
+  interface BorrowingByType { type: string; borrowed: number; returned: number; overdue: number }
   interface ChartData {
-    dailyVisits: Array<{date: string; count: number}>;
-    transactionTypes: Array<{type: string; count: number}>;
-    categoryDistribution: Array<{category: string; count: number; percentage: number}>;
-    penaltyTrends: Array<{date: string; amount: number}>;
-    memberActivity: Array<{type: string; active: number; new: number}>;
+    dailyVisits: Array<{ date: string; count: number }>;
+    dailyBorrowings: Array<{ date: string; books: number; magazines: number; thesis: number; journals: number; total: number }>;
+    categoryDistribution: Array<{ category: string; count: number; percentage: number }>;
+    penaltyTrends: Array<{ date: string; amount: number }>;
+    paymentTrends: Array<{ date: string; amount: number; count: number }>;
+    borrowingsByType: BorrowingByType[];
+    transactionTypes: Array<{ type: string; count: number }>;
+    reservationStatusBreakdown: Array<{ status: string; count: number }>;
+    fineBreakdown: Array<{ status: string; count: number; total: number }>;
+    memberActivity: Array<{ type: string; active: number; new: number }>;
+    collectionBreakdown: Array<{ type: string; count: number }>;
   }
-
   interface TableData {
-    topBooks: Array<{title: string; author: string; borrowCount: number}>;
-    overdueList: Array<{bookTitle: string; borrowerName: string; daysOverdue: number; fine: number}>;
+    topItems: Array<{ title: string; author: string; itemType: string; borrowCount: number }>;
+    overdueList: Array<{ itemTitle: string; borrowerName: string; itemType: string; dueDate: string; daysOverdue: number; hoursOverdue?: number; fine: number }>;
+    recentPayments: Array<{ transactionId: string; memberName: string; amount: number; paymentType: string; paymentMethod: string; paymentDate: string }>;
+    topDebtors: Array<{ memberName: string; userType: string; totalFine: number; fineCount: number }>;
   }
+  interface DashboardData { overview: Overview; charts: ChartData; tables: TableData }
 
-  interface DashboardData {
-    overview: Overview;
-    charts: ChartData;
-    tables: TableData;
-  }
-
-  type MetricConfig = {
-    key: keyof Overview;
-    label: string;
-    icon: keyof typeof ICON_PATHS;
-    gradient: string;
-    bgClass: string;
-    iconClass: string;
-    format?: 'currency' | 'number';
-  };
-
-  // --- Store & State ---
+  // ─── Stores ────────────────────────────────────────────────────────────────
   const loading = writable(true);
-  const error = writable<string>('');
-  const dashboardData = writable<DashboardData>({
-    overview: {
-      totalVisits: 0, totalTransactions: 0, activeBorrowings: 0,
-      overdueBooks: 0, totalPenalties: 0, availableBooks: 0
-    },
-    charts: {
-      dailyVisits: [], transactionTypes: [], categoryDistribution: [],
-      penaltyTrends: [], memberActivity: []
-    },
-    tables: { topBooks: [], overdueList: [] }
-  });
+  const errorMsg = writable('');
+  const dashboardData = writable<DashboardData | null>(null);
+  const selectedPeriod = writable('month');
+  const dropdownOpen = writable(false);
+  const exportDropdownOpen = writable(false);
+  const selectedExportFormat = writable('pdf');
+  let activeTab: 'borrowings' | 'reservations' | 'fines' | 'collection' = 'borrowings';
 
-  const transactionTypesForChart = derived(dashboardData, $dashboardData => {
-    const apiTypes = $dashboardData.charts.transactionTypes.filter(t => t.type !== 'Overdue');
-    const overdueCount = $dashboardData.tables.overdueList.length;
-    return [...apiTypes, { type: 'Overdue', count: overdueCount }];
-  });
-
-  // --- Config ---
+  // ─── Config ────────────────────────────────────────────────────────────────
   const PERIOD_OPTIONS = [
-    { value: "week", label: "Last 7 Days" },
-    { value: "month", label: "Last 30 Days" },
-    { value: "quarter", label: "Last 3 Months" },
-    { value: "year", label: "Last 12 Months" }
+    { value: 'week',    label: 'Last 7 Days' },
+    { value: 'month',   label: 'Last 30 Days' },
+    { value: 'quarter', label: 'Last 3 Months' },
+    { value: 'year',    label: 'Last 12 Months' },
   ] as const;
 
-  // Map logs parameter to period value
-  function parseLogsParam(logsParam: string | null): string {
-    if (!logsParam) return 'month';
-    
-    const num = parseInt(logsParam);
-    if (isNaN(num)) return 'month';
-    
-    if (logsParam.includes('d')) {
-      if (num <= 7) return 'week';
-      if (num <= 30) return 'month';
-      if (num <= 90) return 'quarter';
-      if (num <= 365) return 'year';
-    }
-    
-    return 'month'; // default fallback
-  }
+  $: selectedPeriodLabel = PERIOD_OPTIONS.find(o => o.value === $selectedPeriod)?.label ?? 'Select Period';
 
-  const ICON_PATHS = {
-    users: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
-    check: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
-    book: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
-    clock: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
-    dollar: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1",
-    peso: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M9 4h6m-6 4h6",
-    library: "M8 14v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-  } as const;
-
-  const METRIC_CONFIGS: MetricConfig[] = [
-    { key: 'totalVisits', label: 'Total Visits', icon: 'users', gradient: 'from-blue-500 to-blue-600', bgClass: 'bg-blue-50', iconClass: 'text-blue-600' },
-    { key: 'totalTransactions', label: 'Transactions', icon: 'check', gradient: 'from-green-500 to-green-600', bgClass: 'bg-emerald-50', iconClass: 'text-emerald-600' },
-    { key: 'activeBorrowings', label: 'Active Loans', icon: 'book', gradient: 'from-yellow-500 to-yellow-600', bgClass: 'bg-amber-50', iconClass: 'text-amber-600' },
-    { key: 'overdueBooks', label: 'Overdue', icon: 'clock', gradient: 'from-red-500 to-red-600', bgClass: 'bg-rose-50', iconClass: 'text-rose-600' },
-    { key: 'totalPenalties', label: 'Fines Collected', icon: 'dollar', format: 'currency', gradient: 'from-purple-500 to-purple-600', bgClass: 'bg-purple-50', iconClass: 'text-purple-600' },
-    { key: 'availableBooks', label: 'In Stock', icon: 'library', gradient: 'from-indigo-500 to-indigo-600', bgClass: 'bg-slate-50', iconClass: 'text-slate-600' }
+  // KPI cards configuration (use lucide-svelte components)
+  const KPI_CARDS = [
+    { label: 'Total Visits',     value: () => $dashboardData?.overview.totalVisits ?? 0,              color: 'from-blue-500 to-blue-600',    icon: 'Users' },
+    { label: 'Active Members',   value: () => $dashboardData?.overview.activeMembers ?? 0,            color: 'from-emerald-500 to-emerald-600', icon: 'User' },
+    { label: 'Active Loans',     value: () => $dashboardData?.overview.activeBorrowings ?? 0,         color: 'from-amber-500 to-amber-600',   icon: 'BookOpen' },
+    { label: 'Total Overdue',    value: () => $dashboardData?.overview.totalOverdue ?? 0,             color: 'from-red-500 to-red-600',      icon: 'Clock' },
+    { label: 'Pending Requests', value: () => (($dashboardData?.overview.totalPendingReservations ?? 0) + ($dashboardData?.overview.totalPendingReturnRequests ?? 0)), color: 'from-indigo-500 to-indigo-600', icon: 'Calendar' },
+    { label: 'Paid Fines',       value: () => $dashboardData?.overview.totalPaidFines ?? 0,           color: 'from-emerald-500 to-emerald-600', icon: 'Peso', format: 'currency' },
   ];
 
-  let selectedPeriod = writable('month');
+  const EXPORT_FORMATS = [
+    { v: 'pdf', label: 'PDF Document', icon: 'FileText', colorClass: 'text-red-500' },
+    { v: 'excel', label: 'Excel Spreadsheet', icon: 'FileSpreadsheet', colorClass: 'text-green-500' },
+  ];
+
+  // ─── Formatters ────────────────────────────────────────────────────────────
+  const fc  = (v: number) => `₱${Number(v || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fn  = (v: number) => v.toLocaleString();
+  const fd  = (s: string) => new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const fdt = (s: string) => new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  function itemTypeBadge(t: string) {
+    return { Book: 'bg-blue-100 text-blue-700', Magazine: 'bg-purple-100 text-purple-700', Thesis: 'bg-teal-100 text-teal-700', Journal: 'bg-orange-100 text-orange-700' }[t] ?? 'bg-slate-100 text-slate-600';
+  }
+  function statusBadge(s: string) {
+    const m: Record<string, string> = { pending: 'bg-amber-100 text-amber-800', approved: 'bg-green-100 text-green-800', rejected: 'bg-red-100 text-red-800', fulfilled: 'bg-blue-100 text-blue-800', expired: 'bg-gray-100 text-gray-600', cancelled: 'bg-gray-100 text-gray-600', paid: 'bg-green-100 text-green-800', unpaid: 'bg-red-100 text-red-800', waived: 'bg-purple-100 text-purple-800' };
+    return m[s] ?? 'bg-slate-100 text-slate-600';
+  }
+
+  // ─── Chart helpers ─────────────────────────────────────────────────────────
   let chartInstances: Record<string, any> = {};
-  let dropdownOpen = writable(false);
-  let exportDropdownOpen = writable(false);
-  let selectedExportFormat = writable('pdf');
 
-  // Reactive selected period label
-  $: selectedPeriodLabel = PERIOD_OPTIONS.find(option => option.value === $selectedPeriod)?.label || 'Select Period';
-  const formatCurrency = (amount: number) => `₱${(amount / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const formatNumber = (num: number) => num.toLocaleString();
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  function destroyChart(id: string) {
+    if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
+  }
+
+  function mkGradient(canvas: HTMLCanvasElement, color: string, alpha = 0.3): CanvasGradient {
+    const ctx = canvas.getContext('2d')!;
+    const g = ctx.createLinearGradient(0, 0, 0, canvas.height || 300);
+
+    // Helper: convert '#rrggbb' to 'r,g,b'
+    function hexToRgb(hex: string) {
+      const h = hex.replace('#', '');
+      if (h.length === 3) {
+        return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)];
+      }
+      return [parseInt(h.substring(0,2), 16), parseInt(h.substring(2,4), 16), parseInt(h.substring(4,6), 16)];
+    }
+
+    let base0 = color;
+    let base1 = color;
+
+    if (color.startsWith('#')) {
+      const [r,g,b] = hexToRgb(color);
+      base0 = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      base1 = `rgba(${r}, ${g}, ${b}, ${0.02})`;
+    } else if (color.startsWith('rgb')) {
+      // color like 'rgb(r,g,b)' or 'rgba(...)'
+      const rgb = color.replace(/^rgba?\(/, '').replace(/\)$/, '');
+      base0 = `rgba(${rgb}, ${alpha})`;
+      base1 = `rgba(${rgb}, 0.02)`;
+    }
+
+    g.addColorStop(0, base0);
+    g.addColorStop(1, base1);
+    return g;
+  }
+
+  const CHART_DEFAULTS = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'bottom' as const, labels: { boxWidth: 10, usePointStyle: true, font: { size: 11 } } },
+      tooltip: { backgroundColor: 'rgba(15,23,42,0.9)', padding: 10, cornerRadius: 8 },
+    },
   };
-  const formatValue = (value: number, format?: string) => 
-    format === 'currency' ? formatCurrency(value) : formatNumber(value);
 
-  function toggleDropdown() {
-    dropdownOpen.update(open => !open);
+  function createChart(id: string, config: any) {
+    const el = document.getElementById(id) as HTMLCanvasElement;
+    if (!el) return;
+    destroyChart(id);
+    chartInstances[id] = new (window as any).Chart(el, { ...config, options: { ...CHART_DEFAULTS, ...config.options } });
   }
 
-  function toggleExportDropdown() {
-    exportDropdownOpen.update(open => !open);
+  // Initialize charts for specific areas to avoid re-creating unrelated charts
+  function initVisitsCharts(data: DashboardData) {
+    if (!(window as any).Chart) return;
+    const visitsEl = document.getElementById('visitsChart') as HTMLCanvasElement;
+    if (visitsEl) createChart('visitsChart', {
+      type: 'line',
+      data: {
+        labels: data.charts.dailyVisits.map(d => fd(d.date)),
+        datasets: [{ label: 'Visits', data: data.charts.dailyVisits.map(d => d.count), borderColor: '#3B82F6', backgroundColor: 'rgba(59,130,246,0.15)', borderWidth: 2.5, pointRadius: 4, tension: 0.4, fill: true }],
+      },
+      options: { plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' }, border: { display: false } } } },
+    });
   }
 
-  function selectExportFormat(format: string) {
-    selectedExportFormat.set(format);
-    exportDropdownOpen.set(false);
-    handleExport();
+  function initBorrowingsCharts(data: DashboardData) {
+    if (!(window as any).Chart) return;
+    const borrowEl = document.getElementById('borrowingsChart') as HTMLCanvasElement;
+    if (borrowEl && data.charts.dailyBorrowings.length) createChart('borrowingsChart', {
+      type: 'line',
+      data: {
+        labels: data.charts.dailyBorrowings.map(d => fd(d.date)),
+        datasets: [
+          { label: 'Books', data: data.charts.dailyBorrowings.map(d => d.books), borderColor: '#3B82F6', backgroundColor: 'rgba(59,130,246,0.12)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 },
+          { label: 'Magazines', data: data.charts.dailyBorrowings.map(d => d.magazines), borderColor: '#8B5CF6', backgroundColor: 'rgba(139,92,246,0.12)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 },
+          { label: 'Thesis', data: data.charts.dailyBorrowings.map(d => d.thesis), borderColor: '#10B981', backgroundColor: 'rgba(16,185,129,0.12)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 },
+          { label: 'Journals', data: data.charts.dailyBorrowings.map(d => d.journals), borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.12)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 },
+        ],
+      },
+      options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' }, border: { display: false }, ticks: { precision: 0 } } } },
+    });
+
+    const bbt = data.charts.borrowingsByType;
+    const btEl = document.getElementById('borrowingsByTypeChart') as HTMLCanvasElement;
+    if (btEl) createChart('borrowingsByTypeChart', {
+      type: 'bar',
+      data: { labels: bbt.map(d => d.type), datasets: [ { label: 'Borrowed', data: bbt.map(d => d.borrowed), backgroundColor: '#3B82F6', borderRadius: 3 }, { label: 'Returned', data: bbt.map(d => d.returned), backgroundColor: '#10B981', borderRadius: 3 }, { label: 'Overdue', data: bbt.map(d => d.overdue), backgroundColor: '#EF4444', borderRadius: 3 } ] },
+      options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } } } },
+    });
   }
 
-  function selectPeriod(period: string) {
-    selectedPeriod.set(period);
-    dropdownOpen.set(false);
-    
-    // Update URL with logs parameter
-    const logsParam = getLogsParamFromPeriod(period);
-    const url = new URL(window.location.href);
-    if (logsParam) {
-      url.searchParams.set('logs', logsParam);
-    } else {
-      url.searchParams.delete('logs');
+  function initReservationsCharts(data: DashboardData) {
+    if (!(window as any).Chart) return;
+    const resStatus = data.charts.reservationStatusBreakdown;
+    const resEl = document.getElementById('reservationStatusChart') as HTMLCanvasElement;
+    if (resEl && resStatus.length) {
+      const statusColors: Record<string, string> = { pending: '#F59E0B', approved: '#10B981', rejected: '#EF4444', fulfilled: '#3B82F6', expired: '#9CA3AF', cancelled: '#6B7280' };
+      createChart('reservationStatusChart', {
+        type: 'doughnut',
+        data: { labels: resStatus.map(d => d.status.charAt(0).toUpperCase() + d.status.slice(1)), datasets: [{ data: resStatus.map(d => d.count), backgroundColor: resStatus.map(d => statusColors[d.status] ?? '#A855F7'), borderWidth: 0, hoverOffset: 4 }] },
+        options: { cutout: '65%' },
+      });
     }
-    window.history.replaceState({}, '', url.toString());
-    
-    loadData();
   }
 
-  // Helper function to convert period to logs parameter
-  function getLogsParamFromPeriod(period: string): string | null {
-    switch (period) {
-      case 'week': return '7d';
-      case 'month': return '30d';
-      case 'quarter': return '90d';
-      case 'year': return '365d';
-      default: return null;
+  function initFinesCharts(data: DashboardData) {
+    if (!(window as any).Chart) return;
+    const penEl = document.getElementById('penaltiesChart') as HTMLCanvasElement;
+    if (penEl) createChart('penaltiesChart', {
+      type: 'line',
+      data: { labels: data.charts.penaltyTrends.map(d => fd(d.date)), datasets: [{ label: 'Fines (₱)', data: data.charts.penaltyTrends.map(d => Number(d.amount) || 0), borderColor: '#EF4444', backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 2, pointRadius: 3, tension: 0.4, fill: true }] },
+      options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { callback: (v: any) => v >= 1000 ? `₱${(v/1000).toFixed(1)}k` : `₱${v}` } } }, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx: any) => `₱${ctx.parsed.y.toFixed(2)}` } } } },
+    });
+
+    const payEl = document.getElementById('paymentTrendsChart') as HTMLCanvasElement;
+    if (payEl && data.charts.paymentTrends.length) createChart('paymentTrendsChart', {
+      type: 'bar',
+      data: { labels: data.charts.paymentTrends.map(d => fd(d.date)), datasets: [{ label: 'Payments (₱)', data: data.charts.paymentTrends.map(d => Number(d.amount) || 0), backgroundColor: 'rgba(16,185,129,0.7)', borderRadius: 4 }] },
+      options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { callback: (v: any) => `₱${v}` } } }, plugins: { legend: { display: false } } },
+    });
+  }
+
+  function initCollectionCharts(data: DashboardData) {
+    if (!(window as any).Chart) return;
+    const col = data.charts.collectionBreakdown;
+    const colEl = document.getElementById('collectionChart') as HTMLCanvasElement;
+    if (colEl) createChart('collectionChart', { type: 'doughnut', data: { labels: col.map(d => d.type), datasets: [{ data: col.map(d => d.count), backgroundColor: ['#3B82F6','#8B5CF6','#10B981','#F59E0B'], borderWidth: 0, hoverOffset: 4 }] }, options: { cutout: '65%', plugins: { legend: { display: false } } } });
+
+    const cats = data.charts.categoryDistribution.slice(0, 12);
+    const catsEl = document.getElementById('categoriesChart') as HTMLCanvasElement;
+    if (catsEl) createChart('categoriesChart', {
+      type: 'bar',
+      data: { labels: cats.map(d => d.category.length > 14 ? d.category.slice(0, 13) + '…' : d.category), datasets: [{ label: 'Books', data: cats.map(d => d.count), backgroundColor: ['#6366F1','#8B5CF6','#EC4899','#F59E0B','#10B981','#3B82F6','#EF4444','#6B7280','#06B6D4','#84CC16','#F97316','#A855F7'], borderRadius: 4, borderSkipped: false }] },
+      options: { scales: { x: { grid: { display: false }, ticks: { maxRotation: 45 } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } } }, plugins: { legend: { display: false }, tooltip: { callbacks: { title: (ctx: any) => data.charts.categoryDistribution[ctx[0].dataIndex]?.category, label: (ctx: any) => { const c = data.charts.categoryDistribution[ctx.dataIndex]; return `${c.count} items (${c.percentage}%)`; } } } } },
+    });
+  }
+
+  function initActivityMixChart(data: DashboardData) {
+    if (!(window as any).Chart) return;
+    const el = document.getElementById('transactionsChart') as HTMLCanvasElement;
+    if (!el) return;
+
+    // normalize server-provided transaction types to expected order
+    const tx = data.charts.transactionTypes || [];
+    const map: Record<string, number> = {};
+    tx.forEach(t => { map[(t.type || '').toLowerCase()] = Number(t.count) || 0; });
+    const types = ['borrowed', 'returned', 'overdue', 'reserved'];
+    const labels = types.map(t => t.charAt(0).toUpperCase() + t.slice(1));
+    const colors = ['#10B981', '#3B82F6', '#EF4444', '#F59E0B'];
+    const dataValues = types.map(t => map[t] ?? 0);
+
+    const empty = dataValues.every(v => v === 0);
+    const chartLabels = empty ? ['No Data'] : labels;
+    const chartData = empty ? [1] : dataValues;
+    const chartColors = empty ? ['#E5E7EB'] : colors;
+
+    createChart('transactionsChart', {
+      type: 'doughnut',
+      data: { labels: chartLabels, datasets: [{ data: chartData, backgroundColor: chartColors, borderWidth: 0, hoverOffset: 4 }] },
+      options: { cutout: '70%', plugins: { legend: { display: false } } },
+    });
+  }
+
+  // convenience: initialize everything (used on first load)
+  function initCharts(data: DashboardData) {
+    initVisitsCharts(data);
+    initBorrowingsCharts(data);
+    initReservationsCharts(data);
+    initFinesCharts(data);
+    initCollectionCharts(data);
+    // activity mix sits alongside visits/collection and should be initialized on load
+    initActivityMixChart(data);
+  }
+
+  // ─── Data loading ──────────────────────────────────────────────────────────
+  async function loadChartJS() {
+    if (typeof window !== 'undefined' && !(window as any).Chart) {
+      await new Promise<void>(resolve => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js';
+        s.onload = () => resolve();
+        document.head.appendChild(s);
+      });
     }
-  }
-
-  // --- API ---
-  async function fetchDashboardData(period: string): Promise<DashboardData> {
-    const response = await fetch(`/api/reports?period=${period}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    const result = await response.json();
-    if (!result.success) throw new Error(result.message || 'API request failed');
-    return result.data;
   }
 
   async function loadData() {
-    loading.set(true);
-    error.set('');
+    loading.set(true); errorMsg.set('');
     try {
-      const data = await fetchDashboardData($selectedPeriod);
-      dashboardData.set(data);
-      if ((window as any).Chart) setTimeout(() => initializeCharts(data), 100);
-    } catch (err: any) {
-      error.set(err.message || 'Failed to load dashboard data');
-      console.error('Dashboard load error:', err);
+      const res = await fetch(`/api/reports?period=${$selectedPeriod}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result = await res.json();
+      if (!result.success) throw new Error(result.message || 'API error');
+      dashboardData.set(result.data);
+      setTimeout(() => { if ($dashboardData) initCharts($dashboardData); }, 120);
+    } catch (e: any) {
+      errorMsg.set(e.message || 'Failed to load data');
     } finally {
       loading.set(false);
     }
   }
 
+  function selectPeriod(p: string) {
+    selectedPeriod.set(p); dropdownOpen.set(false);
+    const u = new URL(window.location.href);
+    const logsMap: Record<string, string> = { week: '7d', month: '30d', quarter: '90d', year: '365d' };
+    u.searchParams.set('logs', logsMap[p] ?? '30d');
+    window.history.replaceState({}, '', u.toString());
+    loadData();
+  }
+
   async function handleExport() {
     try {
-      const response = await fetch(`/api/reports/export?period=${$selectedPeriod}&format=${$selectedExportFormat}`);
-      if (!response.ok) throw new Error('Export failed');
-      
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      const res = await fetch(`/api/reports/export?period=${$selectedPeriod}&format=${$selectedExportFormat}`);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
       const link = document.createElement('a');
-      link.href = url;
+      link.href = URL.createObjectURL(blob);
       link.download = `library_report_${$selectedPeriod}_${new Date().toISOString().split('T')[0]}.${$selectedExportFormat === 'excel' ? 'xlsx' : 'pdf'}`;
-      document.body.appendChild(link);
-      link.click();
+      document.body.appendChild(link); link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      error.set('Export failed. Please try again.');
-    }
-  }
-
-  // --- Charts ---
-  async function loadChartJS() {
-    if (typeof window !== 'undefined' && !(window as any).Chart) {
-      return new Promise<void>((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js';
-        script.onload = () => resolve();
-        document.head.appendChild(script);
-      });
-    }
-  }
-
-  function createGradient(canvas: HTMLCanvasElement, colorStops: [number, string][]): CanvasGradient {
-    const ctx = canvas.getContext('2d')!;
-    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    colorStops.forEach(([offset, color]) => gradient.addColorStop(offset, color));
-    return gradient;
-  }
-
-  function createChart(id: string, config: any) {
-    const ctx = document.getElementById(id) as HTMLCanvasElement;
-    if (!ctx) return;
-    if (chartInstances[id]) chartInstances[id].destroy();
-    
-    const defaults = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { 
-            legend: { 
-                position: 'bottom',
-                labels: { boxWidth: 10, usePointStyle: true, font: { family: "'Inter', sans-serif", size: 11 } } 
-            },
-            tooltip: {
-                backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                padding: 10,
-                cornerRadius: 8,
-                titleFont: { family: "'Inter', sans-serif", size: 13 },
-                bodyFont: { family: "'Inter', sans-serif", size: 12 }
-            }
-        }
-    };
-
-    chartInstances[id] = new (window as any).Chart(ctx, {
-        ...config,
-        options: { ...defaults, ...config.options }
-    });
-  }
-
-  function initializeCharts(data: DashboardData) {
-    // 1. Visits Line Chart
-    const visitsCanvas = document.getElementById('visitsChart') as HTMLCanvasElement;
-    if (visitsCanvas) {
-      createChart('visitsChart', {
-        type: 'line',
-        data: {
-          labels: data.charts.dailyVisits.map(d => formatDate(d.date)),
-          datasets: [{
-            label: 'Daily Visits',
-            data: data.charts.dailyVisits.map(d => d.count),
-            borderColor: '#3B82F6',
-            backgroundColor: createGradient(visitsCanvas, [[0, 'rgba(59, 130, 246, 0.3)'], [1, 'rgba(59, 130, 246, 0.05)']]),
-            borderWidth: 3,
-            pointBackgroundColor: '#3B82F6',
-            pointBorderColor: '#ffffff',
-            pointBorderWidth: 2,
-            pointRadius: 5,
-            tension: 0.4,
-            fill: true
-          }]
-        },
-        options: {
-          scales: {
-            x: { grid: { display: false } },
-            y: { beginAtZero: true, border: { display: false }, grid: { color: '#f1f5f9' } }
-          }
-        }
-      });
-    }
-
-    // 2. Transaction Doughnut
-    let txData: any[] = [];
-    transactionTypesForChart.subscribe(v => txData = v)();
-    
-    const allZero = txData.every(d => d.count === 0);
-
-    createChart('transactionsChart', {
-      type: 'doughnut',
-      data: {
-        labels: allZero ? ['No Data'] : txData.map(d => d.type),
-        datasets: [{
-          data: allZero ? [1] : txData.map(d => d.count),
-          backgroundColor: allZero
-            ? ['#E5E7EB']
-            : txData.map(d =>
-                d.type === 'Overdue' ? '#EF4444' :
-                d.type === 'Reserved' ? '#F59E42' :
-                d.type === 'Borrowed' ? '#10B981' :
-                d.type === 'Returned' ? '#3B82F6' :
-                '#A855F7'
-              ),
-          borderWidth: 0,
-          hoverOffset: 4
-        }]
-      },
-      options: { cutout: '70%' }
-    });
-
-    // 3. Categories Bar
-    createChart('categoriesChart', {
-      type: 'bar',
-      data: {
-        labels: data.charts.categoryDistribution.map(d => {
-          // Better label truncation - show more characters and handle word boundaries
-          if (d.category.length <= 15) return d.category;
-          const words = d.category.split(' ');
-          let result = '';
-          for (const word of words) {
-            if ((result + ' ' + word).length <= 12) {
-              result += (result ? ' ' : '') + word;
-            } else {
-              break;
-            }
-          }
-          return result || d.category.slice(0, 12) + '...';
-        }),
-        datasets: [{
-            label: 'Books',
-            data: data.charts.categoryDistribution.map(d => d.count),
-            backgroundColor: data.charts.categoryDistribution.map((_, i) => {
-              const colors = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#EF4444', '#6B7280'];
-              return colors[i % colors.length];
-            }),
-            borderRadius: 4,
-            borderSkipped: false,
-            barThickness: Math.max(15, Math.min(35, (window.innerWidth < 640 ? window.innerWidth * 0.8 : 400) / data.charts.categoryDistribution.length))
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-            x: {
-              grid: { display: false },
-              ticks: {
-                maxRotation: 45,
-                minRotation: 0,
-                font: { size: window.innerWidth < 640 ? 9 : 11 },
-                padding: window.innerWidth < 640 ? 5 : 10
-              }
-            },
-            y: {
-              beginAtZero: true,
-              grid: { color: '#f1f5f9' },
-              ticks: { 
-                precision: 0,
-                font: { size: window.innerWidth < 640 ? 9 : 11 },
-                padding: window.innerWidth < 640 ? 5 : 10
-              }
-            }
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            titleFont: { size: window.innerWidth < 640 ? 12 : 13 },
-            bodyFont: { size: window.innerWidth < 640 ? 11 : 12 },
-            padding: window.innerWidth < 640 ? 8 : 10,
-            callbacks: {
-              title: (context: any) => {
-                // Show full category name in tooltip
-                return data.charts.categoryDistribution[context[0].dataIndex].category;
-              },
-              label: (context: any) => {
-                const item = data.charts.categoryDistribution[context.dataIndex];
-                return `${item.count} books (${item.percentage}%)`;
-              }
-            }
-          }
-        }
-      }
-    });
-
-    // 4. Penalties Area
-    const penaltiesCanvas = document.getElementById('penaltiesChart') as HTMLCanvasElement;
-    if (penaltiesCanvas) {
-      const penaltyData = data.charts.penaltyTrends.map(d => d.amount / 100);
-      const hasData = penaltyData.some(value => value > 0);
-      
-      createChart('penaltiesChart', {
-        type: 'line',
-        data: {
-          labels: data.charts.penaltyTrends.map(d => formatDate(d.date)),
-          datasets: [{
-            label: 'Penalties (₱)',
-            data: penaltyData,
-            borderColor: hasData ? '#8B5CF6' : '#E5E7EB',
-            backgroundColor: hasData 
-              ? createGradient(penaltiesCanvas, [[0, 'rgba(139, 92, 246, 0.3)'], [1, 'rgba(139, 92, 246, 0.05)']])
-              : 'rgba(229, 231, 235, 0.1)',
-            borderWidth: hasData ? 2 : 1,
-            pointRadius: hasData ? 2 : 0,
-            pointHoverRadius: hasData ? 4 : 2,
-            pointBackgroundColor: '#8B5CF6',
-            pointBorderColor: '#ffffff',
-            pointBorderWidth: 1,
-            tension: 0.4,
-            fill: true
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            x: { 
-              grid: { display: false },
-              ticks: {
-                font: { size: window.innerWidth < 640 ? 8 : 10 },
-                padding: window.innerWidth < 640 ? 3 : 5,
-                maxTicksLimit: window.innerWidth < 640 ? 5 : 7
-              }
-            },
-            y: { 
-              beginAtZero: true,
-              grid: { color: '#f1f5f9' },
-              ticks: { 
-                callback: (value: any) => {
-                  if (value >= 1000) return `₱${(value / 1000).toFixed(1)}k`;
-                  return `₱${value}`;
-                },
-                font: { size: window.innerWidth < 640 ? 8 : 10 },
-                padding: window.innerWidth < 640 ? 3 : 5
-              }
-            }
-          },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              titleFont: { size: window.innerWidth < 640 ? 11 : 12 },
-              bodyFont: { size: window.innerWidth < 640 ? 10 : 11 },
-              padding: window.innerWidth < 640 ? 6 : 8,
-              callbacks: {
-                label: (context: any) => `₱${context.parsed.y.toFixed(2)}`
-              }
-            }
-          }
-        }
-      });
-    }
+    } catch { errorMsg.set('Export failed. Please try again.'); }
   }
 
   onMount(() => {
-    // Check URL parameters for initial period selection
-    const currentUrl = new URL(window.location.href);
-    const logsParam = currentUrl.searchParams.get('logs');
-    const initialPeriod = parseLogsParam(logsParam);
-    selectedPeriod.set(initialPeriod);
-    
-    // If no logs parameter and using default period, add it to URL
-    if (!logsParam && initialPeriod === 'month') {
-      currentUrl.searchParams.set('logs', '30d');
-      window.history.replaceState({}, '', currentUrl.toString());
+    const u = new URL(window.location.href);
+    const logs = u.searchParams.get('logs');
+    if (logs) {
+      const map: Record<string, string> = { '7d': 'week', '30d': 'month', '90d': 'quarter', '365d': 'year' };
+      const p = Object.entries(map).find(([k]) => logs.startsWith(k.replace('d','')))?.[1] ?? 'month';
+      selectedPeriod.set(p);
     }
-    
-    (async () => {
-      await loadChartJS();
-      await loadData();
-    })();
-    
-    // Add click outside handler for dropdowns
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest('.custom-dropdown')) {
-        dropdownOpen.set(false);
-      }
-      if (!target.closest('.export-dropdown')) {
-        exportDropdownOpen.set(false);
-      }
+    const outside = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest('.period-dd')) dropdownOpen.set(false);
+      if (!t.closest('.export-dd')) exportDropdownOpen.set(false);
     };
-    
-    // Add resize handler for responsive chart updates
-    const handleResize = () => {
-      if ($dashboardData && typeof window !== 'undefined' && (window as any).Chart) {
-        // Re-initialize charts with new responsive settings
-        setTimeout(() => initializeCharts($dashboardData), 100);
-      }
-    };
-    
-    document.addEventListener('click', handleClickOutside);
-    window.addEventListener('resize', handleResize);
-    
-    return () => {
-      document.removeEventListener('click', handleClickOutside);
-      window.removeEventListener('resize', handleResize);
-    };
+    document.addEventListener('click', outside);
+    (async () => { await loadChartJS(); await loadData(); })();
+    return () => document.removeEventListener('click', outside);
   });
 
-  onDestroy(() => {
-    Object.values(chartInstances).forEach(chart => chart?.destroy());
-  });
-
-  $: if ($dashboardData && typeof window !== 'undefined' && (window as any).Chart) {
-    initializeCharts($dashboardData);
-  }
+  onDestroy(() => Object.values(chartInstances).forEach(c => c?.destroy()));
 </script>
 
 <svelte:head>
-  <title>Reports | E-Kalibro Admin Portal</title>
+  <title>Analytics & Reports | E-Kalibro Admin Portal</title>
 </svelte:head>
 
 <div class="min-h-screen">
-  <!-- Header -->
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
   <div class="mb-4">
     <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
       <div>
         <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900">Library Analytics</h1>
-        <p class="text-sm text-gray-600 mt-1">Real-time fine calculations at ₱5/hour • Auto-updated every hour</p>
+        <p class="text-sm text-gray-500 mt-1">Full coverage across books, magazines, thesis & journals • ₱5/hour overdue rate</p>
       </div>
-      
-      <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 w-full sm:w-auto">
-        <div class="relative w-full sm:w-auto custom-dropdown">
-          <!-- Custom Dropdown Button -->
-          <button
-            on:click={toggleDropdown}
-            disabled={$loading}
-            class="w-full sm:w-auto pl-4 pr-10 py-2 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm transition-all disabled:opacity-60 flex items-center justify-between"
-          >
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Period picker -->
+        <div class="relative period-dd">
+          <button on:click={() => dropdownOpen.update(v => !v)} disabled={$loading}
+            class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-sm rounded-lg shadow-sm hover:bg-gray-50 disabled:opacity-60 transition-colors">
             <span>{selectedPeriodLabel}</span>
-            <svg 
-              class="h-4 w-4 text-gray-500 transition-transform duration-200 {$dropdownOpen ? 'rotate-180' : ''}" 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-            </svg>
+            <svelte:component this={Icons.ChevronDown} class="h-4 w-4 text-gray-400 transition-transform {$dropdownOpen ? 'rotate-180' : ''}" />
           </button>
-
-          <!-- Dropdown Options -->
           {#if $dropdownOpen}
-            <div class="absolute z-10 mt-1 w-full sm:w-auto bg-white border border-gray-300 rounded-lg shadow-lg">
-              {#each PERIOD_OPTIONS as option}
-                <button
-                  on:click={() => selectPeriod(option.value)}
-                  class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none first:rounded-t-lg last:rounded-b-lg {$selectedPeriod === option.value ? 'bg-indigo-50 text-indigo-700' : ''}"
-                >
-                  {option.label}
+            <div class="absolute z-20 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg">
+              {#each PERIOD_OPTIONS as o}
+                <button on:click={() => selectPeriod(o.value)}
+                  class="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg {$selectedPeriod === o.value ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-700'}">
+                  {o.label}
                 </button>
               {/each}
             </div>
           {/if}
         </div>
-        
-        <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <div class="relative w-full sm:w-auto export-dropdown">
-            <button
-              on:click={toggleExportDropdown}
-              disabled={$loading}
-              class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50"
-            >
-              <svg class="h-4 w-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-              </svg>
-              Export {$selectedExportFormat.toUpperCase()}
-              <svg 
-                class="h-4 w-4 ml-2 text-gray-500 transition-transform duration-200 {$exportDropdownOpen ? 'rotate-180' : ''}" 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-              </svg>
-            </button>
 
-            {#if $exportDropdownOpen}
-              <div class="absolute z-10 mt-1 w-full sm:w-auto bg-white border border-gray-300 rounded-lg shadow-lg">
-                <button
-                  on:click={() => selectExportFormat('pdf')}
-                  class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none rounded-t-lg flex items-center {$selectedExportFormat === 'pdf' ? 'bg-indigo-50 text-indigo-700' : ''}"
-                >
-                  <svg class="h-4 w-4 mr-2 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                  </svg>
-                  PDF Document
-                </button>
-                <button
-                  on:click={() => selectExportFormat('excel')}
-                  class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none rounded-b-lg flex items-center {$selectedExportFormat === 'excel' ? 'bg-indigo-50 text-indigo-700' : ''}"
-                >
-                  <svg class="h-4 w-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                  </svg>
-                  Excel Spreadsheet
-                </button>
-              </div>
-            {/if}
-          </div>
-          
-          <button
-            on:click={() => window.location.href = '/dashboard/reports/visits'}
-            class="inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg text-white bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-sm transition-all duration-200 w-full sm:w-auto"
-          >
-            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-              <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-            </svg>
-            Visit Logs
+        <!-- Export -->
+        <div class="relative export-dd">
+          <button on:click={() => exportDropdownOpen.update(v => !v)} disabled={$loading}
+            class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-sm rounded-lg shadow-sm hover:bg-gray-50 disabled:opacity-60 transition-colors">
+            <svelte:component this={Icons.UploadCloud} class="h-4 w-4 text-gray-500" />
+            Export {$selectedExportFormat.toUpperCase()}
+            <svelte:component this={Icons.ChevronDown} class="h-4 w-4 text-gray-400 transition-transform {$exportDropdownOpen ? 'rotate-180' : ''}" />
           </button>
+          {#if $exportDropdownOpen}
+            <div class="absolute right-0 z-20 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg">
+              {#each EXPORT_FORMATS as fmt}
+                  <button on:click={() => { selectedExportFormat.set(fmt.v); exportDropdownOpen.set(false); handleExport(); }}
+                    class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg flex items-center gap-2 {$selectedExportFormat === fmt.v ? 'bg-indigo-50 text-indigo-700' : ''}">
+                      <svelte:component this={Icons[fmt.icon]} class={`h-4 w-4 ${fmt.colorClass}`} />
+                    {fmt.label}
+                  </button>
+                {/each}
+            </div>
+          {/if}
         </div>
+
+        <!-- Visit logs -->
+        <button on:click={() => window.location.href = '/dashboard/reports/visits'}
+          class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 rounded-lg shadow-sm transition-all">
+          <svelte:component this={Icons.Eye} class="h-4 w-4" />
+          Visit Logs
+        </button>
       </div>
     </div>
   </div>
 
-  <main class="space-y-2 -mx-2 sm:mx-0">
-
-    {#if $error}
-      <div class="rounded-lg bg-red-50 border border-red-200 p-4 flex items-start shadow-sm">
-        <svg class="h-5 w-5 text-red-400 mt-0.5 mr-3 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
-        <div>
-          <h3 class="text-sm font-medium text-red-800">Error Loading Data</h3>
-          <p class="text-sm text-red-700 mt-1">{$error}</p>
-        </div>
+  <main class="space-y-3">
+    {#if $errorMsg}
+      <div class="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg p-4">
+        <svelte:component this={Icons.XCircle} class="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+        <div><p class="text-sm font-medium text-red-800">Error loading data</p><p class="text-sm text-red-700 mt-0.5">{$errorMsg}</p></div>
       </div>
     {/if}
 
-    <!-- Metrics Grid -->
-    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-1 sm:gap-2">
-      {#each METRIC_CONFIGS as config}
-        <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+    <!-- ══ ROW 1: Core KPIs ════════════════════════════════════════════════ -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2">
+      {#each KPI_CARDS as m}
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
           {#if $loading}
-            <div class="animate-pulse flex flex-col items-center">
-              <div class="h-10 w-10 bg-gray-200 rounded-lg mb-3"></div>
-              <div class="h-6 w-16 bg-gray-200 rounded mb-2"></div>
-              <div class="h-3 w-20 bg-gray-200 rounded"></div>
-            </div>
+            <div class="animate-pulse flex flex-col items-center gap-2"><div class="h-10 w-10 bg-gray-200 rounded-lg"></div><div class="h-5 w-14 bg-gray-200 rounded"></div><div class="h-3 w-20 bg-gray-200 rounded"></div></div>
           {:else}
             <div class="flex flex-col items-center text-center">
-              <div class={`p-2.5 rounded-lg mb-3 bg-gradient-to-br ${config.gradient} shadow-sm`}>
-                <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d={ICON_PATHS[config.icon]}/>
-                </svg>
+              <div class="p-2.5 rounded-lg mb-2 bg-gradient-to-br {m.color} shadow-sm">
+                {#if m.icon === 'Peso'}
+                  <span class="inline-flex items-center justify-center h-5 w-5 sm:h-6 sm:w-6 text-white font-semibold">₱</span>
+                {:else}
+                  <svelte:component this={Icons[m.icon]} class="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+                {/if}
               </div>
-              <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{config.label}</p>
-              <p class="text-lg sm:text-xl font-bold text-gray-900">
-                {formatValue($dashboardData.overview[config.key], config.format)}
-              </p>
+              <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{m.label}</p>
+              <p class="text-lg sm:text-xl font-bold text-gray-900">{m.format === 'currency' ? fc(m.value()) : fn(m.value())}</p>
             </div>
           {/if}
         </div>
       {/each}
     </div>
 
-    <!-- Main Charts Section -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-2">
-      
-      <!-- Daily Visits -->
-      <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-3">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h3 class="text-lg font-bold text-gray-900">Daily Visits Trend</h3>
-            <p class="text-sm text-gray-600 mt-1">Track visitor activity patterns over time</p>
-          </div>
-          <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-            Live Data
-          </span>
-        </div>
-        <div class="relative h-72 w-full">
+    <!-- ══ ROW 2: Collection snapshot ════════════════════════════════════════ -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {#each [
+        { label: 'Books',     value: $dashboardData?.overview.totalBooks ?? 0,     color: 'bg-blue-50 border-blue-200 text-blue-700' },
+        { label: 'Magazines', value: $dashboardData?.overview.totalMagazines ?? 0, color: 'bg-purple-50 border-purple-200 text-purple-700' },
+        { label: 'Thesis',    value: $dashboardData?.overview.totalThesis ?? 0,    color: 'bg-teal-50 border-teal-200 text-teal-700' },
+        { label: 'Journals',  value: $dashboardData?.overview.totalJournals ?? 0,  color: 'bg-orange-50 border-orange-200 text-orange-700' },
+      ] as c}
+        <div class="rounded-xl border {c.color} p-3 flex items-center justify-between">
           {#if $loading}
-            <div class="absolute inset-0 bg-gray-100 animate-pulse rounded-lg"></div>
+            <div class="animate-pulse h-8 w-full bg-white/60 rounded"></div>
           {:else}
-            <canvas id="visitsChart"></canvas>
+            <span class="text-sm font-medium">{c.label} in Collection</span>
+            <span class="text-2xl font-bold">{fn(c.value)}</span>
           {/if}
+        </div>
+      {/each}
+    </div>
+
+    <!-- ══ ROW 3: Main Charts ═════════════════════════════════════════════════ -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+
+      <!-- Visits trend -->
+      <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div><h3 class="text-base font-semibold text-gray-900">Daily Visits</h3><p class="text-xs text-gray-500 mt-0.5">Library foot traffic over the period</p></div>
+          <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Live</span>
+        </div>
+        <div class="h-64">
+          {#if $loading}<div class="h-full bg-gray-100 animate-pulse rounded-lg"></div>
+          {:else}<canvas id="visitsChart" class="block w-full h-full"></canvas>{/if}
         </div>
       </div>
 
-      <!-- Transaction Types -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3">
-        <h3 class="text-lg font-bold text-gray-900 mb-4">Activity Breakdown</h3>
-        <div class="relative h-72 w-full flex items-center justify-center">
+      <!-- Transaction doughnut + collection doughnut stacked -->
+      <div class="flex flex-col gap-3">
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex-1">
+          <h3 class="text-base font-semibold text-gray-900 mb-2">Activity Mix</h3>
           {#if $loading}
-             <div class="h-48 w-48 rounded-full border-4 border-gray-200 animate-pulse"></div>
+            <div class="flex justify-center"><div class="h-32 w-32 rounded-full border-4 border-gray-200 animate-pulse"></div></div>
           {:else}
-            <canvas id="transactionsChart"></canvas>
-            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div class="text-center">
-                    <span class="block text-2xl font-bold text-gray-900">
-                        {$dashboardData.overview.totalTransactions}
-                    </span>
-                    <span class="text-xs text-gray-500">Total</span>
+            <!-- Canvas-only wrapper so overlay centers on the ring, not the legend -->
+            <div class="relative h-40">
+              <canvas id="transactionsChart" class="block w-full h-full"></canvas>
+              <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div class="text-center leading-tight">
+                  <span class="block text-xl font-bold text-gray-900">{fn($dashboardData?.overview.totalBorrowedPeriod ?? 0)}</span>
+                  <span class="text-xs text-gray-400">transactions</span>
                 </div>
+              </div>
+            </div>
+            <!-- Custom HTML legend (replaces Chart.js built-in) -->
+            <div class="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-2">
+              {#each [
+                { label: 'Borrowed', color: '#10B981' },
+                { label: 'Returned', color: '#3B82F6' },
+                { label: 'Overdue',  color: '#EF4444' },
+                { label: 'Reserved', color: '#F59E0B' },
+              ] as item}
+                <span class="flex items-center gap-1 text-xs text-gray-600">
+                  <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background:{item.color}"></span>
+                  {item.label}
+                </span>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex-1">
+          <h3 class="text-base font-semibold text-gray-900 mb-2">Collection Split</h3>
+          {#if $loading}
+            <div class="flex justify-center"><div class="h-32 w-32 rounded-full border-4 border-gray-200 animate-pulse"></div></div>
+          {:else}
+            <!-- Canvas-only wrapper so overlay centers on the ring, not the legend -->
+            <div class="relative h-40">
+              <canvas id="collectionChart"></canvas>
+              <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div class="text-center leading-tight">
+                  <span class="block text-xl font-bold text-gray-900">{fn($dashboardData?.overview.totalItems ?? 0)}</span>
+                  <span class="text-xs text-gray-400">total items</span>
+                </div>
+              </div>
+            </div>
+            <!-- Custom HTML legend (replaces Chart.js built-in) -->
+            <div class="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-2">
+              {#each [
+                { label: 'Books',     color: '#3B82F6' },
+                { label: 'Magazines', color: '#8B5CF6' },
+                { label: 'Thesis',    color: '#10B981' },
+                { label: 'Journals',  color: '#F59E0B' },
+              ] as item}
+                <span class="flex items-center gap-1 text-xs text-gray-600">
+                  <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background:{item.color}"></span>
+                  {item.label}
+                </span>
+              {/each}
             </div>
           {/if}
         </div>
       </div>
     </div>
 
-    <!-- Secondary Charts -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-      
-      <!-- Categories -->
-      <div class="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-3">
-        <h3 class="text-lg font-bold text-gray-900 mb-4">Book Categories</h3>
-        <div class="h-48 sm:h-56 md:h-64">
-          {#if $loading}
-            <div class="h-full bg-gray-100 animate-pulse rounded-lg"></div>
-          {:else}
-            <canvas id="categoriesChart"></canvas>
+    <!-- ══ ROW 4: Tabbed analytics panel ═════════════════════════════════════ -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <!-- Tab bar -->
+      <div class="flex border-b border-gray-200 bg-gray-50">
+        {#each [
+          { id: 'borrowings',   label: 'Borrowings by Type' },
+          { id: 'reservations', label: 'Reservations' },
+          { id: 'fines',        label: 'Fines & Payments' },
+          { id: 'collection',   label: 'Category Distribution' },
+        ] as tab}
+          <button on:click={async () => {
+              activeTab = tab.id as any;
+              // wait for DOM update so canvases are present, then init only charts for the active tab
+              await tick();
+              if ($dashboardData) {
+                if (activeTab === 'borrowings') initBorrowingsCharts($dashboardData);
+                else if (activeTab === 'reservations') initReservationsCharts($dashboardData);
+                else if (activeTab === 'fines') initFinesCharts($dashboardData);
+                else if (activeTab === 'collection') initCollectionCharts($dashboardData);
+              }
+            }}
+            class="px-5 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
+              {activeTab === tab.id ? 'border-indigo-500 text-indigo-600 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}">
+            {tab.label}
+          </button>
+        {/each}
+      </div>
+
+      <div class="p-4">
+        {#if activeTab === 'borrowings'}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 class="text-sm font-semibold text-gray-700 mb-3">Borrowed vs Returned vs Overdue</h4>
+              <div class="h-56">{#if $loading}<div class="h-full bg-gray-100 animate-pulse rounded"></div>{:else}<canvas id="borrowingsByTypeChart"></canvas>{/if}</div>
+            </div>
+            <div>
+              <h4 class="text-sm font-semibold text-gray-700 mb-3">Daily Borrowings Trend (All Types)</h4>
+              <div class="h-56">{#if $loading}<div class="h-full bg-gray-100 animate-pulse rounded"></div>{:else}<canvas id="borrowingsChart"></canvas>{/if}</div>
+            </div>
+          </div>
+          <!-- Overdue by type quick stats -->
+          {#if $dashboardData}
+            <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {#each [
+                { label: 'Books Overdue',     value: $dashboardData.overview.overdueByType.books,     color: 'bg-blue-50 text-blue-700' },
+                { label: 'Magazines Overdue', value: $dashboardData.overview.overdueByType.magazines, color: 'bg-purple-50 text-purple-700' },
+                { label: 'Thesis Overdue',    value: $dashboardData.overview.overdueByType.thesis,    color: 'bg-teal-50 text-teal-700' },
+                { label: 'Journals Overdue',  value: $dashboardData.overview.overdueByType.journals,  color: 'bg-orange-50 text-orange-700' },
+              ] as s}
+                <div class="rounded-lg {s.color} px-3 py-2 flex items-center justify-between text-sm font-medium">
+                  <span>{s.label}</span><span class="text-xl font-bold">{s.value}</span>
+                </div>
+              {/each}
+            </div>
           {/if}
-        </div>
-      </div>
 
-      <!-- Revenue Card -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 flex flex-col justify-between">
-         <div>
-             <h3 class="text-base font-semibold text-gray-900">Penalty Collections</h3>
-             {#if $loading}
-               <div class="h-8 w-24 bg-gray-200 rounded mt-2 animate-pulse"></div>
-               <div class="h-4 w-32 bg-gray-200 rounded mt-2 animate-pulse"></div>
-             {:else}
-               <p class="text-2xl font-bold text-purple-600 mt-2">{formatCurrency($dashboardData.overview.totalPenalties)}</p>
-               <p class="text-sm text-gray-500">Total fines collected</p>
-             {/if}
-         </div>
-         <div class="h-32 sm:h-28 md:h-24 mt-4">
-           {#if $loading}
-             <div class="h-full bg-gray-100 animate-pulse rounded-lg"></div>
-           {:else}
-             <canvas id="penaltiesChart"></canvas>
-           {/if}
-         </div>
-      </div>
-
-      <!-- Member Activity -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-        <div class="p-3 pb-4">
-            <h3 class="text-base font-semibold text-gray-900">Member Activity</h3>
-        </div>
-        <div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
-            {#if $loading}
-              {#each Array(4) as _}
-                <div class="h-12 bg-gray-100 rounded animate-pulse"></div>
-              {/each}
-            {:else}
-              {#each $dashboardData.charts.memberActivity as stat}
-                  <div class="flex items-center justify-between">
-                      <div class="flex items-center">
-                          <div class="w-2 h-2 rounded-full bg-indigo-500 mr-3"></div>
-                          <span class="text-sm text-gray-600">{stat.type}</span>
-                      </div>
-                      <div class="text-right">
-                          <span class="block text-sm font-medium text-gray-900">{stat.active}</span>
-                          <span class="text-xs text-emerald-600">+{stat.new} new</span>
-                      </div>
+        {:else if activeTab === 'reservations'}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 class="text-sm font-semibold text-gray-700 mb-3">Reservation Status Breakdown</h4>
+              <div class="h-56 flex items-center justify-center">
+                {#if $loading}<div class="h-48 w-48 rounded-full border-4 border-gray-200 animate-pulse"></div>
+                {:else}<canvas id="reservationStatusChart"></canvas>{/if}
+              </div>
+            </div>
+            <div class="space-y-3">
+              <h4 class="text-sm font-semibold text-gray-700">Pending by Type</h4>
+              {#if $dashboardData}
+                {#each [
+                  { label: 'Books',     value: 0, pending: $dashboardData.overview.totalPendingReservations },
+                  { label: 'Return Requests', value: $dashboardData.overview.totalPendingReturnRequests, pending: $dashboardData.overview.totalPendingReturnRequests },
+                ] as r}
+                  <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <span class="text-sm text-gray-700">{r.label}</span>
+                    <span class="px-3 py-1 text-sm font-semibold bg-amber-100 text-amber-800 rounded-full">{r.value} pending</span>
                   </div>
-              {/each}
-            {/if}
-        </div>
+                {/each}
+                <div class="p-3 bg-indigo-50 rounded-lg flex items-center justify-between">
+                  <span class="text-sm font-medium text-indigo-800">Total Reservations This Period</span>
+                  <span class="text-xl font-bold text-indigo-800">{fn($dashboardData.overview.totalReservationsPeriod)}</span>
+                </div>
+              {/if}
+            </div>
+          </div>
+
+        {:else if activeTab === 'fines'}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 class="text-sm font-semibold text-gray-700 mb-3">Penalty Accumulation Trend</h4>
+              <div class="h-56">{#if $loading}<div class="h-full bg-gray-100 animate-pulse rounded"></div>{:else}<canvas id="penaltiesChart"></canvas>{/if}</div>
+            </div>
+            <div>
+              <h4 class="text-sm font-semibold text-gray-700 mb-3">Payments Received</h4>
+              <div class="h-56">{#if $loading}<div class="h-full bg-gray-100 animate-pulse rounded"></div>{:else}<canvas id="paymentTrendsChart"></canvas>{/if}</div>
+            </div>
+          </div>
+          {#if $dashboardData}
+            <div class="mt-4 grid grid-cols-3 gap-3">
+              <div class="bg-red-50 border border-red-100 rounded-lg p-3 text-center">
+                <p class="text-xs text-red-600 font-medium uppercase tracking-wide mb-1">Total Unpaid</p>
+                <p class="text-xl font-bold text-red-700">{fc($dashboardData.overview.totalUnpaidFines)}</p>
+              </div>
+              <div class="bg-green-50 border border-green-100 rounded-lg p-3 text-center">
+                <p class="text-xs text-green-600 font-medium uppercase tracking-wide mb-1">Total Collected</p>
+                <p class="text-xl font-bold text-green-700">{fc($dashboardData.overview.totalPaidFines)}</p>
+              </div>
+              <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-center">
+                <p class="text-xs text-indigo-600 font-medium uppercase tracking-wide mb-1">Payments This Period</p>
+                <p class="text-xl font-bold text-indigo-700">{fn($dashboardData.overview.paymentsCount)}</p>
+              </div>
+            </div>
+          {/if}
+
+        {:else}
+          <div>
+            <h4 class="text-sm font-semibold text-gray-700 mb-3">Books by Category</h4>
+            <div class="h-64">{#if $loading}<div class="h-full bg-gray-100 animate-pulse rounded"></div>{:else}<canvas id="categoriesChart"></canvas>{/if}</div>
+          </div>
+        {/if}
       </div>
     </div>
 
-    <!-- Data Tables -->
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-2">
-      
-      <!-- Top Books -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div class="px-3 py-3 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
-          <h3 class="text-lg font-bold text-gray-900">Most Popular Books</h3>
-          <p class="text-sm text-gray-600 mt-1">Top borrowed titles this period</p>
+    <!-- ══ ROW 5: Member stats ════════════════════════════════════════════════ -->
+    {#if $dashboardData}
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {#each $dashboardData.charts.memberActivity as stat}
+          <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center justify-between">
+            <div>
+              <p class="text-xs text-gray-500 font-medium uppercase tracking-wide">{stat.type}</p>
+              <p class="text-2xl font-bold text-gray-900 mt-1">{fn(stat.active)}</p>
+              <p class="text-xs text-emerald-600 mt-0.5 font-medium">+{stat.new} new this period</p>
+            </div>
+            <div class="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center">
+              <svelte:component this={Icons.User} class="h-6 w-6 text-indigo-600" />
+            </div>
+          </div>
+        {/each}
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center justify-between">
+          <div>
+            <p class="text-xs text-gray-500 font-medium uppercase tracking-wide">New Members</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{fn($dashboardData.overview.newMembers)}</p>
+            <p class="text-xs text-gray-400 mt-0.5">Joined this period</p>
+          </div>
+          <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
+            <svelte:component this={Icons.UserPlus} class="h-6 w-6 text-green-600" />
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- ══ ROW 6: Data tables ══════════════════════════════════════════════════ -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+
+      <!-- Top borrowed items (all types) -->
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+          <h3 class="text-base font-semibold text-gray-900">Most Popular Items</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Top borrowed across all types this period</p>
         </div>
         <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
+          <table class="min-w-full divide-y divide-gray-100">
+            <thead class="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
               <tr>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rank</th>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book Details</th>
-                <th class="px-3 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Borrows</th>
+                <th class="px-4 py-2 text-left w-10">#</th>
+                <th class="px-4 py-2 text-left">Item</th>
+                <th class="px-4 py-2 text-center">Type</th>
+                <th class="px-4 py-2 text-center">Borrows</th>
               </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
+            <tbody class="divide-y divide-gray-100">
               {#if $loading}
-                 {#each Array(5) as _}
-                    <tr><td colspan="3" class="px-3 py-3"><div class="h-10 bg-gray-100 rounded animate-pulse"></div></td></tr>
-                 {/each}
+                {#each Array(5) as _}<tr><td colspan="4" class="px-4 py-3"><div class="h-9 bg-gray-100 rounded animate-pulse"></div></td></tr>{/each}
+              {:else if ($dashboardData?.tables.topItems.length ?? 0) === 0}
+                <tr><td colspan="4" class="px-4 py-8 text-center text-sm text-gray-400">No borrowing data for this period</td></tr>
               {:else}
-                {#each $dashboardData.tables.topBooks as book, i}
+                {#each ($dashboardData?.tables.topItems ?? []) as item, i}
                   <tr class="hover:bg-gray-50 transition-colors">
-                    <td class="px-3 py-3 whitespace-nowrap">
-                        <div class="flex items-center justify-center w-10 h-10 rounded-full font-bold text-sm shadow-sm
-                          {i === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-500 text-white' : 
-                           i === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-400 text-white' :
-                           i === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-500 text-white' :
-                           'bg-gray-100 text-gray-600'}">
-                          {i + 1}
-                        </div>
-                    </td>
-                    <td class="px-3 py-3">
-                      <div class="flex items-center gap-3">
-                        <div class="flex-shrink-0 w-10 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded shadow-sm flex items-center justify-center">
-                          <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-                          </svg>
-                        </div>
-                        <div class="min-w-0">
-                          <div class="text-sm font-semibold text-gray-900 truncate">{book.title}</div>
-                          <div class="text-xs text-gray-500 truncate">by {book.author}</div>
-                        </div>
+                    <td class="px-4 py-3">
+                      <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
+                        {i===0 ? 'bg-yellow-400 text-white' : i===1 ? 'bg-gray-300 text-white' : i===2 ? 'bg-orange-400 text-white' : 'bg-gray-100 text-gray-600'}">
+                        {i+1}
                       </div>
                     </td>
-                    <td class="px-3 py-3 whitespace-nowrap text-center">
-                      <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                        {book.borrowCount}
-                      </span>
+                    <td class="px-4 py-3">
+                      <p class="text-sm font-semibold text-gray-900 truncate max-w-xs">{item.title}</p>
+                      <p class="text-xs text-gray-400 truncate">{item.author}</p>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                      <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium {itemTypeBadge(item.itemType)}">{item.itemType}</span>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                      <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">{item.borrowCount}</span>
                     </td>
                   </tr>
                 {/each}
@@ -828,67 +730,106 @@
         </div>
       </div>
 
-      <!-- Overdue Books -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div class="px-3 py-3 border-b border-red-100 bg-gradient-to-r from-red-50 to-white">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-               <div class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></div>
-               <div>
-                 <h3 class="text-lg font-bold text-red-900">Overdue Books</h3>
-                 <p class="text-sm text-gray-600 mt-1">Requires immediate attention • ₱5/hour</p>
-               </div>
+      <!-- Overdue items (all types) -->
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b border-red-100 bg-gradient-to-r from-red-50 to-white flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></div>
+            <div>
+              <h3 class="text-base font-semibold text-red-900">Overdue Items</h3>
+              <p class="text-xs text-gray-500 mt-0.5">All types — oldest first • ₱5/hour</p>
             </div>
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-              {$dashboardData.tables.overdueList.length} items
-            </span>
           </div>
+          <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+            {$dashboardData?.overview.totalOverdue ?? 0} total
+          </span>
         </div>
         <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
+          <table class="min-w-full divide-y divide-gray-100">
+            <thead class="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
               <tr>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Book & Borrower</th>
-                <th class="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Overdue</th>
-                <th class="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Fine</th>
+                <th class="px-4 py-2 text-left">Item / Borrower</th>
+                <th class="px-4 py-2 text-center">Type</th>
+                <th class="px-4 py-2 text-center">Days</th>
+                <th class="px-4 py-2 text-center">Hours</th>
+                <th class="px-4 py-2 text-right">Fine</th>
               </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
-               {#if $loading}
-                 {#each Array(3) as _}
-                    <tr><td colspan="3" class="px-3 py-3"><div class="h-10 bg-gray-100 rounded animate-pulse"></div></td></tr>
-                 {/each}
+            <tbody class="divide-y divide-gray-100">
+              {#if $loading}
+                {#each Array(5) as _}<tr><td colspan="4" class="px-4 py-3"><div class="h-9 bg-gray-100 rounded animate-pulse"></div></td></tr>{/each}
+              {:else if ($dashboardData?.tables.overdueList.length ?? 0) === 0}
+                <tr><td colspan="4" class="px-4 py-8 text-center text-sm text-gray-400">No overdue items — great!</td></tr>
               {:else}
-                {#each $dashboardData.tables.overdueList as item}
-                  <tr class="hover:bg-red-50/30 transition-colors group">
-                    <td class="px-3 py-3">
-                      <div class="flex items-center gap-3">
-                        <div class="flex-shrink-0">
-                          <div class="w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-full flex items-center justify-center">
-                            <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            </svg>
-                          </div>
-                        </div>
-                        <div class="min-w-0">
-                          <div class="text-sm font-semibold text-gray-900 truncate">{item.bookTitle}</div>
-                          <div class="text-xs text-gray-500 truncate">{item.borrowerName}</div>
-                        </div>
-                      </div>
+                {#each ($dashboardData?.tables.overdueList ?? []) as item}
+                  <tr class="hover:bg-red-50/40 transition-colors">
+                    <td class="px-4 py-3">
+                      <p class="text-sm font-semibold text-gray-900 truncate max-w-xs">{item.itemTitle}</p>
+                      <p class="text-xs text-gray-400">{item.borrowerName}</p>
                     </td>
-                    <td class="px-3 py-3 whitespace-nowrap text-center">
-                      <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold
-                        {item.daysOverdue <= 3 ? 'bg-yellow-100 text-yellow-800' : 
-                         item.daysOverdue <= 7 ? 'bg-orange-100 text-orange-800' : 
-                         'bg-red-100 text-red-800'}">
+                    <td class="px-4 py-3 text-center">
+                      <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium {itemTypeBadge(item.itemType)}">{item.itemType}</span>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                      <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold
+                        {item.daysOverdue <= 3 ? 'bg-yellow-100 text-yellow-800' : item.daysOverdue <= 7 ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800'}">
                         {item.daysOverdue}d
                       </span>
                     </td>
-                    <td class="px-3 py-3 whitespace-nowrap text-right">
-                      <div class="text-sm font-bold text-gray-900">
-                        {formatCurrency(item.fine)}
-                      </div>
+                    <td class="px-4 py-3 text-center">
+                      <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold
+                        {item.hoursOverdue && item.hoursOverdue <= 24 ? 'bg-yellow-100 text-yellow-800' : item.hoursOverdue && item.hoursOverdue <= 72 ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800'}">
+                        {item.hoursOverdue ?? 0}h
+                      </span>
                     </td>
+                    <td class="px-4 py-3 text-right text-sm font-bold text-gray-900">{fc(item.fine)}</td>
+                  </tr>
+                {/each}
+              {/if}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ ROW 7: Payments + Top debtors ═════════════════════════════════════ -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+
+      <!-- Recent payments -->
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-green-50 to-white">
+          <h3 class="text-base font-semibold text-gray-900">Recent Payments</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Last transactions received this period</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-100">
+            <thead class="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <tr>
+                <th class="px-4 py-2 text-left">Member</th>
+                <th class="px-4 py-2 text-center">Type</th>
+                <th class="px-4 py-2 text-center">Method</th>
+                <th class="px-4 py-2 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              {#if $loading}
+                {#each Array(5) as _}<tr><td colspan="4" class="px-4 py-3"><div class="h-9 bg-gray-100 rounded animate-pulse"></div></td></tr>{/each}
+              {:else if ($dashboardData?.tables.recentPayments.length ?? 0) === 0}
+                <tr><td colspan="4" class="px-4 py-8 text-center text-sm text-gray-400">No payments this period</td></tr>
+              {:else}
+                {#each ($dashboardData?.tables.recentPayments ?? []) as p}
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3">
+                      <p class="text-sm font-semibold text-gray-900">{p.memberName}</p>
+                      <p class="text-xs text-gray-400">{fdt(p.paymentDate)}</p>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                      <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 capitalize">{p.paymentType}</span>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                      <span class="text-xs text-gray-500 capitalize">{p.paymentMethod}</span>
+                    </td>
+                    <td class="px-4 py-3 text-right text-sm font-bold text-green-700">{fc(p.amount)}</td>
                   </tr>
                 {/each}
               {/if}
@@ -897,6 +838,44 @@
         </div>
       </div>
 
+      <!-- Top debtors -->
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b border-rose-100 bg-gradient-to-r from-rose-50 to-white">
+          <h3 class="text-base font-semibold text-gray-900">Highest Outstanding Fines</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Members with largest unpaid balances</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-100">
+            <thead class="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <tr>
+                <th class="px-4 py-2 text-left">Member</th>
+                <th class="px-4 py-2 text-center">Type</th>
+                <th class="px-4 py-2 text-center">Items</th>
+                <th class="px-4 py-2 text-right">Total Fine</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              {#if $loading}
+                {#each Array(5) as _}<tr><td colspan="4" class="px-4 py-3"><div class="h-9 bg-gray-100 rounded animate-pulse"></div></td></tr>{/each}
+              {:else if ($dashboardData?.tables.topDebtors.length ?? 0) === 0}
+                <tr><td colspan="4" class="px-4 py-8 text-center text-sm text-gray-400">No outstanding fines</td></tr>
+              {:else}
+                {#each ($dashboardData?.tables.topDebtors ?? []) as d}
+                  <tr class="hover:bg-rose-50/40 transition-colors">
+                    <td class="px-4 py-3 text-sm font-semibold text-gray-900">{d.memberName}</td>
+                    <td class="px-4 py-3 text-center">
+                      <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium {d.userType === 'faculty' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'} capitalize">{d.userType}</span>
+                    </td>
+                    <td class="px-4 py-3 text-center text-sm text-gray-600">{d.fineCount}</td>
+                    <td class="px-4 py-3 text-right text-sm font-bold text-red-600">{fc(d.totalFine)}</td>
+                  </tr>
+                {/each}
+              {/if}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
+
   </main>
 </div>

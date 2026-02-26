@@ -1,49 +1,58 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { slide } from 'svelte/transition';
-  import { quintOut } from 'svelte/easing';
+  import { writable } from "svelte/store";
 
-  // Add this to get user type from SSR data (if available)
-  export let data: { user?: { userType?: string } };
+  export let data: { user?: { userType?: string } } = {};
   $: userType = data?.user?.userType || "";
 
   let visits: any[] = [];
   let loading = true;
   let errorMsg = "";
   let successMsg = "";
-  let qrCodeDataUrl: string = "";
-  let showQrModal = false;
-  let showTypeSelectionModal = false;
-  let generatedToken: string = "";
-  let existingQRCodes: { id: number; token: string; type: string }[] = [];
-  let selectedQr: { id: number; token: string; type: string } | null = null;
-  let selectedQrDataUrl: string = "";
 
   // Filter state
   let selectedPeriod = "month";
   let selectedDate = "";
   let selectedTime = "";
   let searchTerm = "";
+  let activeTab = "all";
+  let showFilters = false;
+  let periodDropdownOpen = false;
+  let typeDropdownOpen = false;
+  let selectedVisitorType = "all";
+
+  // Export
+  const exportDropdownOpen = writable(false);
+  const selectedExportFormat = writable("pdf");
+  const EXPORT_FORMATS = [
+    { v: "pdf",   label: "PDF",   colorClass: "text-red-500" },
+    { v: "excel", label: "Excel", colorClass: "text-green-500" }
+  ];
+
+  const tabs = [
+    { id: "all",         label: "All Visits",   icon: "list" },
+    { id: "checked_in",  label: "Checked In",   icon: "login" },
+    { id: "checked_out", label: "Checked Out",  icon: "logout" },
+  ];
 
   const periodOptions = [
-    { value: "day", label: "Today" },
-    { value: "week", label: "Last 7 Days" },
+    { value: "day",   label: "Today" },
+    { value: "week",  label: "Last 7 Days" },
     { value: "month", label: "Last 30 Days" },
-    { value: "year", label: "Last 12 Months" },
-    { value: "all", label: "All Time" }
+    { value: "year",  label: "Last 12 Months" },
+    { value: "all",   label: "All Time" },
   ];
 
-  let selectedQrType = "library_visit";
-  const qrTypeOptions = [
-    { value: "library_visit", label: "Library Visit", icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z", description: "For tracking library check-ins and check-outs" },
-    { value: "book_qr", label: "Book QR Code", icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253", description: "For identifying specific books in the library" }
+  const visitorTypeOptions = [
+    { value: "all",     label: "All Types" },
+    { value: "Student", label: "Student" },
+    { value: "Faculty", label: "Faculty" },
+    { value: "Staff",   label: "Staff" },
+    { value: "Guest",   label: "Guest" },
   ];
-
-  let filterType = "all";
 
   onMount(async () => {
     await loadVisits();
-    await loadExistingQRCodes();
   });
 
   async function loadVisits() {
@@ -54,17 +63,17 @@
       if (selectedDate) url += `&date=${selectedDate}`;
       if (selectedTime) url += `&time=${selectedTime}`;
       const res = await fetch(url);
-      const data = await res.json();
-      if (res.ok && data.success && Array.isArray(data.visits)) {
-        visits = data.visits.map((v: any) => {
+      const json = await res.json();
+      if (res.ok && json.success && Array.isArray(json.visits)) {
+        visits = json.visits.map((v: any) => {
           let duration = "—";
           if (v.timeIn && v.timeOut) {
-            const inDate = new Date(v.timeIn);
+            const inDate  = new Date(v.timeIn);
             const outDate = new Date(v.timeOut);
-            const diffMs = outDate.getTime() - inDate.getTime();
+            const diffMs  = outDate.getTime() - inDate.getTime();
             if (diffMs > 0) {
-              const mins = Math.floor(diffMs / 60000);
-              const hours = Math.floor(mins / 60);
+              const mins    = Math.floor(diffMs / 60000);
+              const hours   = Math.floor(mins / 60);
               const remMins = mins % 60;
               duration = hours > 0 ? `${hours}h ${remMins}m` : `${remMins} min`;
             }
@@ -72,15 +81,15 @@
           return {
             ...v,
             purpose: v.purpose ?? "",
-            status: v.status ?? (v.timeOut ? "checked_out" : "checked_in"), // <-- Ensure status is set
-            duration
+            status: v.status ?? (v.timeOut ? "checked_out" : "checked_in"),
+            duration,
           };
         });
       } else {
-        errorMsg = data.message || "Failed to load visits.";
+        errorMsg = json.message || "Failed to load visits.";
         visits = [];
       }
-    } catch (err) {
+    } catch {
       errorMsg = "Network error. Please try again.";
       visits = [];
     } finally {
@@ -88,150 +97,117 @@
     }
   }
 
-  async function loadExistingQRCodes() {
-    try {
-      const res = await fetch(`/api/qrcode/gen_qrcode`);
-      const data = await res.json();
-      if (res.ok && data.success) {
-        existingQRCodes = data.qrCodes;
-      }
-    } catch (err) {
-      console.error("Failed to load QR codes:", err);
-    }
-  }
-
-  async function handlePeriodChange() {
-    await loadVisits();
-  }
-
-  async function handleDateChange() {
-    await loadVisits();
-  }
-
-  async function handleTimeChange() {
-    await loadVisits();
-  }
-
-  function openTypeSelectionModal() {
-    showTypeSelectionModal = true;
-  }
-
-  async function generateQrCode(type: string) {
-    if (userRole === "staff") {
-      errorMsg = "Only admin can generate QR codes.";
-      return;
-    }
-    showTypeSelectionModal = false;
-    const res = await fetch("/api/qrcode/gen_qrcode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type })
-    });
-    const data = await res.json();
-    if (res.ok && data.success) {
-      generatedToken = data.token;
-      selectedQrType = data.type;
-      const QRCode = await import("qrcode");
-      qrCodeDataUrl = await QRCode.toDataURL(generatedToken, { width: 256 });
-      showQrModal = true;
-      await loadExistingQRCodes();
-      successMsg = "QR Code generated successfully!";
-      setTimeout(() => successMsg = "", 3000);
-    } else {
-      errorMsg = data.message || "Failed to generate QR code.";
-    }
-  }
-
-  function downloadQrCode(dataUrl: string, filename = "library-qrcode.png") {
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    link.download = filename;
-    link.click();
-  }
-
-  async function deleteQrCode(qrId: number) {
-    if (userRole === "staff") {
-      errorMsg = "Only admin can delete QR codes.";
-      return;
-    }
-    if (!confirm("Are you sure you want to delete this QR code?")) return;
-    try {
-      const res = await fetch(`/api/qrcode/gen_qrcode`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: qrId })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        await loadExistingQRCodes();
-        if (selectedQr && selectedQr.id === qrId) {
-          selectedQr = null;
-          selectedQrDataUrl = "";
-        }
-        successMsg = "QR code deleted successfully!";
-        setTimeout(() => successMsg = "", 3000);
-      } else {
-        errorMsg = data.message || "Failed to delete QR code.";
-      }
-    } catch (err) {
-      errorMsg = "Network error. Please try again.";
-    }
-  }
-
-  async function viewQrCode(qr: { id: number; token: string; type: string }) {
-    selectedQr = qr;
-    const QRCode = await import("qrcode");
-    selectedQrDataUrl = await QRCode.toDataURL(qr.token, { width: 256 });
-  }
-
   function resetFilters() {
     selectedDate = "";
     selectedTime = "";
     selectedPeriod = "month";
     searchTerm = "";
+    selectedVisitorType = "all";
+    activeTab = "all";
     loadVisits();
   }
 
-  $: filteredVisits = visits.filter(visit => {
-    const search = searchTerm.toLowerCase();
-    const name = visit.visitorName || visit.user?.name || visit.fullName || "";
-    const idNumber = visit.idNumber || "";
-    const purpose = visit.purpose || "";
-    
-    return name.toLowerCase().includes(search) ||
-           idNumber.toLowerCase().includes(search) ||
-           purpose.toLowerCase().includes(search);
-  });
-
-  $: filteredQRCodes = filterType === "all" 
-    ? existingQRCodes 
-    : existingQRCodes.filter(qr => qr.type === filterType);
-
-  function getStatusColor(status: string) {
-    return status === 'checked_in'
-      ? 'bg-blue-100 text-blue-800'
-      : 'bg-green-100 text-green-800';
-  }
-
-  function getTypeColor(type: string) {
-    switch (type) {
-      case 'Student':
-        return 'bg-slate-100 text-slate-800';
-      case 'Faculty':
-        return 'bg-slate-200 text-slate-900';
-      default:
-        return 'bg-slate-100 text-slate-800';
+  async function handleExport() {
+    try {
+      const format = $selectedExportFormat;
+      const res  = await fetch(`/api/reports/visits/export?format=${format}`);
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `visits_${new Date().toISOString().split("T")[0]}.${format === "excel" ? "xlsx" : "pdf"}`;
+      link.click();
+    } catch {
+      alert("Export failed.");
     }
   }
 
-  function getQrTypeLabel(type: string) {
-    return qrTypeOptions.find(opt => opt.value === type)?.label || type;
+  $: filteredVisits = visits.filter((visit) => {
+    const search      = searchTerm.toLowerCase();
+    const name        = (visit.visitorName || visit.user?.name || visit.fullName || "").toLowerCase();
+    const idNumber    = (visit.idNumber || "").toLowerCase();
+    const purpose     = (visit.purpose  || "").toLowerCase();
+    const matchSearch = name.includes(search) || idNumber.includes(search) || purpose.includes(search);
+
+    const matchTab =
+      activeTab === "all"
+        ? true
+        : visit.status?.toLowerCase() === activeTab.toLowerCase();
+
+    const matchType =
+      selectedVisitorType === "all"
+        ? true
+        : (visit.visitorType || "").toLowerCase() === selectedVisitorType.toLowerCase();
+
+    return matchSearch && matchTab && matchType;
+  });
+
+  $: stats = {
+    total:      visits.length,
+    checkedIn:  visits.filter((v) => v.status === "checked_in").length,
+    checkedOut: visits.filter((v) => v.status === "checked_out").length,
+    today:      visits.filter((v) => {
+      if (!v.timeIn) return false;
+      const d = new Date(v.timeIn);
+      const n = new Date();
+      return d.toDateString() === n.toDateString();
+    }).length,
+  };
+
+  function formatDateTime(dateStr: string) {
+    if (!dateStr) return "—";
+    try {
+      return new Date(dateStr).toLocaleString("en-US", {
+        year: "numeric", month: "short", day: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true,
+      });
+    } catch {
+      return dateStr;
+    }
   }
 
-  function getQrTypeBadgeColor(type: string) {
-    return type === 'library_visit' 
-      ? 'bg-blue-100 text-blue-800' 
-      : 'bg-purple-100 text-purple-800';
+  function formatDateOnly(dateStr: string) {
+    if (!dateStr) return "—";
+    try {
+      return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    } catch { return dateStr; }
+  }
+
+  function formatTimeOnly(dateStr: string) {
+    if (!dateStr) return "";
+    try {
+      return new Date(dateStr).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    } catch { return ""; }
+  }
+
+  function getStatusColor(status: string) {
+    return status === "checked_in"
+      ? "bg-blue-100 text-blue-800 border-blue-200"
+      : "bg-emerald-100 text-emerald-800 border-emerald-200";
+  }
+
+  function getStatusDot(status: string) {
+    return status === "checked_in" ? "bg-blue-500" : "bg-emerald-500";
+  }
+
+  function getTypeColor(type: string) {
+    const t = (type || "").toLowerCase();
+    switch (t) {
+      case "student": return "bg-slate-100 text-slate-800 border-slate-200";
+      case "faculty": return "bg-violet-100 text-violet-800 border-violet-200";
+      case "staff":   return "bg-amber-100 text-amber-800 border-amber-200";
+      case "guest":   return "bg-rose-100 text-rose-800 border-rose-200";
+      default:        return "bg-gray-100 text-gray-800 border-gray-200";
+    }
+  }
+
+  function getInitial(visit: any) {
+    const name = visit.visitorName || visit.user?.name || visit.fullName || "";
+    return name.charAt(0).toUpperCase() || "V";
+  }
+
+  function getVisitorName(visit: any) {
+    return visit.visitorName || visit.user?.name || visit.fullName || "—";
   }
 </script>
 
@@ -239,582 +215,584 @@
   <title>Visit Reports | E-Kalibro Admin Portal</title>
 </svelte:head>
 
-<div class="space-y-6">
-    <!-- Header -->
+<div class="space-y-2">
+
+  <!-- Header -->
+  <div class="mb-2">
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-bold text-slate-900">Library Visit Management</h2>
-        <p class="text-slate-600">Track visitor check-ins and manage QR codes</p>
+        <h2 class="text-2xl font-bold text-slate-900">Visit Management</h2>
+        <p class="text-slate-600">Track and monitor all library visitor check-ins</p>
       </div>
-      <div class="flex gap-2">
-        {#if userRole !== 'staff'}
-          <button
-            on:click={openTypeSelectionModal}
-            class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
-          >
-            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <rect x="3" y="3" width="6" height="6" rx="1" />
-              <rect x="15" y="3" width="6" height="6" rx="1" />
-              <rect x="3" y="15" width="6" height="6" rx="1" />
-              <rect x="15" y="15" width="6" height="6" rx="1" />
-              <path d="M9 9h6v6H9z" />
-            </svg>
-            Generate QR Code
-          </button>
+    </div>
+  </div>
+
+  <!-- Alerts -->
+  {#if successMsg}
+    <div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-start justify-between">
+      <div>
+        <p class="font-medium text-sm">Success</p>
+        <p class="text-xs mt-0.5">{successMsg}</p>
+      </div>
+      <button on:click={() => successMsg = ""} class="text-green-400 hover:text-green-600 ml-4">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+  {/if}
+  {#if errorMsg}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start justify-between">
+      <div>
+        <p class="font-medium text-sm">Error</p>
+        <p class="text-xs mt-0.5">{errorMsg}</p>
+        <button on:click={loadVisits} class="mt-1.5 text-xs text-red-800 underline hover:text-red-900">Try again</button>
+      </div>
+      <button on:click={() => errorMsg = ""} class="text-red-400 hover:text-red-600 ml-4">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+  {/if}
+
+  <!-- Stats Cards -->
+  <div class="grid grid-cols-2 gap-1 sm:gap-2 lg:grid-cols-4 mb-2">
+    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+      <div class="flex flex-col items-center text-center">
+        <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-slate-400 to-slate-600 shadow-sm">
+          <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+        </div>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Total Visits</p>
+        <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.total}</p>
+      </div>
+    </div>
+
+    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+      <div class="flex flex-col items-center text-center">
+        <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-blue-400 to-blue-600 shadow-sm">
+          <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
+          </svg>
+        </div>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Checked In</p>
+        <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.checkedIn}</p>
+      </div>
+    </div>
+
+    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+      <div class="flex flex-col items-center text-center">
+        <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-sm">
+          <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+        </div>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Checked Out</p>
+        <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.checkedOut}</p>
+      </div>
+    </div>
+
+    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200">
+      <div class="flex flex-col items-center text-center">
+        <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-amber-400 to-amber-600 shadow-sm">
+          <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/>
+          </svg>
+        </div>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Today</p>
+        <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.today}</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search and Filters -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-2">
+
+    <!-- Search + quick filters (desktop) -->
+    <div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div class="relative flex-1">
+        <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35"/>
+        </svg>
+        <input
+          type="text"
+          placeholder="Search by name, ID, or purpose..."
+          bind:value={searchTerm}
+          class="pl-10 pr-4 py-2.5 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 text-sm"
+          disabled={loading}
+        />
+        {#if loading}
+          <div class="absolute right-3 top-1/2 -translate-y-1/2">
+            <div class="animate-spin rounded-full h-4 w-4 border-2 border-slate-300 border-t-slate-600"></div>
+          </div>
         {/if}
+      </div>
+
+      <!-- Desktop filters -->
+      <div class="hidden sm:flex items-center gap-2">
+
+        <!-- Period dropdown -->
+        <div class="relative">
+          <button
+            on:click={() => { periodDropdownOpen = !periodDropdownOpen; typeDropdownOpen = false; }}
+            class="px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 flex items-center gap-2 hover:bg-gray-50 transition-colors"
+          >
+            <span>{periodOptions.find(p => p.value === selectedPeriod)?.label || "Last 30 Days"}</span>
+            <svg class={`h-4 w-4 text-gray-400 transition-transform ${periodDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </button>
+          {#if periodDropdownOpen}
+            <div class="absolute z-10 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg">
+              {#each periodOptions as opt}
+                <button
+                  on:click={() => { selectedPeriod = opt.value; periodDropdownOpen = false; loadVisits(); }}
+                  class={`block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg transition-colors ${selectedPeriod === opt.value ? "bg-slate-100 text-slate-900 font-medium" : "text-gray-700"}`}
+                >{opt.label}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Visitor type dropdown -->
+        <div class="relative">
+          <button
+            on:click={() => { typeDropdownOpen = !typeDropdownOpen; periodDropdownOpen = false; }}
+            class="px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 flex items-center gap-2 hover:bg-gray-50 transition-colors"
+          >
+            <span>{visitorTypeOptions.find(o => o.value === selectedVisitorType)?.label || "All Types"}</span>
+            <svg class={`h-4 w-4 text-gray-400 transition-transform ${typeDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </button>
+          {#if typeDropdownOpen}
+            <div class="absolute z-10 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg">
+              {#each visitorTypeOptions as opt}
+                <button
+                  on:click={() => { selectedVisitorType = opt.value; typeDropdownOpen = false; }}
+                  class={`block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg transition-colors ${selectedVisitorType === opt.value ? "bg-slate-100 text-slate-900 font-medium" : "text-gray-700"}`}
+                >{opt.label}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Date filter -->
+        <input
+          type="date"
+          bind:value={selectedDate}
+          on:change={loadVisits}
+          class="px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-all"
+          disabled={loading}
+        />
+
+        <!-- Refresh -->
         <button
           on:click={loadVisits}
-          class="inline-flex items-center justify-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-lg text-slate-700 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+          class="p-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-500"
           title="Refresh"
-          aria-label="Refresh"
-          type="button"
+          disabled={loading}
         >
-          <!-- Updated refresh icon (Heroicons arrow-path) -->
-          <svg class="h-5 w-5 mr-2 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+          <svg class={`h-4 w-4 ${loading ? "animate-spin" : ""}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
           </svg>
-          Refresh
+        </button>
+
+        <!-- Export -->
+        <div class="relative">
+          <button
+            on:click={() => exportDropdownOpen.update(v => !v)}
+            class="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-300 text-sm rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <svg class="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            Export
+            <svg class={`h-4 w-4 text-gray-400 transition-transform ${$exportDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M19 9l-7 7-7-7"/>
+            </svg>
+          </button>
+          {#if $exportDropdownOpen}
+            <div class="absolute right-0 z-20 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg">
+              {#each EXPORT_FORMATS as fmt}
+                <button
+                  on:click={() => { selectedExportFormat.set(fmt.v); exportDropdownOpen.set(false); handleExport(); }}
+                  class={`w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg flex items-center gap-2 ${$selectedExportFormat === fmt.v ? "bg-slate-50 text-slate-700 font-medium" : ""}`}
+                >
+                  <span class={`h-2 w-2 rounded-full ${fmt.colorClass === "text-red-500" ? "bg-red-500" : "bg-green-500"}`}></span>
+                  {fmt.label}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Reset -->
+        <button
+          on:click={resetFilters}
+          class="px-3 py-2.5 bg-slate-100 text-slate-700 rounded-lg text-sm hover:bg-slate-200 transition-colors font-medium"
+          disabled={loading}
+        >Reset</button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="border-b border-gray-200 mb-4 -mx-3 px-3">
+      <div class="flex gap-0 overflow-x-auto">
+        {#each tabs as tab}
+          <button
+            on:click={() => activeTab = tab.id}
+            class={`px-4 py-3 font-medium text-sm border-b-2 transition-all duration-200 flex items-center gap-2 whitespace-nowrap ${
+              activeTab === tab.id
+                ? "border-slate-900 text-slate-900"
+                : "border-transparent text-gray-500 hover:text-gray-900"
+            }`}
+          >
+            {#if tab.icon === "list"}
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+              </svg>
+            {:else if tab.icon === "login"}
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
+              </svg>
+            {:else if tab.icon === "logout"}
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+              </svg>
+            {/if}
+            {tab.label}
+            <span class={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+              activeTab === tab.id ? "bg-slate-900 text-white" : "bg-gray-100 text-gray-500"
+            }`}>
+              {tab.id === "all" ? visits.length : visits.filter(v => v.status === tab.id).length}
+            </span>
+          </button>
+        {/each}
+      </div>
+    </div>
+
+    <!-- Mobile filter toggle -->
+    <div class="sm:hidden mb-3">
+      <button
+        on:click={() => showFilters = !showFilters}
+        class="w-full flex items-center justify-between px-3 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+      >
+        <span class="flex items-center gap-2 font-medium text-gray-700">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z"/>
+          </svg>
+          Filters
+        </span>
+        <svg class={`h-4 w-4 text-gray-400 transition-transform ${showFilters ? "rotate-180" : ""}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Mobile filters expanded -->
+    {#if showFilters}
+      <div class="sm:hidden flex flex-col gap-2">
+        <div class="relative">
+          <button
+            on:click={() => periodDropdownOpen = !periodDropdownOpen}
+            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 flex items-center justify-between"
+          >
+            <span>{periodOptions.find(p => p.value === selectedPeriod)?.label}</span>
+            <svg class={`h-4 w-4 text-gray-400 transition-transform ${periodDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </button>
+          {#if periodDropdownOpen}
+            <div class="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg">
+              {#each periodOptions as opt}
+                <button
+                  on:click={() => { selectedPeriod = opt.value; periodDropdownOpen = false; loadVisits(); }}
+                  class={`block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg ${selectedPeriod === opt.value ? "bg-slate-100 font-medium" : "text-gray-700"}`}
+                >{opt.label}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        <div class="relative">
+          <button
+            on:click={() => typeDropdownOpen = !typeDropdownOpen}
+            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 flex items-center justify-between"
+          >
+            <span>{visitorTypeOptions.find(o => o.value === selectedVisitorType)?.label}</span>
+            <svg class={`h-4 w-4 text-gray-400 transition-transform ${typeDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </button>
+          {#if typeDropdownOpen}
+            <div class="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg">
+              {#each visitorTypeOptions as opt}
+                <button
+                  on:click={() => { selectedVisitorType = opt.value; typeDropdownOpen = false; }}
+                  class={`block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg ${selectedVisitorType === opt.value ? "bg-slate-100 font-medium" : "text-gray-700"}`}
+                >{opt.label}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        <input
+          type="date"
+          bind:value={selectedDate}
+          on:change={loadVisits}
+          class="px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-700 w-full"
+        />
+        <button on:click={resetFilters} class="w-full px-3 py-2.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors">
+          Reset Filters
         </button>
       </div>
-    </div>
-
-    <!-- Success/Error Messages -->
-    {#if successMsg}
-      <div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-        <div class="flex justify-between items-start">
-          <div>
-            <p class="font-medium">Success:</p>
-            <p class="text-sm">{successMsg}</p>
-          </div>
-          <button on:click={() => successMsg = ""} class="text-green-400 hover:text-green-600" aria-label="Close success message">
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-          </button>
-        </div>
-      </div>
     {/if}
-    {#if errorMsg}
-      <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-        <div class="flex justify-between items-start">
-          <div>
-            <p class="font-medium">Error:</p>
-            <p class="text-sm">{errorMsg}</p>
-            <button 
-              on:click={loadVisits} 
-              class="mt-2 text-sm text-red-800 hover:text-red-900 underline"
-            >
-              Try again
-            </button>
-          </div>
-          <button on:click={() => errorMsg = ""} class="text-red-400 hover:text-red-600" aria-label="Close error message">
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-    {/if}
+  </div>
 
-    <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-slate-100 rounded-xl">
-            <svg class="h-6 w-6 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Total Visits</p>
-            <p class="text-2xl font-bold text-slate-900">{visits.length}</p>
-          </div>
-        </div>
-      </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-blue-100 rounded-xl">
-            <svg class="h-6 w-6 text-blue-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Checked In</p>
-            <p class="text-2xl font-bold text-slate-900">{visits.filter(v => v.status === 'checked_in').length}</p>
-          </div>
-        </div>
-      </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-emerald-100 rounded-xl">
-            <svg class="h-6 w-6 text-emerald-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">Checked Out</p>
-            <p class="text-2xl font-bold text-slate-900">{visits.filter(v => v.status === 'checked_out').length}</p>
-          </div>
-        </div>
-      </div>
-      <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex items-center">
-          <div class="p-3 bg-purple-100 rounded-xl">
-            <svg class="h-6 w-6 text-purple-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <rect x="3" y="3" width="6" height="6" rx="1" />
-              <rect x="15" y="3" width="6" height="6" rx="1" />
-              <rect x="3" y="15" width="6" height="6" rx="1" />
-              <rect x="15" y="15" width="6" height="6" rx="1" />
-            </svg>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-slate-600">QR Codes</p>
-            <p class="text-2xl font-bold text-slate-900">{existingQRCodes.length}</p>
-          </div>
-        </div>
-      </div>
-    </div>
+  <!-- ===================== DESKTOP TABLE ===================== -->
+  <div class="hidden lg:block mb-2">
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
 
-    <!-- Filters and Search -->
-    <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-      <div class="flex flex-col lg:flex-row gap-4">
-        <div class="flex-1">
-          <div class="relative">
-            <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="11" cy="11" r="8"/>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input
-              type="text"
-              placeholder="Search by name, ID, or purpose..."
-              bind:value={searchTerm}
-              class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200"
-              disabled={loading}
-            />
-            {#if loading}
-              <div class="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <div class="animate-spin rounded-full h-4 w-4 border-2 border-slate-300 border-t-slate-600"></div>
-              </div>
+      <!-- Table top bar -->
+      <div class="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-gray-50/60">
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+          {filteredVisits.length} visit{filteredVisits.length !== 1 ? "s" : ""}
+        </p>
+        <div class="flex items-center gap-1.5">
+          <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="text-xs text-gray-400 font-medium">Live</span>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full">
+          <thead>
+            <tr class="border-b border-gray-100">
+              <th class="pl-6 pr-3 py-3.5 text-left">
+                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Visitor</span>
+              </th>
+              <th class="px-3 py-3.5 text-left">
+                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Type & ID</span>
+              </th>
+              <th class="px-3 py-3.5 text-left">
+                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Purpose</span>
+              </th>
+              <th class="px-4 py-3.5 text-left">
+                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Timeline</span>
+              </th>
+              <th class="px-3 py-3.5 text-left">
+                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Duration</span>
+              </th>
+              <th class="pl-3 pr-6 py-3.5 text-left">
+                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">Status</span>
+              </th>
+            </tr>
+          </thead>
+
+          <tbody class="divide-y divide-gray-50">
+            {#each filteredVisits as visit}
+              <tr class="group hover:bg-slate-50/70 transition-colors duration-150">
+
+                <!-- Visitor -->
+                <td class="pl-6 pr-3 py-4 whitespace-nowrap">
+                  <div class="flex items-center gap-3">
+                    <div class="flex-shrink-0 h-9 w-9 rounded-full bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center shadow-sm">
+                      <span class="text-xs font-bold text-white">{getInitial(visit)}</span>
+                    </div>
+                    <div>
+                      <p class="text-sm font-semibold text-gray-900">{getVisitorName(visit)}</p>
+                    </div>
+                  </div>
+                </td>
+
+                <!-- Type & ID -->
+                <td class="px-3 py-4 whitespace-nowrap">
+                  <div class="flex flex-col gap-1.5">
+                    <span class={`inline-flex w-fit items-center px-2 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wide border ${getTypeColor(visit.visitorType)}`}>
+                      {visit.visitorType || "—"}
+                    </span>
+                    <span class="text-[11px] text-gray-400 font-mono">{visit.idNumber || "—"}</span>
+                  </div>
+                </td>
+
+                <!-- Purpose -->
+                <td class="px-3 py-4 max-w-[200px]">
+                  <p class="text-sm text-gray-700 truncate" title={visit.purpose}>{visit.purpose || "—"}</p>
+                </td>
+
+                <!-- Timeline -->
+                <td class="px-4 py-4 min-w-[200px]">
+                  <div class="space-y-1.5">
+                    <div class="flex items-center gap-2">
+                      <div class="h-1.5 w-1.5 rounded-full bg-blue-400 flex-shrink-0"></div>
+                      <div class="flex items-baseline gap-1.5">
+                        <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wide">In</span>
+                        <span class="text-xs text-gray-700 font-medium">{formatDateOnly(visit.timeIn)}</span>
+                        <span class="text-[11px] text-gray-400">{formatTimeOnly(visit.timeIn)}</span>
+                      </div>
+                    </div>
+                    {#if visit.timeOut}
+                      <div class="flex items-center gap-2">
+                        <div class="h-1.5 w-1.5 rounded-full bg-emerald-400 flex-shrink-0"></div>
+                        <div class="flex items-baseline gap-1.5">
+                          <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Out</span>
+                          <span class="text-xs text-emerald-600 font-semibold">{formatDateOnly(visit.timeOut)}</span>
+                          <span class="text-[11px] text-gray-400">{formatTimeOnly(visit.timeOut)}</span>
+                        </div>
+                      </div>
+                    {:else}
+                      <div class="flex items-center gap-2">
+                        <div class="h-1.5 w-1.5 rounded-full bg-gray-200 flex-shrink-0"></div>
+                        <span class="text-[11px] text-gray-300 italic">Still inside</span>
+                      </div>
+                    {/if}
+                  </div>
+                </td>
+
+                <!-- Duration -->
+                <td class="px-3 py-4 whitespace-nowrap">
+                  <span class="text-sm text-gray-700 font-medium tabular-nums">{visit.duration}</span>
+                </td>
+
+                <!-- Status -->
+                <td class="pl-3 pr-6 py-4 whitespace-nowrap">
+                  <div class="flex items-center gap-1.5">
+                    <span class={`h-2 w-2 rounded-full flex-shrink-0 ${getStatusDot(visit.status)} ${visit.status === "checked_in" ? "animate-pulse" : ""}`}></span>
+                    <span class={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-semibold border ${getStatusColor(visit.status)}`}>
+                      {visit.status === "checked_in" ? "Checked In" : "Checked Out"}
+                    </span>
+                  </div>
+                </td>
+
+              </tr>
+            {/each}
+
+            <!-- Empty state -->
+            {#if filteredVisits.length === 0}
+              <tr>
+                <td colspan="6" class="px-6 py-16 text-center">
+                  <div class="flex flex-col items-center gap-3">
+                    <div class="h-14 w-14 rounded-2xl bg-gray-100 flex items-center justify-center">
+                      <svg class="h-7 w-7 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <p class="text-sm font-semibold text-gray-500">{loading ? "Loading visits…" : "No visits found"}</p>
+                      <p class="text-xs text-gray-400 mt-0.5">Try adjusting your filters or search term</p>
+                    </div>
+                  </div>
+                </td>
+              </tr>
             {/if}
-          </div>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <select
-            bind:value={selectedPeriod}
-            on:change={handlePeriodChange}
-            class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200"
-            disabled={loading}
-          >
-            {#each periodOptions as period}
-              <option value={period.value}>{period.label}</option>
-            {/each}
-          </select>
-          <input
-            type="date"
-            bind:value={selectedDate}
-            on:change={handleDateChange}
-            class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200"
-            disabled={loading}
-          />
-          <input
-            type="time"
-            bind:value={selectedTime}
-            on:change={handleTimeChange}
-            class="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200"
-            disabled={loading}
-          />
-          <button
-            class="px-4 py-3 bg-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-300 transition-colors duration-200"
-            on:click={resetFilters}
-            disabled={loading}
-          >
-            Reset
-          </button>
-        </div>
+          </tbody>
+        </table>
       </div>
-    </div>
 
-    <!-- QR Type Selection Modal -->
-    {#if showTypeSelectionModal}
-      <div class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full">
-          <div class="flex items-center justify-between mb-6">
-            <h3 class="text-2xl font-bold text-slate-900">Select QR Code Type</h3>
-            <button 
-              on:click={() => showTypeSelectionModal = false}
-              class="text-slate-400 hover:text-slate-600 transition-colors"
-              aria-label="Close modal"
-            >
-              <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-          
-          <p class="text-slate-600 mb-6">Choose the type of QR code you want to generate:</p>
-          
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {#each qrTypeOptions as option}
-              <button
-                on:click={() => generateQrCode(option.value)}
-                class="group relative p-6 border-2 border-slate-200 rounded-xl hover:border-slate-900 hover:shadow-lg transition-all duration-200 text-left"
-                disabled={userRole === 'staff'}
-                style={userRole === 'staff' ? 'opacity:0.5;cursor:not-allowed;' : ''}
-              >
-                <div class="flex items-start space-x-4">
-                  <div class="p-3 bg-slate-100 rounded-lg group-hover:bg-slate-900 transition-colors duration-200">
-                    <svg class="h-8 w-8 text-slate-700 group-hover:text-white transition-colors duration-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d={option.icon}/>
-                    </svg>
-                  </div>
-                  <div class="flex-1">
-                    <h4 class="text-lg font-semibold text-slate-900 mb-2">{option.label}</h4>
-                    <p class="text-sm text-slate-600">{option.description}</p>
-                  </div>
-                </div>
-                <div class="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <svg class="h-5 w-5 text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                  </svg>
-                </div>
-              </button>
-            {/each}
-          </div>
-          {#if userRole === 'staff'}
-            <div class="mt-4 text-red-600 text-sm font-medium text-center">
-              Only admin can generate QR codes.
-            </div>
-          {/if}
-        </div>
-      </div>
-    {/if}
-
-    <!-- Generated QR Code Modal -->
-    {#if showQrModal}
-      <div class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-xl shadow-2xl p-6 flex flex-col items-center max-w-md w-full">
-          <h3 class="text-xl font-bold text-slate-900 mb-2">
-            QR Code Generated
-          </h3>
-          <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium mb-4 ${getQrTypeBadgeColor(selectedQrType)}`}>
-            {getQrTypeLabel(selectedQrType)}
-          </span>
-          {#if qrCodeDataUrl}
-            <div class="bg-slate-50 p-4 rounded-lg mb-4">
-              <img src={qrCodeDataUrl} alt="QR Code" class="w-64 h-64" />
-            </div>
-            <div class="mb-4 text-xs text-slate-500 break-all font-mono bg-slate-50 p-3 rounded-lg w-full">
-              {generatedToken}
-            </div>
-          {/if}
-          <div class="flex space-x-3 w-full">
-            <button 
-              class="flex-1 px-4 py-3 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors duration-200" 
-              on:click={() => downloadQrCode(qrCodeDataUrl, `${selectedQrType}-${Date.now()}.png`)}
-            >
-              Download
-            </button>
-            <button 
-              class="flex-1 px-4 py-3 bg-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-300 transition-colors duration-200" 
-              on:click={() => showQrModal = false}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- Existing QR Codes -->
-    <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200">
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-        <h3 class="text-lg font-semibold text-slate-900">Active QR Codes</h3>
-        <div class="flex gap-2">
-          <button
-            on:click={() => filterType = "all"}
-            class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
-              filterType === "all" 
-                ? "bg-slate-900 text-white" 
-                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
-          >
-            All ({existingQRCodes.length})
-          </button>
-          <button
-            on:click={() => filterType = "library_visit"}
-            class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
-              filterType === "library_visit" 
-                ? "bg-blue-600 text-white" 
-                : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-            }`}
-          >
-            Library Visit ({existingQRCodes.filter(qr => qr.type === 'library_visit').length})
-          </button>
-          <button
-            on:click={() => filterType = "book_qr"}
-            class={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
-              filterType === "book_qr" 
-                ? "bg-purple-600 text-white" 
-                : "bg-purple-100 text-purple-700 hover:bg-purple-200"
-            }`}
-          >
-            Book QR ({existingQRCodes.filter(qr => qr.type === 'book_qr').length})
-          </button>
-        </div>
-      </div>
-      {#if filteredQRCodes.length === 0}
-        <div class="text-center py-8">
-          <svg class="h-12 w-12 text-slate-300 mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <rect x="3" y="3" width="6" height="6" rx="1" />
-            <rect x="15" y="3" width="6" height="6" rx="1" />
-            <rect x="3" y="15" width="6" height="6" rx="1" />
-            <rect x="15" y="15" width="6" height="6" rx="1" />
-          </svg>
-          <p class="text-slate-500">No {filterType === "all" ? "" : getQrTypeLabel(filterType)} QR codes found.</p>
-        </div>
-      {:else}
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {#each filteredQRCodes as qr}
-            <div class="border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow duration-200">
-              <div class="flex items-center justify-between mb-3">
-                <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getQrTypeBadgeColor(qr.type)}`}>
-                  {getQrTypeLabel(qr.type)}
-                </span>
-              </div>
-              <div class="font-mono text-xs mb-3 break-all bg-slate-50 p-2 rounded text-slate-600">
-                {qr.token}
-              </div>
-              <div class="flex space-x-2 mb-3">
-                <button
-                  class="flex-1 px-3 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors duration-200"
-                  on:click={() => {
-                    if (selectedQr && selectedQr.id === qr.id) {
-                      selectedQr = null;
-                      selectedQrDataUrl = "";
-                    } else {
-                      viewQrCode(qr);
-                    }
-                  }}
-                >
-                  {selectedQr && selectedQr.id === qr.id ? 'Close' : 'View'}
-                </button>
-                <button
-                  class="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors duration-200"
-                  on:click={() => deleteQrCode(qr.id)}
-                  disabled={userRole === 'staff'}
-                  style={userRole === 'staff' ? 'opacity:0.5;cursor:not-allowed;' : ''}
-                >
-                  Delete
-                </button>
-              </div>
-              {#if selectedQr && selectedQr.id === qr.id && selectedQrDataUrl}
-                <div 
-                  class="border-t border-slate-200 pt-3 mt-3"
-                  transition:slide={{ duration: 300, easing: quintOut }}
-                >
-                  <div class="bg-slate-50 p-2 rounded-lg mb-2">
-                    <img src={selectedQrDataUrl} alt="QR Code" class="w-full h-auto" />
-                  </div>
-                  <button 
-                    class="w-full px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors duration-200"
-                    on:click={() => downloadQrCode(selectedQrDataUrl, `${qr.type}-${qr.id}.png`)}
-                  >
-                    Download
-                  </button>
-                </div>
-              {/if}
-            </div>
-          {/each}
+      <!-- Table footer -->
+      {#if filteredVisits.length > 0}
+        <div class="px-6 py-3 border-t border-gray-100 bg-gray-50/40 flex items-center justify-between">
+          <p class="text-xs text-gray-400">
+            Showing <span class="font-semibold text-gray-600">{filteredVisits.length}</span> of
+            <span class="font-semibold text-gray-600">{visits.length}</span> visits
+          </p>
         </div>
       {/if}
     </div>
+  </div>
+  <!-- ===================== END DESKTOP TABLE ===================== -->
 
-    <!-- Loading State -->
-    {#if loading && visits.length === 0}
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-        <div class="flex items-center justify-center">
-          <div class="animate-spin rounded-full h-8 w-8 border-2 border-slate-300 border-t-slate-600"></div>
-          <span class="ml-3 text-slate-600">Loading visit logs...</span>
-        </div>
-      </div>
-    {/if}
+  <!-- Mobile Card View -->
+  <div class="lg:hidden space-y-2 mb-2">
+    {#each filteredVisits as visit}
+      <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200 text-sm">
 
-    <!-- Desktop Table View -->
-    {#if !loading || visits.length > 0}
-      <div class="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
-        <div class="px-6 py-4 border-b border-slate-200">
-          <h3 class="text-lg font-semibold text-slate-900">Visit Logs</h3>
+        <!-- Header -->
+        <div class="flex items-start justify-between mb-3">
+          <div class="flex items-center gap-3 flex-1 min-w-0">
+            <div class="flex-shrink-0 h-10 w-10 rounded-full bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center shadow-sm">
+              <span class="text-sm font-bold text-white">{getInitial(visit)}</span>
+            </div>
+            <div class="min-w-0">
+              <h3 class="text-base font-semibold text-gray-900 truncate">{getVisitorName(visit)}</h3>
+              <div class="flex items-center gap-2 mt-1">
+                <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${getTypeColor(visit.visitorType)}`}>
+                  {visit.visitorType || "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <span class={`h-2 w-2 rounded-full ${getStatusDot(visit.status)} ${visit.status === "checked_in" ? "animate-pulse" : ""}`}></span>
+            <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(visit.status)}`}>
+              {visit.status === "checked_in" ? "In" : "Out"}
+            </span>
+          </div>
         </div>
-        <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200">
-            <thead class="bg-slate-50">
-              <tr>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Visitor Details
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Type & ID
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Purpose
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Time In
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Time Out
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Status
-                </th>
-              </tr>
-            </thead>
-            <tbody class="bg-white divide-y divide-slate-100">
-              {#each filteredVisits as visit}
-                <tr class="hover:bg-slate-50 transition-colors duration-200">
-                  <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm font-semibold text-slate-900">
-                      {visit.visitorName || visit.user?.name || visit.fullName || "—"}
-                    </div>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap">
-                    <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getTypeColor(visit.visitorType)}`}>
-                      {visit.visitorType}
-                    </span>
-                    <div class="text-xs text-slate-400 mt-1">{visit.idNumber}</div>
-                  </td>
-                  <td class="px-6 py-4">
-                    <div class="text-sm text-slate-900 max-w-xs truncate">{visit.purpose}</div>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm text-slate-900">
-                      {visit.timeIn ? (new Date(visit.timeIn)).toLocaleDateString() : "—"}
-                    </div>
-                    <div class="text-xs text-slate-500">
-                      {visit.timeIn ? (new Date(visit.timeIn)).toLocaleTimeString() : ""}
-                    </div>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm text-slate-900">
-                      {visit.timeOut ? (new Date(visit.timeOut)).toLocaleDateString() : "—"}
-                    </div>
-                    <div class="text-xs text-slate-500">
-                      {visit.timeOut ? (new Date(visit.timeOut)).toLocaleTimeString() : ""}
-                    </div>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap">
-                    <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(visit.status)}`}>
-                      {visit.status === 'checked_in' ? 'Checked In' : 'Checked Out'}
-                    </span>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-          {#if filteredVisits.length === 0 && !loading}
-            <div class="text-center py-8">
-              <p class="text-slate-500">No visit logs found matching your criteria.</p>
+
+        <!-- Info rows -->
+        <div class="space-y-2 pb-3 border-b border-gray-100">
+          <div class="flex items-center gap-2 text-xs">
+            <svg class="h-3.5 w-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+            </svg>
+            <span class="font-medium text-gray-500">ID:</span>
+            <span class="font-mono text-gray-700">{visit.idNumber || "—"}</span>
+          </div>
+          {#if visit.purpose}
+            <div class="flex items-start gap-2 text-xs">
+              <svg class="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              <span class="font-medium text-gray-500">Purpose:</span>
+              <span class="text-gray-700">{visit.purpose}</span>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Timeline -->
+        <div class="flex items-center gap-4 pt-3 text-xs">
+          <div>
+            <p class="text-gray-400 font-medium uppercase tracking-wide text-[10px] mb-0.5">Time In</p>
+            <p class="text-gray-800 font-medium">{formatDateTime(visit.timeIn)}</p>
+          </div>
+          {#if visit.timeOut}
+            <svg class="h-4 w-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
+            </svg>
+            <div>
+              <p class="text-gray-400 font-medium uppercase tracking-wide text-[10px] mb-0.5">Time Out</p>
+              <p class="text-emerald-600 font-semibold">{formatDateTime(visit.timeOut)}</p>
+            </div>
+          {:else}
+            <div class="flex items-center gap-1.5">
+              <span class="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+              <span class="text-blue-500 italic text-[11px]">Currently inside</span>
+            </div>
+          {/if}
+          {#if visit.duration && visit.duration !== "—"}
+            <div class="ml-auto">
+              <p class="text-gray-400 font-medium uppercase tracking-wide text-[10px] mb-0.5">Duration</p>
+              <p class="text-gray-700 font-semibold tabular-nums">{visit.duration}</p>
             </div>
           {/if}
         </div>
       </div>
-    {/if}
+    {/each}
 
-    <!-- Mobile Card View -->
-    {#if !loading || visits.length > 0}
-      <div class="grid grid-cols-1 gap-4 lg:hidden">
-        {#each filteredVisits as visit}
-          <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <div class="flex items-start justify-between mb-3">
-              <div class="flex-1 min-w-0">
-                <h3 class="text-base font-semibold text-slate-900 truncate">
-                  {visit.visitorName || visit.user?.name || visit.fullName || "—"}
-                </h3>
-                <div class="flex items-center space-x-2 mt-1">
-                  <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getTypeColor(visit.visitorType)}`}>
-                    {visit.visitorType}
-                  </span>
-                  <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(visit.status)}`}>
-                    {visit.status === 'checked_in' ? 'Checked In' : 'Checked Out'}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div class="space-y-2 text-xs text-slate-600">
-              <div class="flex items-center">
-                <svg class="h-3 w-3 mr-2 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
-                </svg>
-                <span class="font-medium">ID:</span>
-                <span class="ml-1">{visit.idNumber}</span>
-              </div>
-              <div class="flex items-start">
-                <svg class="h-3 w-3 mr-2 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                </svg>
-                <span class="font-medium">Purpose:</span>
-                <span class="ml-1">{visit.purpose}</span>
-              </div>
-              <div class="flex items-center">
-                <svg class="h-3 w-3 mr-2 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
-                </svg>
-                <span class="font-medium">In:</span>
-                <span class="ml-1">
-                  {visit.timeIn ? (new Date(visit.timeIn)).toLocaleString() : "—"}
-                </span>
-              </div>
-              <div class="flex items-center">
-                <svg class="h-3 w-3 mr-2 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-                </svg>
-                <span class="font-medium">Out:</span>
-                <span class="ml-1">
-                  {visit.timeOut ? (new Date(visit.timeOut)).toLocaleString() : "—"}
-                </span>
-              </div>
-            </div>
-            <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
-              <div class="text-xs text-slate-600">
-                <span class="font-medium">Duration:</span>
-                <span class="ml-1">{visit.duration || "—"}</span>
-              </div>
-            </div>
-          </div>
-        {/each}
-        {#if filteredVisits.length === 0 && !loading}
-          <div class="bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center">
-            <svg class="h-12 w-12 text-slate-300 mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-            <p class="text-slate-500">No visit logs found matching your criteria.</p>
-          </div>
-        {/if}
+    {#if filteredVisits.length === 0 && !loading}
+      <div class="bg-white p-10 rounded-xl shadow-sm border border-gray-200 text-center">
+        <div class="h-14 w-14 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
+          <svg class="h-7 w-7 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+          </svg>
+        </div>
+        <p class="text-sm font-semibold text-gray-500">No visit logs found</p>
+        <p class="text-xs text-gray-400 mt-1">Try adjusting your filters or search term</p>
       </div>
     {/if}
-
-    <!-- Pagination -->
-    <div class="bg-white px-4 lg:px-6 py-4 border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
-      <div class="text-sm text-slate-700 order-2 sm:order-1">
-        Showing <span class="font-semibold">1</span> to <span class="font-semibold">{filteredVisits.length}</span> of
-        <span class="font-semibold">{filteredVisits.length}</span> results
-      </div>
-      <nav class="relative z-0 inline-flex rounded-lg shadow-sm -space-x-px order-1 sm:order-2">
-        <button class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-l-lg text-slate-500 bg-white hover:bg-slate-50 transition-colors duration-200">
-          <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-          </svg>
-          <span class="hidden sm:inline">Previous</span>
-        </button>
-        <button class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium text-slate-700 bg-slate-50" disabled>
-          1
-        </button>
-        <button class="relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm font-medium rounded-r-lg text-slate-500 bg-white hover:bg-slate-50 transition-colors duration-200">
-          <span class="hidden sm:inline">Next</span>
-          <svg class="h-4 w-4 ml-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-          </svg>
-        </button>
-      </nav>
-    </div>
   </div>
+
+</div>

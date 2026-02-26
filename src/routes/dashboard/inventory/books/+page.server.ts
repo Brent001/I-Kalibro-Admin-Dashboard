@@ -5,7 +5,7 @@ import { isSessionRevoked } from '$lib/server/db/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
-export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
+export const load: PageServerLoad = async ({ cookies, url }) => {
     const token = cookies.get('token');
     
     if (!token) {
@@ -38,18 +38,13 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
             isActive: true
         };
 
-        // Fetch transactions from API
-        const res = await fetch('/api/transactions');
-        const transactions = res.ok ? await res.json().then(r => r.transactions || []) : [];
-
         return {
             user: {
                 id: user.id,
                 username: user.username,
                 email: user.email,
                 role: user.role
-            },
-            transactions
+            }
         };
 
     } catch (error) {

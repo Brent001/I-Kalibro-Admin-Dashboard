@@ -1,7 +1,7 @@
 <script lang="ts">
-  import AddStaff from "$lib/components/ui/add_staff.svelte";
-  import EditStaff from "$lib/components/ui/edit_staff.svelte";
-  import PermissionsModal from "$lib/components/ui/PermissionsModal.svelte";
+  import AddStaff from "$lib/components/ui/staff/add_staff.svelte";
+  import EditStaff from "$lib/components/ui/staff/edit_staff.svelte";
+  import PermissionsModal from "$lib/components/ui/staff/PermissionsModal.svelte";
   import { onMount } from "svelte";
 
   let searchTerm = "";

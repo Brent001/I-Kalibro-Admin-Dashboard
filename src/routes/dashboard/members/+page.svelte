@@ -1,8 +1,8 @@
 <script lang="ts">
-  import AddMemberModal from "$lib/components/ui/add_member.svelte";
-  import DeleteMember from "$lib/components/ui/delete_member.svelte";
-  import EditMemberModal from "$lib/components/ui/edit_member_modal.svelte";
-  import ViewMember from "$lib/components/ui/view_member.svelte";
+  import AddMemberModal from "$lib/components/ui/member/add_member.svelte";
+  import DeleteMember from "$lib/components/ui/member/delete_member.svelte";
+  import EditMemberModal from "$lib/components/ui/member/edit_member_modal.svelte";
+  import ViewMember from "$lib/components/ui/member/view_member.svelte";
   import { onMount } from 'svelte';
 
   // Get user from SSR data
