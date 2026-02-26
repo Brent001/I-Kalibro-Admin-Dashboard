@@ -2,28 +2,23 @@
 import jwt from 'jsonwebtoken';
 import { randomBytes, createHash } from 'crypto';
 import { db } from '$lib/server/db/index.js';
-import { tbl_super_admin, tbl_admin, tbl_staff, tbl_staff_permission, tbl_user } from '$lib/server/db/schema/schema.js';
-import { eq, and, gte, desc, or } from 'drizzle-orm';
-import { redisClient } from '$lib/server/db/cache.js';
+import { tbl_super_admin, tbl_admin, tbl_staff, tbl_staff_permission, tbl_user, tbl_staff_session } from '$lib/server/db/schema/schema.js';
+import { eq, and, gte, desc, or, lte } from 'drizzle-orm';
+import { redisClient, isRedisConfigured } from '$lib/server/db/cache.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production';
 
-// Helper function to calculate time until next 3:00 AM (logout time)
+// Determine session TTL (milliseconds).
+// Use environment variable `SESSION_TTL_MS` (ms) to override. Default to 30 days.
 function getTimeUntilNextLogout(): number {
-    const now = new Date();
-    const nextLogout = new Date(now);
-    
-    // Set to next 3:00 AM
-    nextLogout.setHours(3, 0, 0, 0);
-    
-    // If 3:00 AM has already passed today, set to tomorrow's 3:00 AM
-    if (nextLogout <= now) {
-        nextLogout.setDate(nextLogout.getDate() + 1);
+    const env = process.env.SESSION_TTL_MS;
+    if (env) {
+        const parsed = parseInt(env, 10);
+        if (!Number.isNaN(parsed) && parsed > 0) return parsed;
     }
-    
-    // Return milliseconds until that time
-    return nextLogout.getTime() - now.getTime();
+    // Default: 30 days
+    return 30 * 24 * 60 * 60 * 1000;
 }
 
 export interface AuthUser {
@@ -84,28 +79,41 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
         const secret = tokenType === 'refresh' ? JWT_REFRESH_SECRET : JWT_SECRET;
         const decoded = jwt.verify(token, secret) as JWTPayload;
         
-        // Check if token is blacklisted
-        const blacklistKey = tokenType === 'refresh' ? `blacklist:refresh:${token}` : `blacklist:${token}`;
-        const isBlacklisted = await redisClient.get(blacklistKey);
-        if (isBlacklisted) {
-            return null;
-        }
-        
-        // Check if session has been revoked (logout from all devices)
+        // Check session in DB (preferred over Redis). If sessionId present, ensure session exists,
+        // is active, not expired, and token hash matches the stored hash.
         if (decoded.sessionId) {
-            const revokedKey = `revoked:session:${decoded.sessionId}`;
-            const isRevoked = await redisClient.get(revokedKey);
-            if (isRevoked) {
-                return null;
-            }
-            
-            // Also check if session is still active
-            const sessionData = await redisClient.get(`session:${decoded.sessionId}`);
-            if (sessionData) {
-                const session: UserSession = JSON.parse(sessionData);
-                if (!session.isActive) {
-                    return null;
-                }
+            try {
+                const [sessionRow] = await db
+                    .select({
+                        id: tbl_staff_session.id,
+                        sessionId: tbl_staff_session.sessionId,
+                        userId: tbl_staff_session.actorId,
+                        tokenHash: tbl_staff_session.tokenHash,
+                        refreshTokenHash: tbl_staff_session.refreshTokenHash,
+                        userAgent: tbl_staff_session.userAgent,
+                        ipAddress: tbl_staff_session.ipAddress,
+                        createdAt: tbl_staff_session.createdAt,
+                        lastUsedAt: tbl_staff_session.lastUsedAt,
+                        expiresAt: tbl_staff_session.expiresAt,
+                        isActive: tbl_staff_session.isActive
+                    })
+                    .from(tbl_staff_session)
+                    .where(eq(tbl_staff_session.sessionId, decoded.sessionId))
+                    .limit(1);
+
+                if (!sessionRow) return null;
+
+                // Check active flag and expiry
+                if (!sessionRow.isActive) return null;
+                if (sessionRow.expiresAt && new Date(sessionRow.expiresAt) <= new Date()) return null;
+
+                // Validate token hash depending on token type
+                const providedHash = hashToken(token);
+                if (tokenType === 'access' && sessionRow.tokenHash && providedHash !== sessionRow.tokenHash) return null;
+                if (tokenType === 'refresh' && sessionRow.refreshTokenHash && providedHash !== sessionRow.refreshTokenHash) return null;
+
+            } catch (dbErr) {
+                console.warn('DB session check failed, falling back to JWT-only verification:', dbErr);
             }
         }
         
@@ -233,9 +241,13 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
             }
         }
 
-        // Update session last used time
+        // Update session last used time in DB for access tokens
         if (decoded.sessionId && tokenType === 'access') {
-            await updateSessionLastUsed(decoded.sessionId);
+            try {
+                await updateSessionLastUsed(decoded.sessionId);
+            } catch (e) {
+                console.warn('Failed to update session last used time:', e);
+            }
         }
 
         return {
@@ -266,32 +278,47 @@ export async function isSessionRevoked(token: string): Promise<boolean> {
         
         const sessionId = decoded.sessionId;
         
-        // Quick check: look only for revocation marker (fastest path - usually returns immediately)
-        // If revoked marker exists, session is definitely revoked
-        const revokedKey = `revoked:session:${sessionId}`;
-        const isRevoked = await redisClient.get(revokedKey);
-        if (isRevoked) {
-            return true;
-        }
-        
-        // Only check session active status if revocation marker not found
-        // This reduces Redis calls significantly (one check instead of two)
-        const sessionData = await redisClient.get(`session:${sessionId}`);
-        if (sessionData) {
-            try {
-                const session: UserSession = JSON.parse(sessionData);
-                if (!session.isActive) {
-                    return true;
+        // Check session revocation status in DB
+        try {
+            const [sessionRow] = await db
+                .select({ id: tbl_staff_session.id, isActive: tbl_staff_session.isActive, expiresAt: tbl_staff_session.expiresAt })
+                .from(tbl_staff_session)
+                .where(eq(tbl_staff_session.sessionId, sessionId))
+                .limit(1);
+
+            if (!sessionRow) return false;
+            if (!sessionRow.isActive) return true;
+            if (sessionRow.expiresAt && new Date(sessionRow.expiresAt) <= new Date()) return true;
+            return false;
+        } catch (err) {
+            console.warn('Session revocation DB check failed, falling back to Redis/JWT checks:', (err as any)?.message || err);
+
+            // Fallback to Redis markers if configured
+            if (isRedisConfigured()) {
+                try {
+                    const revokedKey = `revoked:session:${sessionId}`;
+                    const isRevoked = await redisClient.get(revokedKey);
+                    if (isRevoked) return true;
+
+                    const sessionData = await redisClient.get(`session:${sessionId}`);
+                    if (sessionData) {
+                        try {
+                            const session: any = JSON.parse(sessionData);
+                            if (!session.isActive) return true;
+                            if (session.expiresAt && new Date(session.expiresAt) <= new Date()) return true;
+                        } catch (parseErr) {
+                            console.warn('Failed to parse cached session during fallback check:', (parseErr as any)?.message || parseErr);
+                        }
+                    }
+                } catch (cacheErr) {
+                    console.warn('Redis fallback for session revocation failed:', (cacheErr as any)?.message || cacheErr);
                 }
-            } catch (parseError) {
-                console.warn('Failed to parse session data:', parseError);
-                return false;
             }
+
+            return false;
         }
-        
-        return false;
     } catch (error) {
-        console.error('Session revocation check failed:', error);
+        console.warn('Session revocation check failed:', (error as any)?.message || error);
         return false;
     }
 }
@@ -361,7 +388,8 @@ export async function generateTokens(
         }
     );
 
-    // Store session in Redis
+    // Store session in Redis if available. If Redis is not configured, skip storing
+    // session metadata and rely on stateless JWT verification + refresh tokens.
     const timeUntilLogout = getTimeUntilNextLogout();
     const sessionData: UserSession = {
         id: sessionId,
@@ -376,8 +404,34 @@ export async function generateTokens(
         isActive: true
     };
 
-    await redisClient.setex(`session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(sessionData));
-    await redisClient.sadd(`user:${user.id}:sessions`, sessionId);
+    // Persist session to DB (preferred). Also optionally write to Redis as cache.
+    try {
+        const [created] = await db.insert(tbl_staff_session).values({
+            sessionId: sessionData.id,
+            actorType: user.userType || 'staff',
+            actorId: sessionData.userId,
+            tokenHash: sessionData.token,
+            refreshTokenHash: sessionData.refreshToken,
+            userAgent: sessionData.userAgent,
+            ipAddress: sessionData.ipAddress,
+            createdAt: sessionData.createdAt,
+            lastUsedAt: sessionData.lastUsedAt,
+            expiresAt: sessionData.expiresAt,
+            isActive: sessionData.isActive
+        }).returning();
+
+        // Optional: keep Redis in sync as cache if configured
+        if (isRedisConfigured()) {
+            try {
+                await redisClient.setex(`session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(sessionData));
+                await redisClient.sadd(`user:${user.id}:sessions`, sessionId);
+            } catch (cacheErr) {
+                console.warn('Failed to persist session to Redis (cache), continuing:', cacheErr);
+            }
+        }
+    } catch (dbErr) {
+        console.warn('Failed to persist session to DB, continuing without persistent session:', dbErr);
+    }
 
     return { accessToken, refreshToken, sessionId };
 }
@@ -388,32 +442,45 @@ export async function generateTokens(
 export async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: string } | null> {
     try {
         const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as JWTPayload;
-        
-        // Check if refresh token is blacklisted
-        const isBlacklisted = await redisClient.get(`blacklist:refresh:${refreshToken}`);
-        if (isBlacklisted) {
-            return null;
-        }
+        // If Redis is configured, enforce blacklist/session checks. If not,
+        // fall back to JWT-only verification (trusted refresh token).
+        let session: UserSession | null = null;
+            // Prefer DB check for session and refresh token validity
+            try {
+                // Optional: check blacklist in Redis first for fast path
+                if (isRedisConfigured()) {
+                    const isBlacklisted = await redisClient.get(`blacklist:refresh:${refreshToken}`);
+                    if (isBlacklisted === 'revoked' || isBlacklisted) return null;
+                }
 
-        // Check if session has been revoked (logout from all devices)
-        if (decoded.sessionId) {
-            const revokedKey = `revoked:session:${decoded.sessionId}`;
-            const isRevoked = await redisClient.get(revokedKey);
-            if (isRevoked) {
+                if (decoded.sessionId) {
+                    const [sessionRow] = await db
+                        .select({ sessionId: tbl_staff_session.sessionId, userId: tbl_staff_session.actorId, refreshTokenHash: tbl_staff_session.refreshTokenHash, isActive: tbl_staff_session.isActive, expiresAt: tbl_staff_session.expiresAt })
+                        .from(tbl_staff_session)
+                        .where(eq(tbl_staff_session.sessionId, decoded.sessionId))
+                        .limit(1);
+
+                    if (!sessionRow) return null;
+                    if (!sessionRow.isActive) return null;
+                    if (sessionRow.expiresAt && new Date(sessionRow.expiresAt) <= new Date()) return null;
+                    if (hashToken(refreshToken) !== sessionRow.refreshTokenHash) return null;
+
+                    session = {
+                        id: sessionRow.sessionId,
+                        userId: sessionRow.userId,
+                        refreshToken: sessionRow.refreshTokenHash,
+                        userAgent: '',
+                        ipAddress: '',
+                        createdAt: new Date(),
+                        lastUsedAt: new Date(),
+                        expiresAt: sessionRow.expiresAt ? new Date(sessionRow.expiresAt) : new Date(),
+                        isActive: sessionRow.isActive
+                    } as UserSession;
+                }
+            } catch (err) {
+                console.warn('Session refresh DB check failed, aborting refresh for safety:', err);
                 return null;
             }
-        }
-
-        // Verify session exists and is active
-        const sessionData = await redisClient.get(`session:${decoded.sessionId}`);
-        if (!sessionData) {
-            return null;
-        }
-
-        const session: UserSession = JSON.parse(sessionData);
-        if (!session.isActive || hashToken(refreshToken) !== session.refreshToken) {
-            return null;
-        }
 
         // Get fresh user data from JWT (we can trust the decoded token for user type)
         // The user type is already in the decoded JWT token
@@ -457,12 +524,34 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
             }
         );
 
-        // Update session with new access token
-        session.token = hashToken(accessToken);
-        session.lastUsedAt = new Date();
-        const timeUntilLogout = getTimeUntilNextLogout();
-        session.expiresAt = new Date(Date.now() + timeUntilLogout);
-        await redisClient.setex(`session:${decoded.sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(session));
+        // Update session in DB with new access token hash
+        try {
+            const timeUntilLogout = getTimeUntilNextLogout();
+            await db.update(tbl_staff_session).set({
+                tokenHash: hashToken(accessToken),
+                lastUsedAt: new Date(),
+                expiresAt: new Date(Date.now() + timeUntilLogout)
+            }).where(eq(tbl_staff_session.sessionId, decoded.sessionId));
+
+            // Sync cache optionally
+            if (isRedisConfigured()) {
+                try {
+                    // refresh cached session if present
+                    const sessionData = await redisClient.get(`session:${decoded.sessionId}`);
+                    if (sessionData) {
+                        const s = JSON.parse(sessionData);
+                        s.token = hashToken(accessToken);
+                        s.lastUsedAt = new Date();
+                        s.expiresAt = new Date(Date.now() + timeUntilLogout);
+                        await redisClient.setex(`session:${decoded.sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(s));
+                    }
+                } catch (cacheErr) {
+                    console.warn('Failed to sync session cache during refresh:', cacheErr);
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to update session in DB during refresh:', err);
+        }
 
         return { accessToken };
     } catch (error) {
@@ -476,13 +565,21 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
  */
 export async function updateSessionLastUsed(sessionId: string): Promise<void> {
     try {
-        const sessionData = await redisClient.get(`session:${sessionId}`);
-        if (sessionData) {
-            const session: UserSession = JSON.parse(sessionData);
-            session.lastUsedAt = new Date();
-            const timeUntilLogout = getTimeUntilNextLogout();
-            session.expiresAt = new Date(Date.now() + timeUntilLogout);
-            await redisClient.setex(`session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(session));
+        const timeUntilLogout = getTimeUntilNextLogout();
+        await db.update(tbl_staff_session).set({ lastUsedAt: new Date(), expiresAt: new Date(Date.now() + timeUntilLogout) }).where(eq(tbl_staff_session.sessionId, sessionId));
+        // update cache if present
+        if (isRedisConfigured()) {
+            try {
+                const sessionData = await redisClient.get(`session:${sessionId}`);
+                if (sessionData) {
+                    const session: any = JSON.parse(sessionData);
+                    session.lastUsedAt = new Date();
+                    session.expiresAt = new Date(Date.now() + timeUntilLogout);
+                    await redisClient.setex(`session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(session));
+                }
+            } catch (cacheErr) {
+                console.warn('Failed to update session cache lastUsedAt:', cacheErr);
+            }
         }
     } catch (error) {
         console.error('Failed to update session:', error);
@@ -494,19 +591,33 @@ export async function updateSessionLastUsed(sessionId: string): Promise<void> {
  */
 export async function revokeToken(sessionId: string, tokenType: 'access' | 'refresh' = 'access'): Promise<void> {
     try {
-        const sessionData = await redisClient.get(`session:${sessionId}`);
-        if (sessionData) {
-            const session: UserSession = JSON.parse(sessionData);
-            
-            if (tokenType === 'access') {
-                // Mark session as inactive
-                session.isActive = false;
-                const timeUntilLogout = getTimeUntilNextLogout();
-                await redisClient.setex(`session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(session));
-            } else {
-                // Remove session completely for refresh token revocation
-                await redisClient.del(`session:${sessionId}`);
-                await redisClient.srem(`user:${session.userId}:sessions`, sessionId);
+        if (tokenType === 'access') {
+            // mark session inactive in DB
+            await db.update(tbl_staff_session).set({ isActive: false }).where(eq(tbl_staff_session.sessionId, sessionId));
+            // sync cache
+            if (isRedisConfigured()) {
+                try {
+                    const sessionData = await redisClient.get(`session:${sessionId}`);
+                    if (sessionData) {
+                        const session: any = JSON.parse(sessionData);
+                        session.isActive = false;
+                        const timeUntilLogout = getTimeUntilNextLogout();
+                        await redisClient.setex(`session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), JSON.stringify(session));
+                    }
+                } catch (cacheErr) {
+                    console.warn('Failed to sync cache on revoke access:', cacheErr);
+                }
+            }
+        } else {
+            // Remove session completely for refresh token revocation
+            const [deleted] = await db.delete(tbl_staff_session).where(eq(tbl_staff_session.sessionId, sessionId)).returning();
+            if (isRedisConfigured()) {
+                try {
+                    await redisClient.del(`session:${sessionId}`);
+                    if (deleted && (deleted as any).actorId) await redisClient.srem(`user:${(deleted as any).actorId}:sessions`, sessionId);
+                } catch (cacheErr) {
+                    console.warn('Failed to remove session from cache on revoke refresh:', cacheErr);
+                }
             }
         }
     } catch (error) {
@@ -519,34 +630,33 @@ export async function revokeToken(sessionId: string, tokenType: 'access' | 'refr
  */
 export async function getUserSessions(userId: number): Promise<UserSession[]> {
     try {
-        // Get session IDs first
-        const sessionIds = await redisClient.smembers(`user:${userId}:sessions`);
-        
-        if (sessionIds.length === 0) {
-            return [];
-        }
-        
-        // Fetch all sessions in parallel (not sequential)
-        const sessionPromises = sessionIds.map(sessionId =>
-            redisClient.get(`session:${sessionId}`)
-        );
-        
-        const sessionDataArray = await Promise.all(sessionPromises);
-        const sessions: UserSession[] = [];
-        
-        for (const sessionData of sessionDataArray) {
-            if (sessionData) {
-                try {
-                    const session: UserSession = JSON.parse(sessionData);
-                    if (session.isActive && session.expiresAt > new Date()) {
-                        sessions.push(session);
-                    }
-                } catch (parseError) {
-                    console.warn('Failed to parse session data:', parseError);
-                }
-            }
-        }
-        
+        // Query DB for active, non-expired sessions
+        const rows = await db.select({
+            sessionId: tbl_staff_session.sessionId,
+            userId: tbl_staff_session.actorId,
+            tokenHash: tbl_staff_session.tokenHash,
+            refreshTokenHash: tbl_staff_session.refreshTokenHash,
+            userAgent: tbl_staff_session.userAgent,
+            ipAddress: tbl_staff_session.ipAddress,
+            createdAt: tbl_staff_session.createdAt,
+            lastUsedAt: tbl_staff_session.lastUsedAt,
+            expiresAt: tbl_staff_session.expiresAt,
+            isActive: tbl_staff_session.isActive
+        }).from(tbl_staff_session).where(and(eq(tbl_staff_session.actorId, userId), eq(tbl_staff_session.isActive, true), gte(tbl_staff_session.expiresAt, new Date())));
+
+        const sessions: UserSession[] = rows.map(r => ({
+            id: r.sessionId,
+            userId: (r as any).userId ?? (r as any).actorId,
+            token: r.tokenHash,
+            refreshToken: r.refreshTokenHash,
+            userAgent: r.userAgent,
+            ipAddress: r.ipAddress,
+            createdAt: r.createdAt ? new Date(r.createdAt as unknown as string | number | Date) : new Date(),
+            lastUsedAt: r.lastUsedAt ? new Date(r.lastUsedAt as unknown as string | number | Date) : new Date(),
+            expiresAt: r.expiresAt ? new Date(r.expiresAt as unknown as string | number | Date) : new Date(),
+            isActive: r.isActive
+        } as UserSession));
+
         return sessions;
     } catch (error) {
         console.error('Failed to get user sessions:', error);
@@ -559,35 +669,26 @@ export async function getUserSessions(userId: number): Promise<UserSession[]> {
  */
 export async function revokeAllUserSessions(userId: number): Promise<void> {
     try {
-        // Get all session IDs for this user
-        const sessionIds = await redisClient.smembers(`user:${userId}:sessions`);
-        
-        if (sessionIds.length === 0) {
-            return; // No sessions to revoke
+        // Mark all sessions for this user as inactive in DB
+        const [updated] = await db.update(tbl_staff_session).set({ isActive: false }).where(eq(tbl_staff_session.actorId, userId)).returning();
+
+        // Remove from Redis cache if configured
+        if (isRedisConfigured()) {
+            try {
+                const sessionIds = await redisClient.smembers(`user:${userId}:sessions`);
+                const ops: Promise<any>[] = [];
+                for (const sid of sessionIds) {
+                    ops.push(redisClient.del(`session:${sid}`));
+                    ops.push(redisClient.setex(`revoked:session:${sid}`, Math.ceil(getTimeUntilNextLogout() / 1000), 'revoked_all_devices'));
+                }
+                ops.push(redisClient.del(`user:${userId}:sessions`));
+                await Promise.all(ops);
+            } catch (cacheErr) {
+                console.warn('Failed to clear session cache during revokeAllUserSessions:', cacheErr);
+            }
         }
 
-        // FAST PATH: Instead of fetching each session individually, just create revocation markers
-        // This is much faster since we don't need the full session data
-        const revocationOps: Promise<any>[] = [];
-        
-        // Create revocation markers for all sessions at once
-        const timeUntilLogout = getTimeUntilNextLogout();
-        for (const sessionId of sessionIds) {
-            revocationOps.push(
-                // Set revocation marker (only need to mark as revoked, not fetch/update full session)
-                redisClient.setex(`revoked:session:${sessionId}`, Math.ceil(timeUntilLogout / 1000), 'revoked_all_devices')
-            );
-        }
-        
-        // Add the delete operation for the session set
-        revocationOps.push(
-            redisClient.del(`user:${userId}:sessions`)
-        );
-        
-        // Execute all operations in parallel (much faster than sequential)
-        await Promise.all(revocationOps);
-        
-        console.log(`User ${userId} revoked ${sessionIds.length} sessions`);
+        console.log(`User ${userId} revoked sessions (DB updated)`);
     } catch (error) {
         console.error('Failed to revoke all user sessions:', error);
         throw error;
@@ -636,19 +737,29 @@ export async function logSecurityEvent(event: SecurityEvent): Promise<void> {
  */
 export async function cleanupExpiredSessions(): Promise<void> {
     try {
-        // This would typically be run as a cron job
-        const pattern = 'session:*';
-        const keys = await redisClient.keys(pattern);
-        
-        for (const key of keys) {
-            const sessionData = await redisClient.get(key);
-            if (sessionData) {
-                const session: UserSession = JSON.parse(sessionData);
-                if (session.expiresAt <= new Date()) {
-                    const sessionId = key.replace('session:', '');
-                    await redisClient.del(key);
-                    await redisClient.srem(`user:${session.userId}:sessions`, sessionId);
+        // This would typically be run as a cron job: remove expired sessions from DB and cache
+        const now = new Date();
+        // Delete expired sessions from DB
+        await db.delete(tbl_staff_session).where(lte(tbl_staff_session.expiresAt, now));
+
+        // Also try to clean up cache entries
+        if (isRedisConfigured()) {
+            try {
+                const pattern = 'session:*';
+                const keys = await redisClient.keys(pattern);
+                for (const key of keys) {
+                    const sessionData = await redisClient.get(key);
+                    if (sessionData) {
+                        const session: any = JSON.parse(sessionData);
+                        if (session.expiresAt && new Date(session.expiresAt) <= now) {
+                            const sessionId = key.replace('session:', '');
+                            await redisClient.del(key);
+                            await redisClient.srem(`user:${session.userId}:sessions`, sessionId);
+                        }
+                    }
                 }
+            } catch (cacheErr) {
+                console.warn('Failed to clean expired sessions from cache:', cacheErr);
             }
         }
     } catch (error) {
