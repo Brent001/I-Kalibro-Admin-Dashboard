@@ -1,8 +1,16 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { tbl_book, tbl_book_borrowing, tbl_user, tbl_book_copy } from '$lib/server/db/schema/schema.js';
-import { eq, count, lt, and, isNull, desc, sql } from 'drizzle-orm';
+import {
+  tbl_book, tbl_book_borrowing, tbl_user, tbl_book_copy,
+  tbl_magazine, tbl_magazine_borrowing, tbl_magazine_copy,
+  tbl_thesis, tbl_thesis_borrowing, tbl_thesis_copy,
+  tbl_journal, tbl_journal_borrowing, tbl_journal_copy,
+  tbl_book_reservation, tbl_magazine_reservation,
+  tbl_thesis_reservation, tbl_journal_reservation
+} from '$lib/server/db/schema/schema.js';
+import { eq, count, lt, and, isNull, desc, sql, or } from 'drizzle-orm';
+import { calculateDaysOverdue, calculateFineAmount } from '$lib/server/utils/fineCalculation.js';
 import { encryptData } from '$lib/utils/encryption.js';
 
 // Cache duration (5 minutes)
@@ -14,189 +22,273 @@ let lastCacheTime = 0;
 export const GET: RequestHandler = async () => {
   try {
     const now = Date.now();
-    
+
     // Return cached data if still valid
     if (cachedData && (now - lastCacheTime) < CACHE_DURATION) {
       const encryptedCachedData = encryptData(cachedData);
-      return json({
-        success: true,
-        data: encryptedCachedData,
-        encrypted: true,
-        cached: true
-      });
+      return json({ success: true, data: encryptedCachedData, encrypted: true, cached: true });
     }
 
-    // Get current date for overdue calculations
     const today = new Date();
-    const todayStr = today.toISOString().slice(0, 10); // 'YYYY-MM-DD'
+    const todayStr = today.toISOString().slice(0, 10);
 
-    // Optimize with parallel queries using Promise.all
+    // ─── Run all queries in parallel ───────────────────────────────────────────
     const [
+      // Total item counts
       totalBooksResult,
+      totalMagazinesResult,
+      totalThesisResult,
+      totalJournalsResult,
+
+      // Active members
       activeMembersResult,
+
+      // Currently borrowed counts (all types)
       booksBorrowedResult,
-      overdueBooksResult,
+      magazinesBorrowedResult,
+      thesisBorrowedResult,
+      journalsBorrowedResult,
+
+      // Overdue counts (all types)
+      overdueBooksCntResult,
+      overdueMagazinesCntResult,
+      overdueThesisCntResult,
+      overdueJournalsCntResult,
+
+      // Pending reservations (all types)
+      pendingBookReservationsResult,
+      pendingMagazineReservationsResult,
+      pendingThesisReservationsResult,
+      pendingJournalReservationsResult,
+
+      // Overdue detail lists (limited to 5 each)
       overdueBooksListResult,
-      recentActivityResult
+      overdueMagazinesListResult,
+      overdueThesisListResult,
+      overdueJournalsListResult,
+
+      // Recent activity across all types
+      recentBooksActivityResult,
+      recentMagazinesActivityResult,
+      recentThesisActivityResult,
+      recentJournalsActivityResult,
     ] = await Promise.all([
-      // Total books count
-      db.select({ count: count() }).from(tbl_book),
-      
-      // Active members count
-      db.select({ count: count() })
-        .from(tbl_user)
-        .where(eq(tbl_user.isActive, true)),
-      
-      // Currently borrowed books count
-      db.select({ count: count() })
-        .from(tbl_book_borrowing)
-        .where(and(
-          eq(tbl_book_borrowing.status, 'borrowed'),
-          isNull(tbl_book_borrowing.returnDate)
-        )),
-      
-      // Overdue books count (optimized with single query)
-      db.select({ count: count() })
-        .from(tbl_book_borrowing)
-        .where(and(
-          eq(tbl_book_borrowing.status, 'borrowed'),
-          lt(tbl_book_borrowing.dueDate, todayStr),
-          isNull(tbl_book_borrowing.returnDate)
-        )),
-      
-      // Overdue books list with details (limited to 10 most overdue)
-      db.select({
-        id: tbl_book_borrowing.id,
-        bookTitle: tbl_book.title,
-        memberName: tbl_user.name,
-        dueDate: tbl_book_borrowing.dueDate,
-        userId: tbl_book_borrowing.userId,
-        bookId: tbl_book_borrowing.bookId
-      })
-        .from(tbl_book_borrowing)
-        .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
-        .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
-        .where(and(
-          eq(tbl_book_borrowing.status, 'borrowed'),
-          lt(tbl_book_borrowing.dueDate, todayStr),
-          isNull(tbl_book_borrowing.returnDate)
-        ))
-        .orderBy(tbl_book_borrowing.dueDate) // Oldest overdue first
-        .limit(10),
-      
-      // Recent activity (last 10 transactions)
-      db.select({
-        id: tbl_book_borrowing.id,
-        type: tbl_book_borrowing.status,
-        bookTitle: tbl_book.title,
-        memberName: tbl_user.name,
-        time: tbl_book_borrowing.createdAt,
-        borrowDate: tbl_book_borrowing.borrowDate,
-        returnDate: tbl_book_borrowing.returnDate
-      })
+
+      // ── Totals ──────────────────────────────────────────────────────────────
+      db.select({ count: count() }).from(tbl_book).where(eq(tbl_book.isActive, true)),
+      db.select({ count: count() }).from(tbl_magazine).where(eq(tbl_magazine.isActive, true)),
+      db.select({ count: count() }).from(tbl_thesis).where(eq(tbl_thesis.isActive, true)),
+      db.select({ count: count() }).from(tbl_journal).where(eq(tbl_journal.isActive, true)),
+
+      // ── Active members ───────────────────────────────────────────────────────
+      db.select({ count: count() }).from(tbl_user).where(eq(tbl_user.isActive, true)),
+
+      // ── Borrowed counts ──────────────────────────────────────────────────────
+      db.select({ count: count() }).from(tbl_book_borrowing)
+        .where(and(eq(tbl_book_borrowing.status, 'borrowed'), isNull(tbl_book_borrowing.returnDate))),
+      db.select({ count: count() }).from(tbl_magazine_borrowing)
+        .where(and(eq(tbl_magazine_borrowing.status, 'borrowed'), isNull(tbl_magazine_borrowing.returnDate))),
+      db.select({ count: count() }).from(tbl_thesis_borrowing)
+        .where(and(eq(tbl_thesis_borrowing.status, 'borrowed'), isNull(tbl_thesis_borrowing.returnDate))),
+      db.select({ count: count() }).from(tbl_journal_borrowing)
+        .where(and(eq(tbl_journal_borrowing.status, 'borrowed'), isNull(tbl_journal_borrowing.returnDate))),
+
+      // ── Overdue counts ───────────────────────────────────────────────────────
+      db.select({ count: count() }).from(tbl_book_borrowing)
+        .where(and(eq(tbl_book_borrowing.status, 'borrowed'), lt(tbl_book_borrowing.dueDate, todayStr), isNull(tbl_book_borrowing.returnDate))),
+      db.select({ count: count() }).from(tbl_magazine_borrowing)
+        .where(and(eq(tbl_magazine_borrowing.status, 'borrowed'), lt(tbl_magazine_borrowing.dueDate, todayStr), isNull(tbl_magazine_borrowing.returnDate))),
+      db.select({ count: count() }).from(tbl_thesis_borrowing)
+        .where(and(eq(tbl_thesis_borrowing.status, 'borrowed'), lt(tbl_thesis_borrowing.dueDate, todayStr), isNull(tbl_thesis_borrowing.returnDate))),
+      db.select({ count: count() }).from(tbl_journal_borrowing)
+        .where(and(eq(tbl_journal_borrowing.status, 'borrowed'), lt(tbl_journal_borrowing.dueDate, todayStr), isNull(tbl_journal_borrowing.returnDate))),
+
+      // ── Pending reservation counts (include active / borrow_request statuses)
+      db.select({ count: count() }).from(tbl_book_reservation).where(or(eq(tbl_book_reservation.status, 'pending'), eq(tbl_book_reservation.status, 'active'), eq(tbl_book_reservation.status, 'borrow_request'))),
+      db.select({ count: count() }).from(tbl_magazine_reservation).where(or(eq(tbl_magazine_reservation.status, 'pending'), eq(tbl_magazine_reservation.status, 'active'), eq(tbl_magazine_reservation.status, 'borrow_request'))),
+      db.select({ count: count() }).from(tbl_thesis_reservation).where(or(eq(tbl_thesis_reservation.status, 'pending'), eq(tbl_thesis_reservation.status, 'active'), eq(tbl_thesis_reservation.status, 'borrow_request'))),
+      db.select({ count: count() }).from(tbl_journal_reservation).where(or(eq(tbl_journal_reservation.status, 'pending'), eq(tbl_journal_reservation.status, 'active'), eq(tbl_journal_reservation.status, 'borrow_request'))),
+
+      // ── Overdue detail lists ─────────────────────────────────────────────────
+      db.select({ id: tbl_book_borrowing.id, title: tbl_book.title, memberName: tbl_user.name, dueDate: tbl_book_borrowing.dueDate, itemType: sql<string>`'book'` })
         .from(tbl_book_borrowing)
         .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
         .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
-        .orderBy(desc(tbl_book_borrowing.createdAt))
-        .limit(10)
+        .where(and(eq(tbl_book_borrowing.status, 'borrowed'), lt(tbl_book_borrowing.dueDate, todayStr), isNull(tbl_book_borrowing.returnDate)))
+        .orderBy(tbl_book_borrowing.dueDate).limit(5),
+
+      db.select({ id: tbl_magazine_borrowing.id, title: tbl_magazine.title, memberName: tbl_user.name, dueDate: tbl_magazine_borrowing.dueDate, itemType: sql<string>`'magazine'` })
+        .from(tbl_magazine_borrowing)
+        .leftJoin(tbl_magazine, eq(tbl_magazine_borrowing.magazineId, tbl_magazine.id))
+        .leftJoin(tbl_user, eq(tbl_magazine_borrowing.userId, tbl_user.id))
+        .where(and(eq(tbl_magazine_borrowing.status, 'borrowed'), lt(tbl_magazine_borrowing.dueDate, todayStr), isNull(tbl_magazine_borrowing.returnDate)))
+        .orderBy(tbl_magazine_borrowing.dueDate).limit(5),
+
+      db.select({ id: tbl_thesis_borrowing.id, title: tbl_thesis.title, memberName: tbl_user.name, dueDate: tbl_thesis_borrowing.dueDate, itemType: sql<string>`'thesis'` })
+        .from(tbl_thesis_borrowing)
+        .leftJoin(tbl_thesis, eq(tbl_thesis_borrowing.thesisId, tbl_thesis.id))
+        .leftJoin(tbl_user, eq(tbl_thesis_borrowing.userId, tbl_user.id))
+        .where(and(eq(tbl_thesis_borrowing.status, 'borrowed'), lt(tbl_thesis_borrowing.dueDate, todayStr), isNull(tbl_thesis_borrowing.returnDate)))
+        .orderBy(tbl_thesis_borrowing.dueDate).limit(5),
+
+      db.select({ id: tbl_journal_borrowing.id, title: tbl_journal.title, memberName: tbl_user.name, dueDate: tbl_journal_borrowing.dueDate, itemType: sql<string>`'journal'` })
+        .from(tbl_journal_borrowing)
+        .leftJoin(tbl_journal, eq(tbl_journal_borrowing.journalId, tbl_journal.id))
+        .leftJoin(tbl_user, eq(tbl_journal_borrowing.userId, tbl_user.id))
+        .where(and(eq(tbl_journal_borrowing.status, 'borrowed'), lt(tbl_journal_borrowing.dueDate, todayStr), isNull(tbl_journal_borrowing.returnDate)))
+        .orderBy(tbl_journal_borrowing.dueDate).limit(5),
+
+      // ── Recent activity ───────────────────────────────────────────────────────
+      db.select({ id: tbl_book_borrowing.id, status: tbl_book_borrowing.status, title: tbl_book.title, memberName: tbl_user.name, createdAt: tbl_book_borrowing.createdAt, returnDate: tbl_book_borrowing.returnDate, itemType: sql<string>`'book'` })
+        .from(tbl_book_borrowing)
+        .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
+        .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
+        .orderBy(desc(tbl_book_borrowing.createdAt)).limit(5),
+
+      db.select({ id: tbl_magazine_borrowing.id, status: tbl_magazine_borrowing.status, title: tbl_magazine.title, memberName: tbl_user.name, createdAt: tbl_magazine_borrowing.createdAt, returnDate: tbl_magazine_borrowing.returnDate, itemType: sql<string>`'magazine'` })
+        .from(tbl_magazine_borrowing)
+        .leftJoin(tbl_magazine, eq(tbl_magazine_borrowing.magazineId, tbl_magazine.id))
+        .leftJoin(tbl_user, eq(tbl_magazine_borrowing.userId, tbl_user.id))
+        .orderBy(desc(tbl_magazine_borrowing.createdAt)).limit(5),
+
+      db.select({ id: tbl_thesis_borrowing.id, status: tbl_thesis_borrowing.status, title: tbl_thesis.title, memberName: tbl_user.name, createdAt: tbl_thesis_borrowing.createdAt, returnDate: tbl_thesis_borrowing.returnDate, itemType: sql<string>`'thesis'` })
+        .from(tbl_thesis_borrowing)
+        .leftJoin(tbl_thesis, eq(tbl_thesis_borrowing.thesisId, tbl_thesis.id))
+        .leftJoin(tbl_user, eq(tbl_thesis_borrowing.userId, tbl_user.id))
+        .orderBy(desc(tbl_thesis_borrowing.createdAt)).limit(5),
+
+      db.select({ id: tbl_journal_borrowing.id, status: tbl_journal_borrowing.status, title: tbl_journal.title, memberName: tbl_user.name, createdAt: tbl_journal_borrowing.createdAt, returnDate: tbl_journal_borrowing.returnDate, itemType: sql<string>`'journal'` })
+        .from(tbl_journal_borrowing)
+        .leftJoin(tbl_journal, eq(tbl_journal_borrowing.journalId, tbl_journal.id))
+        .leftJoin(tbl_user, eq(tbl_journal_borrowing.userId, tbl_user.id))
+        .orderBy(desc(tbl_journal_borrowing.createdAt)).limit(5),
     ]);
 
-    // Extract counts with proper fallbacks
-    const totalBooks = Number(totalBooksResult[0]?.count) || 0;
-    const activeMembers = Number(activeMembersResult[0]?.count) || 0;
-    const booksBorrowed = Number(booksBorrowedResult[0]?.count) || 0;
-    const overdueBooks = Number(overdueBooksResult[0]?.count) || 0;
+    // ─── Aggregate numeric stats ───────────────────────────────────────────────
+    const totalBooks      = Number(totalBooksResult[0]?.count)     || 0;
+    const totalMagazines  = Number(totalMagazinesResult[0]?.count) || 0;
+    const totalThesis     = Number(totalThesisResult[0]?.count)    || 0;
+    const totalJournals   = Number(totalJournalsResult[0]?.count)  || 0;
+    const totalItems      = totalBooks + totalMagazines + totalThesis + totalJournals;
 
-    // Process overdue books with days calculation
-    const overdueBooksList = overdueBooksListResult
-      .filter(row => row.bookTitle && row.memberName) // Filter out invalid joins
-      .map(row => {
-        let daysOverdue = 0;
-        if (row.dueDate) {
-          try {
-            const dueDate = new Date(row.dueDate);
-            daysOverdue = Math.max(0, Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
-          } catch (e) {
-            console.warn('Invalid due date:', row.dueDate);
-          }
-        }
-        
+    const activeMembers   = Number(activeMembersResult[0]?.count)  || 0;
+
+    const booksBorrowed     = Number(booksBorrowedResult[0]?.count)     || 0;
+    const magazinesBorrowed = Number(magazinesBorrowedResult[0]?.count) || 0;
+    const thesisBorrowed    = Number(thesisBorrowedResult[0]?.count)    || 0;
+    const journalsBorrowed  = Number(journalsBorrowedResult[0]?.count)  || 0;
+    const totalBorrowed     = booksBorrowed + magazinesBorrowed + thesisBorrowed + journalsBorrowed;
+
+    const overdueBooks     = Number(overdueBooksCntResult[0]?.count)     || 0;
+    const overdueMagazines = Number(overdueMagazinesCntResult[0]?.count) || 0;
+    const overdueThesis    = Number(overdueThesisCntResult[0]?.count)    || 0;
+    const overdueJournals  = Number(overdueJournalsCntResult[0]?.count)  || 0;
+    const totalOverdue     = overdueBooks + overdueMagazines + overdueThesis + overdueJournals;
+
+    const pendingBookRes     = Number(pendingBookReservationsResult[0]?.count)     || 0;
+    const pendingMagRes      = Number(pendingMagazineReservationsResult[0]?.count) || 0;
+    const pendingThesisRes   = Number(pendingThesisReservationsResult[0]?.count)   || 0;
+    const pendingJournalRes  = Number(pendingJournalReservationsResult[0]?.count)  || 0;
+    const totalPendingReservations = pendingBookRes + pendingMagRes + pendingThesisRes + pendingJournalRes;
+
+    // ─── Build overdue list (sorted by most overdue first, top 10) ─────────────
+    // compute overdue days and fine using exemption-aware utilities
+    const combined = [
+      ...overdueBooksListResult,
+      ...overdueMagazinesListResult,
+      ...overdueThesisListResult,
+      ...overdueJournalsListResult,
+    ].filter(r => r.title && r.memberName);
+
+    const overdueItemsRaw = await Promise.all(combined.map(async (r: any) => {
+      try {
+        const days = r.dueDate ? await calculateDaysOverdue(new Date(r.dueDate)) : 0;
+        const fineCent = r.dueDate ? await calculateFineAmount(new Date(r.dueDate)) : 0;
         return {
-          id: row.id,
-          bookTitle: row.bookTitle || 'Unknown Book',
-          memberName: row.memberName || 'Unknown Member',
-          dueDate: row.dueDate,
-          daysOverdue
+          id: r.id,
+          itemTitle: r.title || 'Unknown',
+          memberName: r.memberName || 'Unknown',
+          dueDate: r.dueDate,
+          daysOverdue: days,
+          fine: Number((Number(fineCent) / 100).toFixed(2)),
+          itemType: r.itemType,
         };
-      });
+      } catch (e) {
+        return { id: r.id, itemTitle: r.title || 'Unknown', memberName: r.memberName || 'Unknown', dueDate: r.dueDate, daysOverdue: 0, fine: 0, itemType: r.itemType };
+      }
+    }));
 
-    // Process recent activity with better type handling
-    const recentActivity = recentActivityResult
-      .filter(row => row.bookTitle && row.memberName) // Filter out invalid joins
-      .map(row => ({
-        id: row.id,
-        type: row.type || 'unknown',
-        bookTitle: row.bookTitle || 'Unknown Book',
-        memberName: row.memberName || 'Unknown Member',
-        time: row.time,
-        borrowDate: row.borrowDate,
-        returnDate: row.returnDate
-      }));
+    const overdueItemsList = overdueItemsRaw.sort((a, b) => b.daysOverdue - a.daysOverdue).slice(0, 10);
 
-    // Prepare response data
+    // ─── Build recent activity (merge all, sort by date, top 10) ──────────────
+    const recentActivity = [
+      ...recentBooksActivityResult,
+      ...recentMagazinesActivityResult,
+      ...recentThesisActivityResult,
+      ...recentJournalsActivityResult,
+    ]
+      .filter(r => r.title && r.memberName)
+      .map(r => ({
+        id: r.id,
+        type: r.status || 'unknown',
+        itemTitle: r.title || 'Unknown',
+        memberName: r.memberName || 'Unknown',
+        time: r.createdAt,
+        returnDate: r.returnDate,
+        itemType: r.itemType,
+      }))
+      .sort((a, b) => new Date(b.time ?? 0).getTime() - new Date(a.time ?? 0).getTime())
+      .slice(0, 10);
+
+    // ─── Compose response ──────────────────────────────────────────────────────
     const dashboardData = {
+      // Aggregated totals
+      totalItems,
       totalBooks,
+      totalMagazines,
+      totalThesis,
+      totalJournals,
+
       activeMembers,
-      booksBorrowed,
-      overdueBooks,
+
+      totalBorrowed,
+      borrowedByType: { books: booksBorrowed, magazines: magazinesBorrowed, thesis: thesisBorrowed, journals: journalsBorrowed },
+
+      totalOverdue,
+      overdueByType: { books: overdueBooks, magazines: overdueMagazines, thesis: overdueThesis, journals: overdueJournals },
+
+      totalPendingReservations,
+      pendingReservationsByType: { books: pendingBookRes, magazines: pendingMagRes, thesis: pendingThesisRes, journals: pendingJournalRes },
+
+      overdueItemsList,
       recentActivity,
-      overdueBooksList,
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
     };
 
-    // Cache the results
     cachedData = dashboardData;
     lastCacheTime = now;
 
-    // Encrypt the response data
     const encryptedData = encryptData(dashboardData);
-
-    return json({
-      success: true,
-      data: encryptedData,
-      encrypted: true,
-      cached: false
-    });
+    return json({ success: true, data: encryptedData, encrypted: true, cached: false });
 
   } catch (err) {
     console.error('Dashboard API error:', err);
-
     const isDevelopment = process.env.NODE_ENV === 'development';
-
     throw error(500, {
-      message: isDevelopment 
-        ? `Dashboard API Error: ${err instanceof Error ? err.message : String(err) || 'Unknown error'}`
+      message: isDevelopment
+        ? `Dashboard API Error: ${err instanceof Error ? err.message : String(err)}`
         : 'Internal server error'
     });
   }
 };
 
-// Helper function to clear cache (useful for testing or manual refresh)
-export const _clearDashboardCache = () => {
-  cachedData = null;
-  lastCacheTime = 0;
-};
+export const _clearDashboardCache = () => { cachedData = null; lastCacheTime = 0; };
 
-// Optional: POST endpoint to manually refresh cache
 export const POST: RequestHandler = async () => {
   try {
-    // Clear cache to force fresh data
     _clearDashboardCache();
-    
-    // Call GET to regenerate data
     const getHandler = GET as any;
     return await getHandler({});
-    
   } catch (err) {
     console.error('Dashboard cache refresh error:', err);
     throw error(500, { message: 'Failed to refresh dashboard cache' });

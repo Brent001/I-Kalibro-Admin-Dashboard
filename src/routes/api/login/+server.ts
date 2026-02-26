@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { tbl_super_admin, tbl_admin, tbl_staff, tbl_user, tbl_security_log } from '$lib/server/db/schema/schema.js';
+import { tbl_super_admin, tbl_admin, tbl_staff, tbl_user, tbl_security_log, tbl_staff_session } from '$lib/server/db/schema/schema.js';
 import { eq, or } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt, { type Secret } from 'jsonwebtoken';
@@ -35,21 +35,16 @@ function hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
 }
 
-// Helper function to calculate time until next 3:00 AM (logout time)
+// Determine session TTL (milliseconds).
+// Use environment variable `SESSION_TTL_MS` (ms) to override. Default to 30 days.
 function getTimeUntilNextLogout(): number {
-    const now = new Date();
-    const nextLogout = new Date(now);
-    
-    // Set to next 3:00 AM
-    nextLogout.setHours(3, 0, 0, 0);
-    
-    // If 3:00 AM has already passed today, set to tomorrow's 3:00 AM
-    if (nextLogout <= now) {
-        nextLogout.setDate(nextLogout.getDate() + 1);
+    const env = process.env.SESSION_TTL_MS;
+    if (env) {
+        const parsed = parseInt(env, 10);
+        if (!Number.isNaN(parsed) && parsed > 0) return parsed;
     }
-    
-    // Return milliseconds until that time
-    return nextLogout.getTime() - now.getTime();
+    // Default: 30 days
+    return 30 * 24 * 60 * 60 * 1000;
 }
 
 function isRateLimited(identifier: string): boolean {
@@ -252,7 +247,21 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                     isActive: true
                 };
                 
+                // Persist session to DB and cache in Redis
                 await Promise.all([
+                    db.insert(tbl_staff_session).values({
+                        sessionId: sessionData.id,
+                        actorType: foundUser.userType,
+                        actorId: sessionData.userId,
+                        tokenHash: sessionData.token,
+                        refreshTokenHash: sessionData.refreshToken,
+                        userAgent: sessionData.userAgent,
+                        ipAddress: sessionData.ipAddress,
+                        createdAt: sessionData.createdAt,
+                        lastUsedAt: sessionData.lastUsedAt,
+                        expiresAt: sessionData.expiresAt,
+                        isActive: sessionData.isActive
+                    }).returning(),
                     redisClient.setex(
                         `session:${sessionId}`,
                         Math.ceil(timeUntilLogout / 1000),
@@ -281,7 +290,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 cookies.set('token', token, {
                     path: '/',
                     httpOnly: true,
-                    sameSite: 'strict',
+                    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
                     secure: process.env.NODE_ENV === 'production',
                     maxAge: 15 * 60
                 });
@@ -397,15 +406,28 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             isActive: true
         };
         
-        // Store session data and add to user's session set in parallel for speed
-        await Promise.all([
-            redisClient.setex(
-                `session:${sessionId}`,
-                Math.ceil(timeUntilLogout / 1000),
-                JSON.stringify(sessionData)
-            ),
-            redisClient.sadd(`user:${foundUser.id}:sessions`, sessionId)
-        ]);
+                // Persist session to DB and cache in Redis
+                await Promise.all([
+                    db.insert(tbl_staff_session).values({
+                        sessionId: sessionData.id,
+                        actorType: foundUser.userType,
+                        actorId: sessionData.userId,
+                        tokenHash: sessionData.token,
+                        refreshTokenHash: sessionData.refreshToken,
+                        userAgent: sessionData.userAgent,
+                        ipAddress: sessionData.ipAddress,
+                        createdAt: sessionData.createdAt,
+                        lastUsedAt: sessionData.lastUsedAt,
+                        expiresAt: sessionData.expiresAt,
+                        isActive: sessionData.isActive
+                    }).returning(),
+                    redisClient.setex(
+                        `session:${sessionId}`,
+                        Math.ceil(timeUntilLogout / 1000),
+                        JSON.stringify(sessionData)
+                    ),
+                    redisClient.sadd(`user:${foundUser.id}:sessions`, sessionId)
+                ]);
 
         // Create JWT token with sessionId included
         const tokenPayload = {
@@ -429,17 +451,19 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         cookies.set('token', token, {
             path: '/',
             httpOnly: true,
-            sameSite: 'strict',
+            sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
             secure: process.env.NODE_ENV === 'production',
             maxAge: 15 * 60
         });
         
+        // Refresh token lifetime depends on "remember me" choice: 7 days when not remembered, 30 days when remembered
+        const refreshMaxAge = rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
         cookies.set('refresh_token', refreshToken, {
             path: '/',
             httpOnly: true,
-            sameSite: 'strict',
+            sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
             secure: process.env.NODE_ENV === 'production',
-            maxAge: 30 * 24 * 60 * 60
+            maxAge: refreshMaxAge
         });
 
         // Log successful login (don't log password or sensitive data)
@@ -455,7 +479,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             timestamp: new Date()
         } as any);
 
-        // Generate remember me token if checkbox is checked (7 days)
+        // Generate remember me token if checkbox is checked (30 days)
         let rememberMeTokenToReturn: string | undefined;
         if (rememberMe) {
             const rememberMePayload = {
@@ -466,7 +490,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 jti: randomBytes(16).toString('hex')
             };
             rememberMeTokenToReturn = jwt.sign(rememberMePayload, JWT_SECRET as Secret, {
-                expiresIn: '7d',
+                expiresIn: '30d',
                 issuer: 'kalibro-library',
                 subject: String(foundUser.id)
             });

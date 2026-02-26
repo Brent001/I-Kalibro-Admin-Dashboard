@@ -528,7 +528,7 @@ function drawTopBooksTable(doc: PDFKit.PDFDocument, books: any[]) {
 function drawOverdueTable(doc: PDFKit.PDFDocument, overdueItems: any[]) {
   const tableX = 70;
   const tableY = doc.y;
-  const colWidths = [180, 130, 80, 80];
+  const colWidths = [150, 120, 60, 60, 80]; // additional column for hours
   const rowHeight = 35;
 
   // Header
@@ -542,7 +542,8 @@ function drawOverdueTable(doc: PDFKit.PDFDocument, overdueItems: any[]) {
   doc.text('Book Title', tableX + 10, tableY + 12, { width: colWidths[0] - 20 });
   doc.text('Borrower', tableX + colWidths[0] + 10, tableY + 12, { width: colWidths[1] - 20 });
   doc.text('Days Late', tableX + colWidths[0] + colWidths[1] + 10, tableY + 12, { width: colWidths[2] - 20, align: 'center' });
-  doc.text('Fine', tableX + colWidths[0] + colWidths[1] + colWidths[2] + 10, tableY + 12, { width: colWidths[3] - 20, align: 'right' });
+  doc.text('Hours', tableX + colWidths[0] + colWidths[1] + colWidths[2] + 10, tableY + 12, { width: colWidths[3] - 20, align: 'center' });
+  doc.text('Fine', tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 10, tableY + 12, { width: colWidths[4] - 20, align: 'right' });
 
   // Rows
   overdueItems.slice(0, 10).forEach((item: any, index: number) => {
@@ -563,26 +564,11 @@ function drawOverdueTable(doc: PDFKit.PDFDocument, overdueItems: any[]) {
     doc.fillColor('#ef4444').font('Helvetica-Bold');
     doc.text(formatNumber(item.daysOverdue || 0), tableX + colWidths[0] + colWidths[1] + 10, y + 12, { width: colWidths[2] - 20, align: 'center' });
 
-    doc.fillColor('#1e293b').font('Helvetica-Bold');
-    doc.text(formatCurrency(item.fine || 0), tableX + colWidths[0] + colWidths[1] + colWidths[2] + 10, y + 12, { width: colWidths[3] - 20, align: 'right' });
-  });
+      doc.fillColor('#ef4444').font('Helvetica-Bold');
+      doc.text(formatNumber(item.hoursOverdue || 0), tableX + colWidths[0] + colWidths[1] + colWidths[2] + 10, y + 12, { width: colWidths[3] - 20, align: 'center' });
 
-  doc.y = tableY + rowHeight * (Math.min(overdueItems.length, 10) + 1) + 10;
-}
-
-function drawFooter(doc: PDFKit.PDFDocument, pageNum: number, totalPages: number) {
-  doc.fontSize(8)
-     .fillColor('#94a3b8')
-     .font('Helvetica')
-     .text(
-       `i-Kalibro Library System  •  Page ${pageNum} of ${totalPages}  •  Generated ${new Date().toLocaleDateString()}`,
-       50,
-       doc.page.height - 30,
-       { align: 'center', width: doc.page.width - 100 }
-     );
-}
-
-function checkPageBreak(doc: PDFKit.PDFDocument, requiredSpace: number) {
+      doc.fillColor('#1e293b').font('Helvetica-Bold');
+      doc.text(formatCurrency(item.fine || 0), tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 10, y + 12, { width: colWidths[4] - 20, align: 'right' });
   if (doc.y + requiredSpace > doc.page.height - 100) {
     doc.addPage();
   }
@@ -708,7 +694,7 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
       [`Period: ${periodLabel}`],
       [`Total Overdue: ${data.tables.overdueList.length}`],
       [''],
-      ['Book Title', 'Borrower Name', 'Borrower ID', 'Due Date', 'Days Overdue', 'Fine Amount', 'Severity']
+      ['Book Title', 'Borrower Name', 'Borrower ID', 'Due Date', 'Days Overdue', 'Hours Overdue', 'Fine Amount', 'Severity']
     ];
 
     data.tables.overdueList.forEach((item: any) => {
@@ -722,6 +708,7 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
         item.borrowerId || 'N/A',
         item.dueDate || 'N/A',
         item.daysOverdue.toString(),
+        (item.hoursOverdue || 0).toString(),
         formatCurrency(item.fine),
         severity
       ]);
@@ -732,6 +719,7 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
     overdueData.push(['Total Overdue Books', data.tables.overdueList.length.toString()]);
     overdueData.push(['Total Fines', formatCurrency(data.tables.overdueList.reduce((sum: number, i: any) => sum + (i.fine || 0), 0))]);
     overdueData.push(['Average Days Overdue', (data.tables.overdueList.reduce((sum: number, i: any) => sum + (i.daysOverdue || 0), 0) / data.tables.overdueList.length).toFixed(1)]);
+    overdueData.push(['Average Hours Overdue', (data.tables.overdueList.reduce((sum: number, i: any) => sum + (i.hoursOverdue || 0), 0) / data.tables.overdueList.length).toFixed(1)]);
 
     const overdueSheet = XLSX.utils.aoa_to_sheet(overdueData);
     overdueSheet['!cols'] = [
@@ -740,6 +728,7 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
       { wch: 15 },
       { wch: 15 },
       { wch: 12 },
+      { wch: 12 }, // hours column
       { wch: 15 },
       { wch: 15 }
     ];
@@ -747,7 +736,7 @@ async function generateExcelReport(data: any, title: string, periodLabel: string
     // Add table formatting for overdue data (excluding header rows)
     const overdueTableStart = 4; // After the 3 header rows
     overdueSheet['!tables'] = [{
-      ref: `A${overdueTableStart}:G${overdueData.length}`,
+      ref: `A${overdueTableStart}:H${overdueData.length}`,
       headerRow: true,
       totalsRow: false,
       name: 'OverdueBooksTable'

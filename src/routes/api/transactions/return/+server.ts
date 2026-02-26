@@ -3,25 +3,28 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import {
     tbl_book_borrowing,
     tbl_magazine_borrowing,
-    tbl_research_borrowing,
-    tbl_multimedia_borrowing,
+    tbl_thesis_borrowing,
+    tbl_journal_borrowing,
     tbl_book_copy,
     tbl_magazine_copy,
-    tbl_research_copy,
-    tbl_multimedia_copy,
+    tbl_thesis_copy,
+    tbl_journal_copy,
     tbl_return,
+    tbl_fine,
     tbl_staff,
     tbl_admin,
     tbl_super_admin
 } from '$lib/server/db/schema/schema.js';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
+import { calculateFineAmount, calculateDaysOverdue } from '$lib/server/utils/fineCalculation.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+// We'll calculate fines using the shared fineCalculation utilities which respect exemptions.
 
 async function authenticateUser(request: Request): Promise<{ id: number; userType: string } | null> {
     try {
@@ -100,18 +103,114 @@ export const POST: RequestHandler = async ({ request }) => {
             remarks = ''
         } = body;
 
-        if (!borrowingId || !copyId) {
-            throw error(400, { message: 'borrowingId and copyId are required' });
+        if (!borrowingId) {
+            throw error(400, { message: 'borrowingId is required' });
+        }
+
+        // If copyId or userId weren't provided, attempt to derive them from borrowing record
+        let derivedCopyId: number | null = copyId ?? null;
+        let derivedUserId: number | null = null;
+        let existingBorrowing: any = null;
+
+        // helper to fetch borrowing by type
+        if (!derivedCopyId || derivedUserId === null) {
+            try {
+                if (itemType === 'book') {
+                    const [b] = await db.select().from(tbl_book_borrowing).where(eq(tbl_book_borrowing.id, borrowingId)).limit(1);
+                    if (b) {
+                        existingBorrowing = b;
+                        derivedCopyId = derivedCopyId ?? b.bookCopyId ?? null;
+                        derivedUserId = b.userId ?? null;
+                    }
+                } else if (itemType === 'magazine') {
+                    const [b] = await db.select().from(tbl_magazine_borrowing).where(eq(tbl_magazine_borrowing.id, borrowingId)).limit(1);
+                    if (b) {
+                        existingBorrowing = b;
+                        derivedCopyId = derivedCopyId ?? b.magazineCopyId ?? null;
+                        derivedUserId = b.userId ?? null;
+                    }
+                } else if (itemType === 'thesis') {
+                    const [b] = await db.select().from(tbl_thesis_borrowing).where(eq(tbl_thesis_borrowing.id, borrowingId)).limit(1);
+                    if (b) {
+                        existingBorrowing = b;
+                        derivedCopyId = derivedCopyId ?? b.thesisCopyId ?? null;
+                        derivedUserId = b.userId ?? null;
+                    }
+                } else if (itemType === 'journal' || itemType === 'multimedia') {
+                    const [b] = await db.select().from(tbl_journal_borrowing).where(eq(tbl_journal_borrowing.id, borrowingId)).limit(1);
+                    if (b) {
+                        existingBorrowing = b;
+                        derivedCopyId = derivedCopyId ?? b.journalCopyId ?? null;
+                        derivedUserId = b.userId ?? null;
+                    }
+                }
+            } catch (e) {
+                console.debug('Failed to derive copyId/userId from borrowing record:', e);
+            }
+        }
+
+        if (!derivedCopyId) {
+            // still missing copy id — continue but warn; some schemas may allow null
+            console.warn('copyId could not be derived for borrowingId', borrowingId);
+        }
+
+        // attempt to fetch call number for returned copy
+        let returnedCallNumber: string | null = null;
+        if (derivedCopyId) {
+            try {
+                if (itemType === 'book') {
+                    const [cp] = await db.select({ callNumber: tbl_book_copy.callNumber })
+                        .from(tbl_book_copy)
+                        .where(eq(tbl_book_copy.id, derivedCopyId))
+                        .limit(1);
+                    returnedCallNumber = cp?.callNumber || null;
+                } else if (itemType === 'magazine') {
+                    const [cp] = await db.select({ callNumber: tbl_magazine_copy.callNumber })
+                        .from(tbl_magazine_copy)
+                        .where(eq(tbl_magazine_copy.id, derivedCopyId))
+                        .limit(1);
+                    returnedCallNumber = cp?.callNumber || null;
+                } else if (itemType === 'thesis') {
+                    const [cp] = await db.select({ callNumber: tbl_thesis_copy.callNumber })
+                        .from(tbl_thesis_copy)
+                        .where(eq(tbl_thesis_copy.id, derivedCopyId))
+                        .limit(1);
+                    returnedCallNumber = cp?.callNumber || null;
+                } else if (itemType === 'journal' || itemType === 'multimedia') {
+                    const [cp] = await db.select({ callNumber: tbl_journal_copy.callNumber })
+                        .from(tbl_journal_copy)
+                        .where(eq(tbl_journal_copy.id, derivedCopyId))
+                        .limit(1);
+                    returnedCallNumber = cp?.callNumber || null;
+                }
+            } catch (e) {
+                console.debug('Failed to fetch call number for return endpoint:', e);
+            }
+        }
+
+        // Validate borrowing status (if we were able to derive it)
+        if (existingBorrowing) {
+            if (existingBorrowing.status === 'returned') throw error(400, { message: 'Item has already been returned.' });
+            if (existingBorrowing.status !== 'borrowed' && existingBorrowing.status !== 'overdue') throw error(400, { message: 'Invalid borrowing status. Only borrowed or overdue items can be returned.' });
         }
 
         let updatedBorrowing;
+                // compute fine and days overdue (respecting configured exemptions)
+                let calculatedFinePesos = 0;
+                let daysOverdue = 0;
+                if (existingBorrowing && existingBorrowing.dueDate) {
+                    const c = await calculateFineAmount(new Date(existingBorrowing.dueDate));
+                    calculatedFinePesos = Number((Number(c) / 100).toFixed(2));
+                    daysOverdue = await calculateDaysOverdue(new Date(existingBorrowing.dueDate));
+                }
+
         const returnRecord = await db
             .insert(tbl_return)
             .values({
-                userId: 0, // Will be set from borrowing record
+                userId: derivedUserId ?? 0,
                 itemType,
                 borrowingId,
-                copyId,
+                copyId: derivedCopyId ?? 0,
                 qrCodeScanned,
                 returnDate: new Date(),
                 condition,
@@ -121,8 +220,32 @@ export const POST: RequestHandler = async ({ request }) => {
             })
             .returning();
 
+        // Persist fine record if applicable
+                let fineRecord: any = null;
+                if (calculatedFinePesos > 0) {
+                    try {
+                        const [r] = await db.insert(tbl_fine).values({
+                            userId: derivedUserId ?? 0,
+                            itemType,
+                            borrowingId,
+                            fineAmount: String(calculatedFinePesos.toFixed(2)),
+                            daysOverdue: daysOverdue
+                        }).returning();
+                        fineRecord = r;
+                    } catch (e) {
+                        console.debug('Failed to persist fine record:', e);
+                    }
+                }
+
         if (itemType === 'book') {
             // Update borrowing status
+            // Fetch borrowing to determine parent book id
+            const [existingBorrowing] = await db
+                .select()
+                .from(tbl_book_borrowing)
+                .where(eq(tbl_book_borrowing.id, borrowingId))
+                .limit(1);
+
             const [borrowing] = await db
                 .update(tbl_book_borrowing)
                 .set({
@@ -138,6 +261,15 @@ export const POST: RequestHandler = async ({ request }) => {
                 .update(tbl_book_copy)
                 .set({ status: 'available', condition })
                 .where(eq(tbl_book_copy.id, copyId));
+
+            // If we have the parent book id, increment availableCopies (safe increment)
+            const parentBookId = existingBorrowing?.bookId || null;
+            if (parentBookId) {
+                await db
+                    .update(tbl_book)
+                    .set({ availableCopies: sql`COALESCE(${tbl_book.availableCopies}, 0) + 1` })
+                    .where(eq(tbl_book.id, parentBookId));
+            }
         } else if (itemType === 'magazine') {
             const [borrowing] = await db
                 .update(tbl_magazine_borrowing)
@@ -153,46 +285,50 @@ export const POST: RequestHandler = async ({ request }) => {
                 .update(tbl_magazine_copy)
                 .set({ status: 'available', condition })
                 .where(eq(tbl_magazine_copy.id, copyId));
-        } else if (itemType === 'research') {
+        } else if (itemType === 'thesis') {
             const [borrowing] = await db
-                .update(tbl_research_borrowing)
+                .update(tbl_thesis_borrowing)
                 .set({
                     returnDate: new Date() as any,
                     status: 'returned'
                 })
-                .where(eq(tbl_research_borrowing.id, borrowingId))
+                .where(eq(tbl_thesis_borrowing.id, borrowingId))
                 .returning();
             updatedBorrowing = borrowing;
 
             await db
-                .update(tbl_research_copy)
+                .update(tbl_thesis_copy)
                 .set({ status: 'available', condition })
-                .where(eq(tbl_research_copy.id, copyId));
-        } else if (itemType === 'multimedia') {
+                .where(eq(tbl_thesis_copy.id, copyId));
+        } else if (itemType === 'multimedia' || itemType === 'journal') {
+            // Treat 'journal' under multimedia branch mapping to journal tables
             const [borrowing] = await db
-                .update(tbl_multimedia_borrowing)
+                .update(tbl_journal_borrowing)
                 .set({
                     returnDate: new Date() as any,
                     status: 'returned'
                 })
-                .where(eq(tbl_multimedia_borrowing.id, borrowingId))
+                .where(eq(tbl_journal_borrowing.id, borrowingId))
                 .returning();
             updatedBorrowing = borrowing;
 
             await db
-                .update(tbl_multimedia_copy)
+                .update(tbl_journal_copy)
                 .set({ status: 'available', condition })
-                .where(eq(tbl_multimedia_copy.id, copyId));
+                .where(eq(tbl_journal_copy.id, copyId));
         }
 
-        return json({
-            success: true,
-            message: 'Item returned successfully',
-            data: {
-                borrowing: updatedBorrowing,
-                returnRecord: returnRecord[0]
-            }
-        });
+                return json({
+                    success: true,
+                    message: 'Item returned successfully',
+                    data: {
+                        borrowing: updatedBorrowing,
+                        returnRecord: returnRecord[0],
+                        fine: calculatedFinePesos,
+                        daysOverdue: daysOverdue,
+                        callNumber: returnedCallNumber
+                    }
+                });
     } catch (err: any) {
         console.error('POST /api/transactions/return error:', err);
         return json(
