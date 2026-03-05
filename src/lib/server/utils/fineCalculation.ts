@@ -3,15 +3,37 @@ import { db } from '$lib/server/db/index.js';
 import { tbl_book_borrowing, tbl_library_settings } from '$lib/server/db/schema/schema.js';
 import { and, eq, lt, or, isNull } from 'drizzle-orm';
 
-async function loadFineSettings(): Promise<any | null> {
+// simple in‑process cache to avoid a database hit on every call
+let _fineSettingsCache: any | null = null;
+let _fineSettingsLastFetched = 0;
+const FINE_SETTINGS_TTL = 1000 * 60 * 5; // 5 minutes
+
+export async function loadFineSettings(): Promise<any | null> {
+  // return cached copy if still fresh
+  const now = Date.now();
+  if (_fineSettingsCache && now - _fineSettingsLastFetched < FINE_SETTINGS_TTL) {
+    return _fineSettingsCache;
+  }
+
   try {
     const rows = await db.select().from(tbl_library_settings).where(eq(tbl_library_settings.settingKey, 'fineCalculation')).limit(1);
-    if (!rows || rows.length === 0) return null;
+    if (!rows || rows.length === 0) {
+      _fineSettingsCache = null;
+      _fineSettingsLastFetched = now;
+      return null;
+    }
     const r = rows[0];
     if (r.dataType === 'json') {
-      try { return JSON.parse(r.settingValue); } catch { return null; }
+      try {
+        _fineSettingsCache = JSON.parse(r.settingValue);
+      } catch {
+        _fineSettingsCache = null;
+      }
+    } else {
+      _fineSettingsCache = null;
     }
-    return null;
+    _fineSettingsLastFetched = now;
+    return _fineSettingsCache;
   } catch (err) {
     console.error('Failed to load fineCalculation settings:', err);
     return null;

@@ -143,9 +143,9 @@
 <svelte:window on:keydown={handleKeydown} />
 
 {#if isOpen}
-  <!-- Backdrop — strong blur so page content is visibly frosted -->
+  <!-- Backdrop — fixed to full viewport using explicit w-screen/h-screen to avoid clipping -->
   <div
-    class="fixed inset-0 z-40 bg-black/60 backdrop-blur-xl"
+    class="fixed top-0 left-0 w-screen h-screen z-50 bg-black/50 backdrop-blur-sm"
     role="presentation"
     on:click={handleClose}
   ></div>
@@ -155,7 +155,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="modal-title"
-    class="fixed z-50 inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center md:p-6 pointer-events-none"
+    class="fixed z-[60] inset-x-0 bottom-0 md:inset-0 md:flex md:items-center md:justify-center md:p-6 pointer-events-none"
   >
     <div class="
       relative flex flex-col bg-white w-full pointer-events-auto

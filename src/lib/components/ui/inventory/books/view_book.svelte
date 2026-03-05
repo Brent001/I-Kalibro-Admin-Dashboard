@@ -198,7 +198,7 @@
   });
 </script>
 
-{#if isOpen && book}
+{#if isOpen && book && !showCopiesModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <!-- Backdrop -->
     <button
@@ -668,15 +668,16 @@
       </div>
     </div>
   </div>
-  {#if showCopiesModal}
-    <ViewBookCopies
-      isOpen={showCopiesModal}
-      itemType="book"
-      itemId={book?.id}
-      itemTitle={book?.title}
-      on:close={() => (showCopiesModal = false)}
-    />
-  {/if}
+{/if}
+
+{#if showCopiesModal}
+  <ViewBookCopies
+    isOpen={showCopiesModal}
+    itemType="book"
+    itemId={book?.id}
+    itemTitle={book?.title}
+    on:close={() => (showCopiesModal = false)}
+  />
 {/if}
 
 <style>

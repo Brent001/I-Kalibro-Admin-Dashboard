@@ -2,7 +2,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
 
   export let isOpen: boolean = false;
-  export let itemType: string = 'book';
+  export let itemType: string = 'journal';
 
   $: capitalizedItemType = itemType && itemType.length ? itemType.charAt(0).toUpperCase() + itemType.slice(1) : 'Item';
 
@@ -47,7 +47,7 @@
   async function fetchCategories() {
     categoriesLoading = true;
     try {
-      const response = await fetch(`/api/inventory/books/categories?itemType=${encodeURIComponent(itemType)}`, {
+      const response = await fetch(`/api/inventory/journals/categories?itemType=${encodeURIComponent(itemType)}`, {
         credentials: 'include'
       });
       const data = await response.json();
@@ -288,13 +288,14 @@
         issue: formData.issue ? parseInt(formData.issue) : undefined,
       };
 
-      const response = await fetch('/api/inventory/books', {
+      // post to journals endpoint instead of books
+      const response = await fetch('/api/inventory/journals', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify(submitData),
+        body: JSON.stringify({ ...submitData, itemType }),
       });
 
       const result = await response.json();

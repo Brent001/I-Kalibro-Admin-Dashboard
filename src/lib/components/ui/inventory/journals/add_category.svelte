@@ -20,7 +20,7 @@
   async function fetchCategories() {
     categoriesLoading = true;
     try {
-      const response = await fetch(`/api/inventory/books/categories?itemType=${encodeURIComponent(itemType)}`, {
+      const response = await fetch(`/api/inventory/journals/categories?itemType=${encodeURIComponent(itemType)}`, {
         method: 'GET',
         credentials: 'include'
       });
@@ -59,7 +59,7 @@
     categoryLoading = true;
     categoryError = "";
     try {
-      const response = await fetch('/api/inventory/books/categories', {
+      const response = await fetch('/api/inventory/journals/categories', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -129,7 +129,7 @@
     editLoading = true;
     editError = "";
     try {
-      const response = await fetch('/api/inventory/books/categories', {
+      const response = await fetch('/api/inventory/journals/categories', {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -159,7 +159,7 @@
     if (!confirm("Are you sure you want to delete this category?")) return;
     deleteLoadingId = id;
     try {
-      const response = await fetch('/api/inventory/books/categories', {
+      const response = await fetch('/api/inventory/journals/categories', {
         method: 'DELETE',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

@@ -5,6 +5,7 @@
   import { writable, get, derived } from "svelte/store";
   import { browser } from "$app/environment";
   import { slide } from "svelte/transition";
+  import { base } from '$app/paths';
   import NotificationContainer from "./notificationContainer.svelte";
   import { notifications } from "$lib/stores/notificationStore.js";
   import * as Lucide from "lucide-svelte";
@@ -129,6 +130,12 @@
               notifAudio.currentTime = 0;
               notifAudio.play().catch((e) => console.debug('notifAudio play failed', e));
             }
+          } else if (prevUnreadCount === 0 && newUnread > 0) {
+            // first load and we have unread items - try once more
+            if (notifAudio) {
+              notifAudio.currentTime = 0;
+              notifAudio.play().catch((e) => console.debug('notifAudio play failed on initial load', e));
+            }
           }
         } catch (e) {
           console.debug('notification sound play error', e);
@@ -210,7 +217,7 @@
         },
         {
           name: "Journals",
-          href: "/dashboard/inventory/journal",
+          href: "/dashboard/inventory/journals",
           icon: Icons.Film,
           userTypes: ["admin", "super_admin", "staff"]
         }
@@ -421,9 +428,11 @@
   onMount(() => {
     if (browser) {
       fetchUserSession();
-      // initialize notification audio
+      // initialize notification audio (use base path in case app is not hosted at root)
       try {
-        notifAudio = new Audio('/assets/sound/new_nof.ogg');
+        const src = `${base}/assets/sound/new_nof.ogg`;
+        console.debug('loading notif audio from', src);
+        notifAudio = new Audio(src);
         notifAudio.preload = 'auto';
         notifAudio.addEventListener('error', (e) => console.warn('notifAudio load error', e));
       } catch (e) {

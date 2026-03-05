@@ -4,7 +4,7 @@
   import ViewBookCopies from './view_journal_copies.svelte';
 
   export let isOpen = false;
-  export let itemType: string = 'book';
+  export let itemType: string = 'journal';
   export let book: {
     id?: number;
     bookId?: string;
@@ -62,7 +62,7 @@
   async function fetchCategories() {
     categoriesLoading = true;
     try {
-      const response = await fetch(`/api/inventory/books/categories?itemType=${encodeURIComponent(itemType)}`, { credentials: 'include' });
+      const response = await fetch(`/api/inventory/journals/categories?itemType=${encodeURIComponent(itemType)}`, { credentials: 'include' });
       const data = await response.json();
       categories = (response.ok && data.success) ? data.data.categories : [];
     } catch { categories = []; }
@@ -198,7 +198,7 @@
   });
 </script>
 
-{#if isOpen && book}
+{#if isOpen && book && !showCopiesModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <!-- Backdrop -->
     <button
@@ -668,15 +668,16 @@
       </div>
     </div>
   </div>
-  {#if showCopiesModal}
-    <ViewBookCopies
-      isOpen={showCopiesModal}
-      itemType="book"
-      itemId={book?.id}
-      itemTitle={book?.title}
-      on:close={() => (showCopiesModal = false)}
-    />
-  {/if}
+{/if}
+
+{#if showCopiesModal}
+  <ViewBookCopies
+    isOpen={showCopiesModal}
+    itemType="book"
+    itemId={book?.id}
+    itemTitle={book?.title}
+    on:close={() => (showCopiesModal = false)}
+  />
 {/if}
 
 <style>
