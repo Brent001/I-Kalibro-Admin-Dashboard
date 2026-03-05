@@ -19,11 +19,11 @@
     password = '';
     confirmPassword = '';
     
-    // Initialize permissions if available
+    // Initialize permissions if available (boolean object)
     selectedPermissions = {};
-    if (staff.permissions) {
-      staff.permissions.forEach((perm: string) => {
-        selectedPermissions[perm] = true;
+    if (staff.permissions && typeof staff.permissions === 'object') {
+      Object.entries(staff.permissions).forEach(([perm, val]) => {
+        if (val) selectedPermissions[perm] = true;
       });
     }
   }
@@ -45,18 +45,18 @@
       return;
     }
 
-    const permissionArray = staff.role === 'staff' 
-      ? Object.entries(selectedPermissions)
-          .filter(([_, checked]) => checked)
-          .map(([key]) => key)
-      : [];
+    // build boolean permission object
+    const permsObj: Record<string, boolean> = {};
+    permissionsList.forEach(p => {
+      permsObj[p.key] = selectedPermissions[p.key] || false;
+    });
 
     dispatch('editStaff', {
       uniqueId: staff.uniqueId,
       id: staff.id,
       username,
       password: password || undefined,
-      permissionKeys: permissionArray
+      permissions: staff.role === 'staff' ? permsObj : {}
     });
   }
 

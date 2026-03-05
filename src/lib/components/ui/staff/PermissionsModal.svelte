@@ -23,11 +23,11 @@
   };
 
   $: if (isOpen && staff && staff.uniqueId) {
-    // Initialize permissions from staff data
+    // Initialize permissions from staff data (boolean map)
     selectedPermissions = {};
-    if (staff.permissions && Array.isArray(staff.permissions)) {
-      staff.permissions.forEach((perm: string) => {
-        selectedPermissions[perm] = true;
+    if (staff.permissions && typeof staff.permissions === 'object') {
+      Object.entries(staff.permissions).forEach(([perm, val]) => {
+        if (val) selectedPermissions[perm] = true;
       });
     }
     successMessage = '';
@@ -67,10 +67,16 @@
         .filter(([_, checked]) => checked)
         .map(([key]) => key);
 
-      const response = await fetch(`/api/staff/${staff.uniqueId}/edit_permission`, {
+      // build object with boolean flags
+      const payload: Record<string, boolean> = {};
+      permissionsList.forEach(p => {
+        payload[p.key] = selectedPermissions[p.key] || false;
+      });
+
+      const response = await fetch(`/api/staff/${staff.uniqueId}/permissions`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permissionKeys: permissionArray })
+        body: JSON.stringify(payload)
       });
 
       const data = await response.json();

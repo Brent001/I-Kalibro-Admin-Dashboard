@@ -97,13 +97,16 @@
   async function handleSubmit() {
     if (!validateForm()) return;
     isLoading = true;
-    const allowedKeys = Object.entries(selectedPermissions)
-      .filter(([_, allowed]) => allowed)
-      .map(([key]) => key);
+
+    // build boolean permission object
+    const permsObj: Record<string, boolean> = {};
+    permissionsList.forEach(p => {
+      permsObj[p.key] = selectedPermissions[p.key] || false;
+    });
 
     dispatch('addStaff', {
       formData,
-      permissionKeys: formData.role === 'staff' ? allowedKeys : []
+      permissions: formData.role === 'staff' ? permsObj : {}
     });
     isLoading = false;
     resetForm();
