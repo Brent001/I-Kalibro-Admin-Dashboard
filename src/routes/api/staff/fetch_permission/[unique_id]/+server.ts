@@ -26,7 +26,7 @@ export const GET: RequestHandler = async ({ params }) => {
   const result = await db
     .select()
     .from(tbl_staff_permission)
-    .where(eq(tbl_staff_permission.staffId, staff[0].id))
+    .where(eq(tbl_staff_permission.staffUniqueId, unique_id))
     .limit(1);
 
   if (result.length === 0) {
@@ -48,19 +48,4 @@ export const GET: RequestHandler = async ({ params }) => {
     success: true,
     data: result[0]
   });
-};
-      .limit(1);
-
-    if (result.length === 0) {
-      throw error(404, { message: 'Permissions not found for this staff member' });
-    }
-
-    return json({
-      success: true,
-      data: result[0].permissionKeys
-    });
-  }
-
-  // Not staff or admin
-  throw error(403, { message: 'Forbidden' });
 };

@@ -20,7 +20,7 @@ export const PATCH: RequestHandler = async () => {
   return json(
     {
       success: false,
-      message: 'This endpoint is deprecated. Use PATCH /api/staff/[uniqueId]/permissions instead.'
+      message: 'This endpoint is deprecated. Use PATCH /api/staff/[unique_id]/permissions instead.'
     },
     { status: 410 }
   );

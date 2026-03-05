@@ -98,6 +98,11 @@ export const GET: RequestHandler = async ({ request }) => {
         // Fetch permissions for each staff member
         const staffWithPermissions = await Promise.all(
             staffMembers.map(async (staff) => {
+                // staff.uniqueId should always be defined, but guard against null
+                if (!staff.uniqueId) {
+                    return { ...staff, permissions: null };
+                }
+
                 const [permissions] = await db
                     .select()
                     .from(tbl_staff_permission)
