@@ -1,4 +1,4 @@
-// src/routes/api/books/copies/+server.ts - Manage individual item copies
+// src/routes/api/books/copies/+server.ts - Manage book copies only
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
@@ -7,9 +7,6 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import {
     tbl_book_copy,
-    tbl_magazine_copy,
-    tbl_research_copy,
-    tbl_multimedia_copy,
     tbl_super_admin,
     tbl_admin,
     tbl_staff
@@ -86,75 +83,24 @@ export const POST: RequestHandler = async ({ request }) => {
         }
 
         const body = await request.json();
-        const { itemType, itemId, copyNumber, qrCode, barcode, condition = 'good', callNumber, ...rest } = body;
+        const { itemId, copyNumber, qrCode, callNumber, status = 'available', isActive = true } = body;
 
-        if (!itemType || !itemId || !copyNumber || !qrCode) {
-            throw error(400, { message: 'itemType, itemId, copyNumber, and qrCode are required' });
+        if (!itemId || !copyNumber || !qrCode || !callNumber) {
+            throw error(400, { message: 'itemId, copyNumber, qrCode, and callNumber are required' });
         }
 
-        let copy;
-
-        if (itemType === 'book') {
-            const [result] = await db
-                .insert(tbl_book_copy)
-                .values({
-                    bookId: itemId,
-                    copyNumber,
-                    qrCode,
-                    barcode,
-                    condition,
-                    callNumber: callNumber || null,
-                    status: 'available',
-                    isActive: true
-                })
-                .returning();
-            copy = result;
-        } else if (itemType === 'magazine') {
-            const [result] = await db
-                .insert(tbl_magazine_copy)
-                .values({
-                    magazineId: itemId,
-                    copyNumber,
-                    qrCode,
-                    barcode,
-                    condition,
-                    callNumber: callNumber || null,
-                    status: 'available',
-                    isActive: true
-                })
-                .returning();
-            copy = result;
-        } else if (itemType === 'research') {
-            const [result] = await db
-                .insert(tbl_research_copy)
-                .values({
-                    researchId: itemId,
-                    copyNumber,
-                    qrCode,
-                    barcode,
-                    condition,
-                    callNumber: callNumber || null,
-                    status: 'available',
-                    isActive: true
-                })
-                .returning();
-            copy = result;
-        } else if (itemType === 'multimedia') {
-            const [result] = await db
-                .insert(tbl_multimedia_copy)
-                .values({
-                    multimediaId: itemId,
-                    copyNumber,
-                    qrCode,
-                    barcode,
-                    condition,
-                    callNumber: callNumber || null,
-                    status: 'available',
-                    isActive: true
-                })
-                .returning();
-            copy = result;
-        }
+        const [result] = await db
+            .insert(tbl_book_copy)
+            .values({
+                bookId: itemId,
+                copyNumber,
+                qrCode,
+                callNumber,
+                status,
+                isActive
+            })
+            .returning();
+        const copy = result;
 
         return json({
             success: true,
@@ -179,43 +125,25 @@ export const PUT: RequestHandler = async ({ request }) => {
         }
 
         const body = await request.json();
-        const { itemType, copyId, ...updateData } = body;
+        const { copyId, copyNumber, callNumber, qrCode, status, isActive } = body;
 
-        if (!itemType || !copyId) {
-            throw error(400, { message: 'itemType and copyId are required' });
+        if (!copyId) {
+            throw error(400, { message: 'copyId is required' });
         }
 
-        let copy;
+        const updateData: any = {};
+        if (copyNumber !== undefined) updateData.copyNumber = copyNumber;
+        if (callNumber !== undefined) updateData.callNumber = callNumber;
+        if (qrCode !== undefined) updateData.qrCode = qrCode;
+        if (status !== undefined) updateData.status = status;
+        if (isActive !== undefined) updateData.isActive = isActive;
 
-        if (itemType === 'book') {
-            const [result] = await db
-                .update(tbl_book_copy)
-                .set(updateData)
-                .where(eq(tbl_book_copy.id, copyId))
-                .returning();
-            copy = result;
-        } else if (itemType === 'magazine') {
-            const [result] = await db
-                .update(tbl_magazine_copy)
-                .set(updateData)
-                .where(eq(tbl_magazine_copy.id, copyId))
-                .returning();
-            copy = result;
-        } else if (itemType === 'research') {
-            const [result] = await db
-                .update(tbl_research_copy)
-                .set(updateData)
-                .where(eq(tbl_research_copy.id, copyId))
-                .returning();
-            copy = result;
-        } else if (itemType === 'multimedia') {
-            const [result] = await db
-                .update(tbl_multimedia_copy)
-                .set(updateData)
-                .where(eq(tbl_multimedia_copy.id, copyId))
-                .returning();
-            copy = result;
-        }
+        const [result] = await db
+            .update(tbl_book_copy)
+            .set(updateData)
+            .where(eq(tbl_book_copy.id, copyId))
+            .returning();
+        const copy = result;
 
         return json({
             success: true,
@@ -239,40 +167,19 @@ export const GET: RequestHandler = async ({ request, url }) => {
             throw error(401, { message: 'Unauthorized' });
         }
 
-        const itemType = url.searchParams.get('itemType') || 'book';
         const itemId = parseInt(url.searchParams.get('itemId') || '0', 10);
 
         if (!itemId) {
             throw error(400, { message: 'itemId is required' });
         }
 
-        let copies: any[] = [];
-
-        if (itemType === 'book') {
-            copies = await db
-                .select()
-                .from(tbl_book_copy)
-                .where(and(eq(tbl_book_copy.bookId, itemId), eq(tbl_book_copy.isActive, true)));
-        } else if (itemType === 'magazine') {
-            copies = await db
-                .select()
-                .from(tbl_magazine_copy)
-                .where(and(eq(tbl_magazine_copy.magazineId, itemId), eq(tbl_magazine_copy.isActive, true)));
-        } else if (itemType === 'research') {
-            copies = await db
-                .select()
-                .from(tbl_research_copy)
-                .where(and(eq(tbl_research_copy.researchId, itemId), eq(tbl_research_copy.isActive, true)));
-        } else if (itemType === 'multimedia') {
-            copies = await db
-                .select()
-                .from(tbl_multimedia_copy)
-                .where(and(eq(tbl_multimedia_copy.multimediaId, itemId), eq(tbl_multimedia_copy.isActive, true)));
-        }
+        const copies: any[] = await db
+            .select()
+            .from(tbl_book_copy)
+            .where(and(eq(tbl_book_copy.bookId, itemId), eq(tbl_book_copy.isActive, true)));
 
         return json({
             success: true,
-            itemType,
             itemId,
             copies
         });
