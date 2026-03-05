@@ -1,4 +1,4 @@
-// src/routes/api/categories/+server.ts
+// src/routes/api/inventory/magazines/categories/+server.ts
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
@@ -180,11 +180,9 @@ export const GET: RequestHandler = async ({ request }) => {
       throw error(401, { message: 'Unauthorized' });
     }
 
-    // Determine itemType (query param) - default to 'book'
     const url = new URL(request.url);
-    const itemType = (url.searchParams.get('itemType') || 'book').toString();
+    const itemType = (url.searchParams.get('itemType') || 'magazine').toString();
 
-    // Fetch categories from the database filtered by item type
     const categoriesResult = await db
       .select({
         id: tbl_category.id,
@@ -203,11 +201,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
   } catch (err: any) {
     console.error('Error fetching categories:', err);
-
-    if (err?.status) {
-      throw err;
-    }
-
+    if (err?.status) throw err;
     throw error(500, { message: 'Internal server error: ' + (err?.message || 'Unknown error') });
   }
 };
@@ -222,54 +216,37 @@ export const POST: RequestHandler = async ({ request }) => {
     const body = await request.json();
     const name = (body.name || '').trim();
     const description = (body.description || '').trim();
-    // make sure itemType is defined before use (defaults to book)
-    const itemType = (body.itemType || 'book').toString();
+    const itemType = (body.itemType || 'magazine').toString();
 
-    // Validate according to schema
     if (!name) {
       throw error(400, { message: 'Category name is required.' });
     }
     if (name.length > 50) {
       throw error(400, { message: 'Category name must be at most 50 characters.' });
     }
-    if (description.length > 255) {
-      throw error(400, { message: 'Description must be at most 255 characters.' });
+    if (description && description.length > 500) {
+      throw error(400, { message: 'Description must be at most 500 characters.' });
     }
 
-    // Check for duplicate category name (case-insensitive) within the same item type
     const isDuplicate = await checkDuplicateName(name, itemType);
     if (isDuplicate) {
       throw error(409, { message: 'A category with this name already exists.' });
     }
 
-    // Insert new category with the original casing preserved
-    const [inserted] = await db
+    const [result] = await db
       .insert(tbl_category)
       .values({
         name,
-        itemType: 'book',
-        description: description || null
+        description: description || null,
+        itemType: itemType
       })
-      .returning({
-        id: tbl_category.id,
-        name: tbl_category.name,
-        description: tbl_category.description
-      });
+      .returning();
 
-    return json({
-      success: true,
-      data: { category: inserted },
-      message: 'Category added successfully.'
-    });
-
+    return json({ success: true, data: result }, { status: 201 });
   } catch (err: any) {
-    console.error('Error adding category:', err);
-
-    if (err?.status) {
-      throw err;
-    }
-
-    throw error(500, { message: 'Internal server error' });
+    console.error('Error creating category:', err);
+    if (err?.status) throw err;
+    throw error(500, { message: 'Internal server error: ' + (err?.message || 'Unknown error') });
   }
 };
 
@@ -281,73 +258,52 @@ export const PUT: RequestHandler = async ({ request }) => {
     }
 
     const body = await request.json();
-    const id = Number(body.id);
+    const { id } = body;
     const name = (body.name || '').trim();
     const description = (body.description || '').trim();
-    const itemType = (body.itemType || 'book').toString();
+    const itemType = (body.itemType || 'magazine').toString();
 
-    // Validate ID
-    if (!id || isNaN(id)) {
-      throw error(400, { message: 'Invalid category ID.' });
+    if (!id) {
+      throw error(400, { message: 'Category ID is required.' });
     }
 
-    // Validate input
-    if (!name) {
+    const updateName = name;
+    const updateDescription = description;
+
+    if (!updateName) {
       throw error(400, { message: 'Category name is required.' });
     }
-    if (name.length > 50) {
+    if (updateName.length > 50) {
       throw error(400, { message: 'Category name must be at most 50 characters.' });
     }
-    if (description.length > 255) {
-      throw error(400, { message: 'Description must be at most 255 characters.' });
+    if (updateDescription && updateDescription.length > 500) {
+      throw error(400, { message: 'Description must be at most 500 characters.' });
     }
 
-    // Check if category exists
-    const [existingCategory] = await db
-      .select()
-      .from(tbl_category)
-      .where(eq(tbl_category.id, id))
-      .limit(1);
-
-    if (!existingCategory) {
-      throw error(404, { message: 'Category not found.' });
-    }
-
-    // Check for duplicate name (case-insensitive, excluding current category) within same item type
-    const isDuplicate = await checkDuplicateName(name, itemType, id);
+    const isDuplicate = await checkDuplicateName(updateName, itemType, id);
     if (isDuplicate) {
       throw error(409, { message: 'A category with this name already exists.' });
     }
 
-    // Update category (removed updatedAt since it might not exist in schema)
-    const [updated] = await db
+    const [result] = await db
       .update(tbl_category)
-      .set({ 
-        name, 
-        description: description || null,
+      .set({
+        name: updateName,
+        description: updateDescription || null,
         itemType: itemType
       })
       .where(eq(tbl_category.id, id))
-      .returning({
-        id: tbl_category.id,
-        name: tbl_category.name,
-        description: tbl_category.description
-      });
+      .returning();
 
-    return json({
-      success: true,
-      data: { category: updated },
-      message: 'Category updated successfully.'
-    });
+    if (!result) {
+      throw error(404, { message: 'Category not found.' });
+    }
 
+    return json({ success: true, data: result });
   } catch (err: any) {
     console.error('Error updating category:', err);
-    
-    if (err?.status) {
-      throw err;
-    }
-    
-    throw error(500, { message: 'Internal server error' });
+    if (err?.status) throw err;
+    throw error(500, { message: 'Internal server error: ' + (err?.message || 'Unknown error') });
   }
 };
 
@@ -360,46 +316,27 @@ export const DELETE: RequestHandler = async ({ request }) => {
 
     const body = await request.json();
     const id = Number(body.id);
-    const itemType = (body.itemType || 'book').toString();
+    const itemType = (body.itemType || 'magazine').toString();
 
-    // Validate ID
-    if (!id || isNaN(id)) {
-      throw error(400, { message: 'Invalid category ID.' });
+    if (!id) {
+      throw error(400, { message: 'Category ID is required.' });
     }
 
-    // Check if category exists
-    const [existingCategory] = await db
-      .select()
-      .from(tbl_category)
-      .where(eq(tbl_category.id, id))
-      .limit(1);
+    const usageCount = await getUsageCountForCategory(itemType, id);
+    if (usageCount > 0) {
+      throw error(409, { message: `Cannot delete category. It is used by ${usageCount} ${itemType}(s).` });
+    }
 
-    if (!existingCategory) {
+    const [result] = await db
+      .delete(tbl_category)
+      .where(eq(tbl_category.id, id))
+      .returning();
+
+    if (!result) {
       throw error(404, { message: 'Category not found.' });
     }
 
-    // Check if category is used by any items of the given type
-    const usageCount = await getUsageCountForCategory(itemType, id);
-    if (usageCount > 0) {
-      throw error(400, { message: `Cannot delete category: It is assigned to one or more ${itemType}(s).` });
-    }
-
-    // Delete category
-    const [deleted] = await db
-      .delete(tbl_category)
-      .where(eq(tbl_category.id, id))
-      .returning({
-        id: tbl_category.id,
-        name: tbl_category.name,
-        description: tbl_category.description
-      });
-
-    return json({
-      success: true,
-      data: { category: deleted },
-      message: 'Category deleted successfully.'
-    });
-
+    return json({ success: true, message: 'Category deleted successfully' });
   } catch (err: any) {
     console.error('Error deleting category:', err);
 
@@ -407,6 +344,6 @@ export const DELETE: RequestHandler = async ({ request }) => {
       throw err;
     }
 
-    throw error(500, { message: 'Internal server error' });
+    throw error(500, { message: 'Internal server error: ' + (err?.message || 'Unknown error') });
   }
 };

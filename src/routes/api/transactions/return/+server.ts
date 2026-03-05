@@ -200,7 +200,8 @@ export const POST: RequestHandler = async ({ request }) => {
                 let daysOverdue = 0;
                 if (existingBorrowing && existingBorrowing.dueDate) {
                     const c = await calculateFineAmount(new Date(existingBorrowing.dueDate));
-                    calculatedFinePesos = Number((Number(c) / 100).toFixed(2));
+                    // calculateFineAmount returns pesos already
+                    calculatedFinePesos = Number(c.toFixed(2));
                     daysOverdue = await calculateDaysOverdue(new Date(existingBorrowing.dueDate));
                 }
 
@@ -229,7 +230,8 @@ export const POST: RequestHandler = async ({ request }) => {
                             itemType,
                             borrowingId,
                             fineAmount: String(calculatedFinePesos.toFixed(2)),
-                            daysOverdue: daysOverdue
+                            daysOverdue: daysOverdue,
+                            status: 'paid' // mark as paid upon recording return
                         }).returning();
                         fineRecord = r;
                     } catch (e) {

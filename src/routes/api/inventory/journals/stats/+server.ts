@@ -1,4 +1,4 @@
-// src/routes/api/journals/stats/+server.ts
+// src/routes/api/inventory/journals/stats/+server.ts
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
@@ -147,8 +147,11 @@ export const GET: RequestHandler = async ({ request }) => {
       borrowedJournals = 0;
     }
 
-    // Dynamic categories count
-    const categoriesCountResult = await db.select({ count: count() }).from(tbl_category);
+    // Dynamic categories count (only journal categories)
+    const categoriesCountResult = await db
+      .select({ count: count() })
+      .from(tbl_category)
+      .where(eq(tbl_category.itemType, 'journal'));
     const categoriesCount = Number(categoriesCountResult[0]?.count || 0);
 
     // Journals with low availability (<3 copies)
@@ -171,18 +174,27 @@ export const GET: RequestHandler = async ({ request }) => {
     // Total physical copies (available + borrowed)
     const totalPhysicalCopies = Number(availableCopies) + borrowedJournals;
 
+    // include convenience aliases so client code can use simpler names
+    const utilization = totalPhysicalCopies > 0 ? Math.round((borrowedJournals / totalPhysicalCopies) * 100) : 0;
+    const availability = totalJournals > 0 ? Math.round((availableCopies / totalJournals) * 100) : 0;
+
     return json({
       success: true,
       data: {
         totalJournals,
+        totalBooks: totalJournals, // alias for UI consistency
         totalPhysicalCopies,
         availableCopies: Number(availableCopies),
         borrowedJournals,
+        borrowedBooks: borrowedJournals, // alias for the borrowed card
         categoriesCount,
         lowStock,
         outOfStock,
-        utilizationRate: totalPhysicalCopies > 0 ? Math.round((borrowedJournals / totalPhysicalCopies) * 100) : 0,
-        availabilityRate: totalJournals > 0 ? Math.round((availableCopies / totalJournals) * 100) : 0
+        utilizationRate: utilization,
+        availabilityRate: availability,
+        // aliases used by the journal inventory page
+        utilization,
+        availability
       }
     });
   } catch (err: any) {

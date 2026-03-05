@@ -130,7 +130,8 @@ export const GET: RequestHandler = async ({ url }) => {
       // Fines
       db.select({ total: sql<string>`COALESCE(SUM(${tbl_fine.fineAmount}), 0)` }).from(tbl_fine).where(eq(tbl_fine.status, 'unpaid')),
       db.select({ total: sql<string>`COALESCE(SUM(${tbl_fine.fineAmount}), 0)` }).from(tbl_fine).where(eq(tbl_fine.status, 'paid')),
-      db.select({ count: count() }).from(tbl_payment).where(and(gte(tbl_payment.paymentDate, start), lte(tbl_payment.paymentDate, end))),
+      // count all payments (ignore period); the charts still show period trends
+      db.select({ count: count() }).from(tbl_payment),
 
       // Collection sizes
       db.select({ count: count() }).from(tbl_book).where(eq(tbl_book.isActive, true)),
@@ -183,8 +184,8 @@ export const GET: RequestHandler = async ({ url }) => {
       dailyMagBorrowsRaw,
       dailyThesisBorrowsRaw,
       dailyJournalBorrowsRaw,
-      // Category distribution (books)
-      categoryDistRaw,
+      // Category distribution (all item types)
+      bookCatDistRaw, magCatDistRaw, thesisCatDistRaw, journalCatDistRaw,
       // Penalty trends
       penaltyTrendsRaw,
       // Payment trends
@@ -215,11 +216,23 @@ export const GET: RequestHandler = async ({ url }) => {
         .from(tbl_journal_borrowing).where(and(gte(tbl_journal_borrowing.createdAt, start), lte(tbl_journal_borrowing.createdAt, end)))
         .groupBy(sql`DATE(${tbl_journal_borrowing.createdAt})`).orderBy(sql`DATE(${tbl_journal_borrowing.createdAt})`),
 
-      // Category distribution
+      // Category distribution across books, magazines, thesis, journals
       db.select({ category: tbl_category.name, count: count() })
         .from(tbl_book).leftJoin(tbl_category, eq(tbl_book.categoryId, tbl_category.id))
         .where(eq(tbl_book.isActive, true))
-        .groupBy(tbl_category.id, tbl_category.name).orderBy(desc(count())),
+        .groupBy(tbl_category.id, tbl_category.name),
+      db.select({ category: tbl_category.name, count: count() })
+        .from(tbl_magazine).leftJoin(tbl_category, eq(tbl_magazine.categoryId, tbl_category.id))
+        .where(eq(tbl_magazine.isActive, true))
+        .groupBy(tbl_category.id, tbl_category.name),
+      db.select({ category: tbl_category.name, count: count() })
+        .from(tbl_thesis).leftJoin(tbl_category, eq(tbl_thesis.categoryId, tbl_category.id))
+        .where(eq(tbl_thesis.isActive, true))
+        .groupBy(tbl_category.id, tbl_category.name),
+      db.select({ category: tbl_category.name, count: count() })
+        .from(tbl_journal).leftJoin(tbl_category, eq(tbl_journal.categoryId, tbl_category.id))
+        .where(eq(tbl_journal.isActive, true))
+        .groupBy(tbl_category.id, tbl_category.name),
 
       // Penalty trends (weekly)
       db.select({
@@ -272,12 +285,24 @@ export const GET: RequestHandler = async ({ url }) => {
       .map(([date, counts]) => ({ date, ...counts, total: counts.books + counts.magazines + counts.thesis + counts.journals }));
 
     // ── Category distribution ───────────────────────────────────────────────
-    const totalCatCount = categoryDistRaw.reduce((s, c) => s + c.count, 0);
-    const categoryDistribution = categoryDistRaw.map(item => ({
-      category: item.category || 'Uncategorized',
-      count: item.count,
-      percentage: totalCatCount > 0 ? Math.round((item.count / totalCatCount) * 100) : 0,
-    }));
+    // merge counts from each item type query
+    const catMap: Record<string, number> = {};
+    const mergeRows = (rows: any[]) => rows.forEach(r => {
+      const name = r.category || 'Uncategorized';
+      catMap[name] = (catMap[name] || 0) + r.count;
+    });
+    mergeRows(bookCatDistRaw);
+    mergeRows(magCatDistRaw);
+    mergeRows(thesisCatDistRaw);
+    mergeRows(journalCatDistRaw);
+    const totalCatCount = Object.values(catMap).reduce((s, v) => s + v, 0);
+    const categoryDistribution = Object.entries(catMap)
+      .sort((a,b) => b[1] - a[1])
+      .map(([category, count]) => ({
+        category,
+        count,
+        percentage: totalCatCount > 0 ? Math.round((count / totalCatCount) * 100) : 0,
+      }));
 
     // ── Merge reservation statuses ──────────────────────────────────────────
     const resStatusMap: Record<string, number> = {};
@@ -350,7 +375,7 @@ export const GET: RequestHandler = async ({ url }) => {
         .where(and(or(eq(tbl_journal_borrowing.status, 'borrowed'), eq(tbl_journal_borrowing.status, 'overdue')), lt(tbl_journal_borrowing.dueDate, today), isNull(tbl_journal_borrowing.returnDate)))
         .orderBy(tbl_journal_borrowing.dueDate).limit(5),
 
-      // Recent payments
+      // Recent payments (last ten, regardless of period filter)
       db.select({
         transactionId: tbl_payment.transactionId,
         memberName: tbl_user.name,
@@ -360,7 +385,6 @@ export const GET: RequestHandler = async ({ url }) => {
         paymentDate: tbl_payment.paymentDate,
       }).from(tbl_payment)
         .leftJoin(tbl_user, eq(tbl_payment.userId, tbl_user.id))
-        .where(and(gte(tbl_payment.paymentDate, start), lte(tbl_payment.paymentDate, end)))
         .orderBy(desc(tbl_payment.paymentDate)).limit(10),
 
       // Top users by fines

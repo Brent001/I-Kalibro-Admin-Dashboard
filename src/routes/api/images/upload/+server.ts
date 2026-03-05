@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
 import { eq, and } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
-import { tbl_book, tbl_magazine, tbl_multimedia, tbl_research_document, tbl_admin, tbl_super_admin, tbl_staff } from '$lib/server/db/schema/schema.js';
+import { tbl_book, tbl_magazine, tbl_journal, tbl_admin, tbl_super_admin, tbl_staff } from '$lib/server/db/schema/schema.js';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
 import { uploadCoverPhotoToB2, generateCoverPhotoUrl } from '$lib/server/utils/backblazeUpload.js';
 
@@ -106,8 +106,8 @@ export const POST: RequestHandler = async ({ request }) => {
         }
 
         // Validate itemType
-        if (!['book', 'magazine'].includes(itemType)) {
-            return error(400, 'Cover photo upload only supported for book and magazine');
+        if (!['book', 'magazine', 'journal'].includes(itemType)) {
+            return error(400, 'Cover photo upload only supported for book, magazine, or journal');
         }
 
         // Validate file
@@ -133,6 +133,11 @@ export const POST: RequestHandler = async ({ request }) => {
                 .update(tbl_magazine)
                 .set({ coverImage: photoUrl })
                 .where(eq(tbl_magazine.id, Number(itemId)));
+        } else if (itemType === 'journal') {
+            await db
+                .update(tbl_journal)
+                .set({ coverImage: photoUrl })
+                .where(eq(tbl_journal.id, Number(itemId)));
         }
 
         return json({

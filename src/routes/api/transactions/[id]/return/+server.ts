@@ -5,16 +5,19 @@ import {
   tbl_book_borrowing,
   tbl_magazine_borrowing,
   tbl_thesis_borrowing,
+  tbl_journal_borrowing,
   
   tbl_return,
   tbl_book,
   tbl_magazine,
   tbl_thesis,
+  tbl_journal,
   tbl_fine,
   
   tbl_book_copy,
   tbl_magazine_copy,
   tbl_thesis_copy,
+  tbl_journal_copy,
   
   tbl_staff,
   tbl_admin,
@@ -129,7 +132,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     const [bBook] = await db.select().from(tbl_book_borrowing).where(eq(tbl_book_borrowing.id, borrowingId)).limit(1);
     const [bMag] = await db.select().from(tbl_magazine_borrowing).where(eq(tbl_magazine_borrowing.id, borrowingId)).limit(1);
     const [bThesis] = await db.select().from(tbl_thesis_borrowing).where(eq(tbl_thesis_borrowing.id, borrowingId)).limit(1);
-    const [bJournal] = [null];
+    const [bJournal] = await db.select().from(tbl_journal_borrowing).where(eq(tbl_journal_borrowing.id, borrowingId)).limit(1);
 
     let b: any = null;
     let itemType = '';
@@ -149,6 +152,10 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
       b = bThesis;
       itemType = 'thesis';
       copyId = b.thesisCopyId;
+    } else if (bJournal) {
+      b = bJournal;
+      itemType = 'journal';
+      copyId = b.journalCopyId;
     } else {
       throw error(404, { message: 'Borrowing record not found' });
     }
@@ -160,8 +167,8 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     if (b.status !== 'borrowed' && b.status !== 'overdue') throw error(400, { message: 'Invalid borrowing status. Only borrowed or overdue items can be returned.' });
 
     // calculate fine (in pesos) and days overdue using shared utils
-    const fineCent = await calculateFineAmount(new Date(b.dueDate));
-    const calculatedFine = Number((Number(fineCent) / 100).toFixed(2));
+    // calculate fine using shared utility (returns pesos directly)
+    const calculatedFine = await calculateFineAmount(new Date(b.dueDate));
     const daysOverdue = await calculateDaysOverdue(new Date(b.dueDate));
     const returnDate = new Date();
     const hoursOverdue = calculatedFine > 0 ? Math.ceil(calculatedFine / FINE_PER_HOUR) : 0;
@@ -185,7 +192,8 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
           itemType: itemType,
           borrowingId: b.id,
           fineAmount: String(calculatedFine.toFixed(2)),
-          daysOverdue: daysOverdue
+          daysOverdue: daysOverdue,
+          status: 'paid' // return confirmation includes immediate settlement
         }).returning();
         fineRecord = r;
       } catch (e) {
@@ -226,6 +234,16 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
         await db.update(tbl_magazine_copy).set({ status: 'available' }).where(eq(tbl_magazine_copy.id, copyId));
       }
+
+      // increment parent's available copies
+      try {
+        const parentId = b.magazineId || null;
+        if (parentId) {
+          await db.update(tbl_magazine).set({ availableCopies: sql`COALESCE(${tbl_magazine.availableCopies}, 0) + 1` }).where(eq(tbl_magazine.id, parentId));
+        }
+      } catch (e) {
+        console.debug('Failed to increment magazine.availableCopies on return:', e);
+      }
     } else if (itemType === 'thesis') {
       await db.update(tbl_thesis_borrowing).set({ status: 'returned', returnDate }).where(eq(tbl_thesis_borrowing.id, borrowingId));
       if (copyId) {
@@ -233,6 +251,27 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
         // fetch call number
         const [copyRec] = await db.select({ callNumber: tbl_thesis_copy.callNumber }).from(tbl_thesis_copy).where(eq(tbl_thesis_copy.id, copyId)).limit(1);
         returnedCallNumber = copyRec?.callNumber || null;
+      }
+    } else if (itemType === 'journal') {
+      await db.update(tbl_journal_borrowing).set({ status: 'returned', returnDate }).where(eq(tbl_journal_borrowing.id, borrowingId));
+      if (copyId) {
+        const [copyRec] = await db.select({ callNumber: tbl_journal_copy.callNumber })
+          .from(tbl_journal_copy)
+          .where(eq(tbl_journal_copy.id, copyId))
+          .limit(1);
+        returnedCallNumber = copyRec?.callNumber || null;
+
+        await db.update(tbl_journal_copy).set({ status: 'available' }).where(eq(tbl_journal_copy.id, copyId));
+      }
+
+      // increment parent journal available copies
+      try {
+        const parentId = b.journalId || null;
+        if (parentId) {
+          await db.update(tbl_journal).set({ availableCopies: sql`COALESCE(${tbl_journal.availableCopies}, 0) + 1` }).where(eq(tbl_journal.id, parentId));
+        }
+      } catch (e) {
+        console.debug('Failed to increment journal.availableCopies on return:', e);
       }
     }
 

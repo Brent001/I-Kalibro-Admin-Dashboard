@@ -3,7 +3,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
-import { eq, and, desc, count, inArray } from 'drizzle-orm';
+import { eq, and, desc, count, inArray, lt } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import {
@@ -31,7 +31,7 @@ import {
     tbl_faculty
 } from '$lib/server/db/schema/schema.js';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
-import { calculateDaysOverdue, calculateFineAmount } from '$lib/server/utils/fineCalculation.js';
+import { loadFineSettings } from '$lib/server/utils/fineCalculation.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -110,6 +110,27 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
 // GET - Fetch all transactions (books, magazines, research, multimedia)
 export const GET: RequestHandler = async ({ request, url }) => {
     try {
+        // note: automatic promotion of returned items to "fulfilled" has been removed.
+        // this change keeps returns in the "returned" status until staff explicitly marks
+        // them fulfilled, allowing reversion at any time. existing API consumers should
+        // handle this appropriately (e.g. show revert button whenever status === 'returned').
+        
+        /*
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        await db.update(tbl_book_borrowing)
+            .set({ status: 'fulfilled' })
+            .where(and(eq(tbl_book_borrowing.status, 'returned'), lt(tbl_book_borrowing.returnDate, oneHourAgo)));
+        await db.update(tbl_magazine_borrowing)
+            .set({ status: 'fulfilled' })
+            .where(and(eq(tbl_magazine_borrowing.status, 'returned'), lt(tbl_magazine_borrowing.returnDate, oneHourAgo)));
+        await db.update(tbl_thesis_borrowing)
+            .set({ status: 'fulfilled' })
+            .where(and(eq(tbl_thesis_borrowing.status, 'returned'), lt(tbl_thesis_borrowing.returnDate, oneHourAgo)));
+        await db.update(tbl_journal_borrowing)
+            .set({ status: 'fulfilled' })
+            .where(and(eq(tbl_journal_borrowing.status, 'returned'), lt(tbl_journal_borrowing.returnDate, oneHourAgo)));
+        */
+
         const user = await authenticateUser(request);
         if (!user) {
             throw error(401, { message: 'Unauthorized' });
@@ -482,23 +503,11 @@ export const GET: RequestHandler = async ({ request, url }) => {
             }
         }
 
-        // Attach fine and daysOverdue to borrow-type transactions taking exemptions into account
-        let enrichedTransactions = await Promise.all(transactions.map(async (t: any) => {
-            try {
-                if (t.dueDate && (!t.returnDate) && (t.status === 'borrowed' || t.status === 'overdue')) {
-                    const daysOverdue = await calculateDaysOverdue(new Date(t.dueDate));
-                    const fine = await calculateFineAmount(new Date(t.dueDate));
-                    const hoursOverdue = fine > 0 ? Math.ceil(fine / 500) : 0;
-                    return { ...t, daysOverdue, fine, hoursOverdue };
-                }
-            } catch (e) {
-                // ignore per-item calc errors
-            }
-            return { ...t, daysOverdue: 0, fine: 0, hoursOverdue: 0 };
-        }));
+        // include fine settings so the frontend can calculate fines/days itself
+        const fineSettings = await loadFineSettings();
 
         // look up student/faculty identifiers in a single query
-        const userIds = Array.from(new Set(enrichedTransactions.map((t: any) => t.userId).filter((id: any) => id != null)));
+        const userIds = Array.from(new Set(transactions.map((t: any) => t.userId).filter((id: any) => id != null)));
         if (userIds.length > 0) {
             const userRows: any[] = await db
                 .select({
@@ -515,7 +524,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
             userRows.forEach(u => {
                 idMap[u.id] = u.enrollmentNo || u.facultyNumber || null;
             });
-            enrichedTransactions = enrichedTransactions.map((t: any) => ({
+            transactions = transactions.map((t: any) => ({
                 ...t,
                 userIdentifier: idMap[t.userId] || null
             }));
@@ -528,7 +537,8 @@ export const GET: RequestHandler = async ({ request, url }) => {
             total: totalCount,
             itemType,
             transactionType,
-            transactions: enrichedTransactions
+            fineSettings,
+            transactions
         });
     } catch (err: any) {
         console.error('GET /api/transactions error:', err);
@@ -595,6 +605,16 @@ export const POST: RequestHandler = async ({ request }) => {
                 .set({ status: 'borrowed' })
                 .where(eq(tbl_magazine_copy.id, copyId));
 
+            // decrement available copies on parent magazine
+            try {
+                await db
+                    .update(tbl_magazine)
+                    .set({ availableCopies: sql`GREATEST(${tbl_magazine.availableCopies} - 1, 0)` })
+                    .where(eq(tbl_magazine.id, itemId));
+            } catch (e) {
+                console.debug('Failed to decrement magazine.availableCopies during borrow:', e);
+            }
+
             const [result] = await db
                 .insert(tbl_magazine_borrowing)
                 .values({
@@ -634,6 +654,16 @@ export const POST: RequestHandler = async ({ request }) => {
                 .update(tbl_journal_copy)
                 .set({ status: 'borrowed' })
                 .where(eq(tbl_journal_copy.id, copyId));
+
+            // decrement available copies on parent journal
+            try {
+                await db
+                    .update(tbl_journal)
+                    .set({ availableCopies: sql`GREATEST(${tbl_journal.availableCopies} - 1, 0)` })
+                    .where(eq(tbl_journal.id, itemId));
+            } catch (e) {
+                console.debug('Failed to decrement journal.availableCopies during borrow:', e);
+            }
 
             const [journalResult] = await db
                 .insert(tbl_journal_borrowing)

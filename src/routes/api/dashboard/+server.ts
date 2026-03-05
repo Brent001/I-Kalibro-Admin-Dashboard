@@ -29,7 +29,11 @@ export const GET: RequestHandler = async () => {
       return json({ success: true, data: encryptedCachedData, encrypted: true, cached: true });
     }
 
-    const today = new Date();
+    // use a Date object for comparison; Drizzle expects a Date rather than a string
+    // normalize to midnight so we compare only the calendar day
+    const today: Date = new Date();
+    today.setHours(0, 0, 0, 0);
+    // keep the string form for any client‑side logic if needed
     const todayStr = today.toISOString().slice(0, 10);
 
     // ─── Run all queries in parallel ───────────────────────────────────────────
@@ -84,24 +88,26 @@ export const GET: RequestHandler = async () => {
       db.select({ count: count() }).from(tbl_user).where(eq(tbl_user.isActive, true)),
 
       // ── Borrowed counts ──────────────────────────────────────────────────────
+      // currently borrowed includes both normal borrowings and ones already marked overdue
       db.select({ count: count() }).from(tbl_book_borrowing)
-        .where(and(eq(tbl_book_borrowing.status, 'borrowed'), isNull(tbl_book_borrowing.returnDate))),
+        .where(and(or(eq(tbl_book_borrowing.status, 'borrowed'), eq(tbl_book_borrowing.status, 'overdue')), isNull(tbl_book_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_magazine_borrowing)
-        .where(and(eq(tbl_magazine_borrowing.status, 'borrowed'), isNull(tbl_magazine_borrowing.returnDate))),
+        .where(and(or(eq(tbl_magazine_borrowing.status, 'borrowed'), eq(tbl_magazine_borrowing.status, 'overdue')), isNull(tbl_magazine_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_thesis_borrowing)
-        .where(and(eq(tbl_thesis_borrowing.status, 'borrowed'), isNull(tbl_thesis_borrowing.returnDate))),
+        .where(and(or(eq(tbl_thesis_borrowing.status, 'borrowed'), eq(tbl_thesis_borrowing.status, 'overdue')), isNull(tbl_thesis_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_journal_borrowing)
-        .where(and(eq(tbl_journal_borrowing.status, 'borrowed'), isNull(tbl_journal_borrowing.returnDate))),
+        .where(and(or(eq(tbl_journal_borrowing.status, 'borrowed'), eq(tbl_journal_borrowing.status, 'overdue')), isNull(tbl_journal_borrowing.returnDate))),
 
       // ── Overdue counts ───────────────────────────────────────────────────────
+      // overdue counts should include items already flagged overdue as well
       db.select({ count: count() }).from(tbl_book_borrowing)
-        .where(and(eq(tbl_book_borrowing.status, 'borrowed'), lt(tbl_book_borrowing.dueDate, todayStr), isNull(tbl_book_borrowing.returnDate))),
+        .where(and(or(eq(tbl_book_borrowing.status, 'borrowed'), eq(tbl_book_borrowing.status, 'overdue')), lt(tbl_book_borrowing.dueDate, today), isNull(tbl_book_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_magazine_borrowing)
-        .where(and(eq(tbl_magazine_borrowing.status, 'borrowed'), lt(tbl_magazine_borrowing.dueDate, todayStr), isNull(tbl_magazine_borrowing.returnDate))),
+        .where(and(or(eq(tbl_magazine_borrowing.status, 'borrowed'), eq(tbl_magazine_borrowing.status, 'overdue')), lt(tbl_magazine_borrowing.dueDate, today), isNull(tbl_magazine_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_thesis_borrowing)
-        .where(and(eq(tbl_thesis_borrowing.status, 'borrowed'), lt(tbl_thesis_borrowing.dueDate, todayStr), isNull(tbl_thesis_borrowing.returnDate))),
+        .where(and(or(eq(tbl_thesis_borrowing.status, 'borrowed'), eq(tbl_thesis_borrowing.status, 'overdue')), lt(tbl_thesis_borrowing.dueDate, today), isNull(tbl_thesis_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_journal_borrowing)
-        .where(and(eq(tbl_journal_borrowing.status, 'borrowed'), lt(tbl_journal_borrowing.dueDate, todayStr), isNull(tbl_journal_borrowing.returnDate))),
+        .where(and(or(eq(tbl_journal_borrowing.status, 'borrowed'), eq(tbl_journal_borrowing.status, 'overdue')), lt(tbl_journal_borrowing.dueDate, today), isNull(tbl_journal_borrowing.returnDate))),
 
       // ── Pending reservation counts (include active / borrow_request statuses)
       db.select({ count: count() }).from(tbl_book_reservation).where(or(eq(tbl_book_reservation.status, 'pending'), eq(tbl_book_reservation.status, 'active'), eq(tbl_book_reservation.status, 'borrow_request'))),
@@ -114,28 +120,29 @@ export const GET: RequestHandler = async () => {
         .from(tbl_book_borrowing)
         .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
         .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
-        .where(and(eq(tbl_book_borrowing.status, 'borrowed'), lt(tbl_book_borrowing.dueDate, todayStr), isNull(tbl_book_borrowing.returnDate)))
+        // include rows already marked overdue as well
+        .where(and(or(eq(tbl_book_borrowing.status, 'borrowed'), eq(tbl_book_borrowing.status, 'overdue')), lt(tbl_book_borrowing.dueDate, today), isNull(tbl_book_borrowing.returnDate)))
         .orderBy(tbl_book_borrowing.dueDate).limit(5),
 
       db.select({ id: tbl_magazine_borrowing.id, title: tbl_magazine.title, memberName: tbl_user.name, dueDate: tbl_magazine_borrowing.dueDate, itemType: sql<string>`'magazine'` })
         .from(tbl_magazine_borrowing)
         .leftJoin(tbl_magazine, eq(tbl_magazine_borrowing.magazineId, tbl_magazine.id))
         .leftJoin(tbl_user, eq(tbl_magazine_borrowing.userId, tbl_user.id))
-        .where(and(eq(tbl_magazine_borrowing.status, 'borrowed'), lt(tbl_magazine_borrowing.dueDate, todayStr), isNull(tbl_magazine_borrowing.returnDate)))
+        .where(and(or(eq(tbl_magazine_borrowing.status, 'borrowed'), eq(tbl_magazine_borrowing.status, 'overdue')), lt(tbl_magazine_borrowing.dueDate, today), isNull(tbl_magazine_borrowing.returnDate)))
         .orderBy(tbl_magazine_borrowing.dueDate).limit(5),
 
       db.select({ id: tbl_thesis_borrowing.id, title: tbl_thesis.title, memberName: tbl_user.name, dueDate: tbl_thesis_borrowing.dueDate, itemType: sql<string>`'thesis'` })
         .from(tbl_thesis_borrowing)
         .leftJoin(tbl_thesis, eq(tbl_thesis_borrowing.thesisId, tbl_thesis.id))
         .leftJoin(tbl_user, eq(tbl_thesis_borrowing.userId, tbl_user.id))
-        .where(and(eq(tbl_thesis_borrowing.status, 'borrowed'), lt(tbl_thesis_borrowing.dueDate, todayStr), isNull(tbl_thesis_borrowing.returnDate)))
+        .where(and(or(eq(tbl_thesis_borrowing.status, 'borrowed'), eq(tbl_thesis_borrowing.status, 'overdue')), lt(tbl_thesis_borrowing.dueDate, today), isNull(tbl_thesis_borrowing.returnDate)))
         .orderBy(tbl_thesis_borrowing.dueDate).limit(5),
 
       db.select({ id: tbl_journal_borrowing.id, title: tbl_journal.title, memberName: tbl_user.name, dueDate: tbl_journal_borrowing.dueDate, itemType: sql<string>`'journal'` })
         .from(tbl_journal_borrowing)
         .leftJoin(tbl_journal, eq(tbl_journal_borrowing.journalId, tbl_journal.id))
         .leftJoin(tbl_user, eq(tbl_journal_borrowing.userId, tbl_user.id))
-        .where(and(eq(tbl_journal_borrowing.status, 'borrowed'), lt(tbl_journal_borrowing.dueDate, todayStr), isNull(tbl_journal_borrowing.returnDate)))
+        .where(and(or(eq(tbl_journal_borrowing.status, 'borrowed'), eq(tbl_journal_borrowing.status, 'overdue')), lt(tbl_journal_borrowing.dueDate, today), isNull(tbl_journal_borrowing.returnDate)))
         .orderBy(tbl_journal_borrowing.dueDate).limit(5),
 
       // ── Recent activity ───────────────────────────────────────────────────────
@@ -210,7 +217,8 @@ export const GET: RequestHandler = async () => {
           memberName: r.memberName || 'Unknown',
           dueDate: r.dueDate,
           daysOverdue: days,
-          fine: Number((Number(fineCent) / 100).toFixed(2)),
+          // calculateFineAmount already returns pesos
+          fine: Number(Number(fineCent).toFixed(2)),
           itemType: r.itemType,
         };
       } catch (e) {

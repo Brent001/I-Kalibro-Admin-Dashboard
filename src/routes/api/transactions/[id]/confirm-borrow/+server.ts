@@ -5,15 +5,19 @@ import {
   tbl_book_borrowing,
   tbl_magazine_borrowing,
   tbl_thesis_borrowing,
+  tbl_journal_borrowing,
   tbl_book_reservation,
   tbl_magazine_reservation,
   tbl_thesis_reservation,
+  tbl_journal_reservation,
   tbl_book_copy,
   tbl_magazine_copy,
   tbl_thesis_copy,
+  tbl_journal_copy,
   tbl_book,
   tbl_magazine,
   tbl_thesis,
+  tbl_journal,
   
   tbl_super_admin,
   tbl_admin,
@@ -124,6 +128,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   const [bookReq] = await db.select().from(tbl_book_reservation).where(eq(tbl_book_reservation.id, reqId)).limit(1);
   const [magReq] = await db.select().from(tbl_magazine_reservation).where(eq(tbl_magazine_reservation.id, reqId)).limit(1);
   const [thesisReq] = await db.select().from(tbl_thesis_reservation).where(eq(tbl_thesis_reservation.id, reqId)).limit(1);
+  const [journalReq] = await db.select().from(tbl_journal_reservation).where(eq(tbl_journal_reservation.id, reqId)).limit(1);
 
   const today = new Date();
   let dueDate: Date;
@@ -144,7 +149,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     return c.id;
   }
 
-  if (bookReq && bookReq.status === 'active') {
+  if (bookReq && (bookReq.status === 'active' || bookReq.status === 'borrow_request')) {
     const copyId = await allocateCopy(tbl_book_copy);
     if (!copyId) throw error(400, { message: 'No available book copies to allocate' });
 
@@ -188,7 +193,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     return json({ success: true, data: inserted });
   }
 
-  if (magReq && magReq.status === 'active') {
+  if (magReq && (magReq.status === 'active' || magReq.status === 'borrow_request')) {
     const copyId = await allocateCopy(tbl_magazine_copy);
     if (!copyId) throw error(400, { message: 'No available magazine copies to allocate' });
 
@@ -228,7 +233,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     return json({ success: true, data: inserted });
   }
 
-  if (thesisReq && thesisReq.status === 'active') {
+  if (thesisReq && (thesisReq.status === 'active' || thesisReq.status === 'borrow_request')) {
     const copyId = await allocateCopy(tbl_thesis_copy);
     if (!copyId) throw error(400, { message: 'No available thesis copies to allocate' });
 
@@ -268,19 +273,108 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     return json({ success: true, data: inserted });
   }
 
-  // If not a reservation, try to find a pending borrowing (legacy flow)
-  const [borrowing] = await db.select().from(tbl_book_borrowing).where(eq(tbl_book_borrowing.id, reqId)).limit(1);
-  if (borrowing && borrowing.status === 'pending') {
-    const dueDateStr = dueDate.toISOString();
-    await db.update(tbl_book_borrowing).set({ dueDate: new Date(dueDateStr), status: 'borrowed', approvedBy: approverRole === 'staff' ? approverId : null }).where(eq(tbl_book_borrowing.id, reqId));
+  // Handle journal reservations the same way
+  if (journalReq && (journalReq.status === 'active' || journalReq.status === 'borrow_request')) {
+    const copyId = await allocateCopy(tbl_journal_copy);
+    if (!copyId) throw error(400, { message: 'No available journal copies to allocate' });
 
-    // If this pending borrowing belongs to a book, decrement its availableCopies
+    const borrowDateStr = journalReq.requestedBorrowDate || today.toISOString();
+    const dueDateStr = dueDate.toISOString();
+
+    const [inserted] = await db.insert(tbl_journal_borrowing).values({
+      userId: journalReq.userId,
+      journalId: journalReq.journalId,
+      journalCopyId: copyId,
+      borrowDate: new Date(borrowDateStr),
+      dueDate: new Date(dueDateStr),
+      status: 'borrowed',
+      approvedBy: approverRole === 'staff' ? approverId : null
+    }).returning();
+
+    await db.update(tbl_journal_reservation).set({ status: 'fulfilled', reviewedBy: approverRole === 'staff' ? approverId : null }).where(eq(tbl_journal_reservation.id, reqId));
+
+    // Decrement available copies on the parent journal
     try {
-      if (borrowing.bookId) {
-        await db.update(tbl_book).set({ availableCopies: sql`GREATEST(${tbl_book.availableCopies} - 1, 0)` }).where(eq(tbl_book.id, borrowing.bookId));
+      await db.update(tbl_journal).set({ availableCopies: sql`GREATEST(${tbl_journal.availableCopies} - 1, 0)` }).where(eq(tbl_journal.id, journalReq.journalId));
+    } catch (e) {
+      console.debug('Failed to decrement journal.availableCopies:', e);
+    }
+
+    if (approverRole === 'admin' || approverRole === 'super_admin') {
+      await db.insert(tbl_security_log).values({
+        userId: approverId,
+        userType: approverRole,
+        eventType: 'transaction_approved',
+        ipAddress: null,
+        userAgent: null,
+        timestamp: new Date()
+      });
+    }
+
+    return json({ success: true, data: inserted });
+  }
+
+  // If not a reservation, try to find a pending borrowing (legacy flow)
+  // check each borrowing table in turn so journals/magazines are covered
+  let pending: any = null;
+  let pendingType: 'book' | 'magazine' | 'thesis' | 'journal' | null = null;
+
+  const [pBook] = await db.select().from(tbl_book_borrowing).where(eq(tbl_book_borrowing.id, reqId)).limit(1);
+  if (pBook && pBook.status === 'pending') {
+    pending = pBook;
+    pendingType = 'book';
+  }
+
+  if (!pending) {
+    const [pMag] = await db.select().from(tbl_magazine_borrowing).where(eq(tbl_magazine_borrowing.id, reqId)).limit(1);
+    if (pMag && pMag.status === 'pending') {
+      pending = pMag;
+      pendingType = 'magazine';
+    }
+  }
+
+  if (!pending) {
+    const [pThesis] = await db.select().from(tbl_thesis_borrowing).where(eq(tbl_thesis_borrowing.id, reqId)).limit(1);
+    if (pThesis && pThesis.status === 'pending') {
+      pending = pThesis;
+      pendingType = 'thesis';
+    }
+  }
+
+  if (!pending) {
+    const [pJournal] = await db.select().from(tbl_journal_borrowing).where(eq(tbl_journal_borrowing.id, reqId)).limit(1);
+    if (pJournal && pJournal.status === 'pending') {
+      pending = pJournal;
+      pendingType = 'journal';
+    }
+  }
+
+  if (pending) {
+    const dueDateStr = dueDate.toISOString();
+    await db.update(
+      pendingType === 'book' ? tbl_book_borrowing :
+      pendingType === 'magazine' ? tbl_magazine_borrowing :
+      pendingType === 'thesis' ? tbl_thesis_borrowing :
+      tbl_journal_borrowing
+    ).set({ dueDate: new Date(dueDateStr), status: 'borrowed', approvedBy: approverRole === 'staff' ? approverId : null }).where(eq(
+      pendingType === 'book' ? tbl_book_borrowing.id :
+      pendingType === 'magazine' ? tbl_magazine_borrowing.id :
+      pendingType === 'thesis' ? tbl_thesis_borrowing.id :
+      tbl_journal_borrowing.id,
+      reqId
+    ));
+
+    // update parent available copies for book/magazine/journal
+    try {
+      if (pendingType === 'book' && pending.bookId) {
+        await db.update(tbl_book).set({ availableCopies: sql`GREATEST(${tbl_book.availableCopies} - 1, 0)` }).where(eq(tbl_book.id, pending.bookId));
+      } else if (pendingType === 'magazine' && pending.magazineId) {
+        await db.update(tbl_magazine).set({ availableCopies: sql`GREATEST(${tbl_magazine.availableCopies} - 1, 0)` }).where(eq(tbl_magazine.id, pending.magazineId));
+      } else if (pendingType === 'journal' && pending.journalId) {
+        await db.update(tbl_journal).set({ availableCopies: sql`GREATEST(${tbl_journal.availableCopies} - 1, 0)` }).where(eq(tbl_journal.id, pending.journalId));
       }
     } catch (e) {
-      console.debug('Failed to decrement book.availableCopies for pending borrowing:', e);
+      console.debug('Failed to decrement availableCopies for pending borrowing:', e);
     }
 
     if (approverRole === 'admin' || approverRole === 'super_admin') {
