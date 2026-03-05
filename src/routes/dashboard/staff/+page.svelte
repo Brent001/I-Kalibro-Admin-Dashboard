@@ -14,21 +14,23 @@
   let selectedStaff: any = null;
   let loading = false;
   let errorMsg = "";
-  let staffPermissions: { [key: string]: any } = {};
 
   const statusTypes = ['all', 'active', 'inactive'];
 
-  // Permissions list for both add/edit modals
+  // Permissions list for both add/edit modals (match database fields)
   const permissionsList = [
-    { key: 'view_books', label: 'Books', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
-    { key: 'view_members', label: 'Members', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
-    { key: 'view_transactions', label: 'Transactions', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
-    { key: 'view_visits', label: 'Visits', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
-    { key: 'view_logs', label: 'Logs', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-    { key: 'view_reports', label: 'Reports', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
-    { key: 'view_staff', label: 'Staff', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
-    { key: 'view_settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' }
+    { key: 'canManageBooks', label: 'Manage Books', icon: '' },
+    { key: 'canManageUsers', label: 'Manage Users', icon: '' },
+    { key: 'canManageBorrowing', label: 'Manage Borrowing', icon: '' },
+    { key: 'canManageReservations', label: 'Manage Reservations', icon: '' },
+    { key: 'canViewReports', label: 'View Reports', icon: '' },
+    { key: 'canManageFines', label: 'Manage Fines', icon: '' }
   ];
+
+  function countPermissions(perms: Record<string, any> | null): number {
+    if (!perms) return 0;
+    return permissionsList.reduce((cnt, p) => cnt + (perms[p.key] ? 1 : 0), 0);
+  }
 
   // Fetch staff from API
   async function fetchStaff() {
@@ -51,19 +53,6 @@
   }
 
   onMount(fetchStaff);
-
-  // Fetch staff permissions
-  async function fetchStaffPermissions() {
-    try {
-      const res = await fetch('/api/staff/permissions');
-      const data = await res.json();
-      if (data.success) {
-        staffPermissions = data.data || {};
-      }
-    } catch (err) {
-      console.error('Failed to fetch permissions:', err);
-    }
-  }
 
   $: filteredStaff = staff.filter(member => {
     const search = searchTerm.toLowerCase();
@@ -118,12 +107,20 @@
     loading = true;
     errorMsg = "";
     try {
+      // build permissions object if provided
+      const permsObj: Record<string, boolean> = {};
+      if (event.detail.permissions && typeof event.detail.permissions === 'object') {
+        permissionsList.forEach(p => {
+          permsObj[p.key] = event.detail.permissions[p.key] || false;
+        });
+      }
+
       const res = await fetch('/api/staff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...event.detail.formData,
-          permissionKeys: event.detail.permissionKeys
+          permissions: permsObj
         })
       });
       const data = await res.json();
@@ -151,7 +148,7 @@
     loading = true;
     errorMsg = "";
     try {
-      const { id, username, password, permissionKeys, uniqueId } = event.detail;
+      const { id, username, password, permissions, uniqueId } = event.detail;
 
       // 1. Update username/password if changed
       if (
@@ -173,14 +170,11 @@
       }
 
       // 2. Update permissions for this staff member
-      if (
-        uniqueId &&
-        Array.isArray(permissionKeys)
-      ) {
+      if (uniqueId && permissions && typeof permissions === 'object') {
         const permRes = await fetch(`/api/staff/${uniqueId}/permissions`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ permissionKeys })
+          body: JSON.stringify(permissions)
         });
 
         if (!permRes.ok) {
@@ -633,7 +627,7 @@
                 <td class="px-6 py-4">
                   <div class="flex flex-wrap gap-2 justify-center">
                     <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {staffPermissions[member.uniqueId]?.permissionKeys?.length || 0} / {permissionsList.length} permissions
+                      {countPermissions(member.permissions)} / {permissionsList.length} permissions
                     </span>
                   </div>
                 </td>
