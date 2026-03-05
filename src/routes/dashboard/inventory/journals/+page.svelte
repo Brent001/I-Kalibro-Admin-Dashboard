@@ -3,12 +3,12 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import AddBooks from "$lib/components/ui/inventory/books/add_books.svelte";
-  import AddCategory from "$lib/components/ui/inventory/books/add_category.svelte";
-  import ViewBook from "$lib/components/ui/inventory/books/view_book.svelte";
+  import AddBooks from "$lib/components/ui/inventory/journals/add_journals.svelte";
+  import AddCategory from "$lib/components/ui/inventory/journals/add_category.svelte";
+  import ViewBook from "$lib/components/ui/inventory/journals/view_journal.svelte";
 
   let searchTerm = "";
-  let committedSearchTerm = ""; // For active filters display - only set on Enter
+  let committedSearchTerm = "";
   let selectedCategory = "all";
   let selectedLanguage = "";
   let categoryDropdownOpen = false;
@@ -18,13 +18,11 @@
   let loading = false;
   let error = "";
 
-  // Get initial values from URL
   $: initialPage = browser ? parseInt($page.url.searchParams.get('page') || '1') : 1;
   $: initialSearch = browser ? $page.url.searchParams.get('q') || '' : '';
   $: initialCategory = browser ? $page.url.searchParams.get('category') || 'all' : 'all';
   $: initialLanguage = browser ? ($page.url.searchParams.get('lang') || $page.url.searchParams.get('language') || '') : '';
 
-  // Set initial values only once on mount
   let initialized = false;
   $: if (browser && !initialized) {
     searchTerm = initialSearch;
@@ -34,7 +32,6 @@
     initialized = true;
   }
 
-  // API response types
   interface ApiBook {
     id: number;
     bookId: string;
@@ -65,7 +62,6 @@
     availableCopies?: number;
     totalCopies?: number;
     categoryId?: number;
-    // Computed fields for display
     copies?: number;
     available?: number;
     published?: string;
@@ -76,7 +72,7 @@
   interface ApiResponse {
     success: boolean;
     data: {
-      books: ApiBook[];
+      journals: ApiBook[];
       pagination: {
         currentPage: number;
         totalPages: number;
@@ -99,26 +95,27 @@
     hasPrevPage: false
   };
 
-  // React to URL parameter changes - only on initial load or explicit navigation
   $: if (browser && initialPage) {
     fetchBooks(initialPage, initialSearch, initialCategory, initialLanguage);
   }
 
-  // Categories - fetch from API
   let categories: { id: number, name: string }[] = [];
   let categoryMap: Record<number, string> = {};
-
-  // Languages - fetch from API
   let languages: string[] = [];
 
   let stats = {
     totalBooks: 0,
+    totalJournals: 0,
     availableCopies: 0,
     borrowedBooks: 0,
-    categoriesCount: 0
+    borrowedJournals: 0,
+    categoriesCount: 0,
+    lowStock: 0,
+    outOfStock: 0,
+    utilization: 0,
+    availability: 0
   };
 
-  // Function to fetch books from API
   async function fetchBooks(page = 1, search = "", category = "", language = "") {
     if (!browser) return;
     loading = true;
@@ -132,7 +129,7 @@
         params.set('category', category);
       }
       if (language) params.set('lang', language);
-      const response = await fetch(`/api/inventory/books?${params.toString()}`, {
+      const response = await fetch(`/api/inventory/journals?${params.toString()}`, {
         method: 'GET',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' }
@@ -145,9 +142,8 @@
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data: ApiResponse = await response.json();
-      if (data.success) {
-        // Transform API data to match your frontend expectations
-        books = data.data.books.map((book: ApiBook) => {
+      if (data?.success && data?.data?.journals) {
+        books = (data.data.journals || []).map((book: ApiBook) => {
           const available = parseInt((book.availableCopies ?? book.copiesAvailable)?.toString() || '0', 10);
           const total = parseInt((book.totalCopies ?? book.copiesAvailable ?? available)?.toString() || '0', 10);
           const status = total > 0 ? (available > 5 ? 'Available' : available > 0 ? 'Limited' : 'Unavailable') : 'Unavailable';
@@ -165,29 +161,33 @@
             category: book.categoryId !== undefined ? categoryMap[book.categoryId] || book.category || 'General' : book.category || 'General'
           } as unknown as Book;
         });
-        pagination = data.data.pagination;
+        pagination = data?.data?.pagination || {
+          currentPage: 1,
+          totalPages: 1,
+          totalCount: 0,
+          limit: 10,
+          hasNextPage: false,
+          hasPrevPage: false
+        };
       } else {
-        throw new Error(data.message || 'Failed to fetch books');
+        throw new Error(data?.message || 'Failed to fetch journals');
       }
     } catch (err) {
-      console.error('Error fetching books:', err);
-      error = err instanceof Error ? err.message : 'An error occurred while fetching books';
+      console.error('Error fetching journals:', err);
+      error = err instanceof Error ? err.message : 'An error occurred while fetching journals';
       books = [];
     } finally {
       loading = false;
     }
   }
 
-  // Debounced search function - auto-searches after delay, commits on Enter
   function debouncedSearch(immediate = false) {
     if (immediate) {
-      // Immediate search for Enter key - commit the search term
       committedSearchTerm = searchTerm.trim();
       performSearch();
     }
   }
 
-  // Function to perform search with URL update (for Enter key and filter changes)
   async function performSearch() {
     const params = new URLSearchParams();
     params.set('page', '1');
@@ -196,12 +196,9 @@
     if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
 
     const queryString = params.toString();
-    await goto(`/dashboard/inventory/books${queryString ? '?' + queryString : ''}`);
+    await goto(`/dashboard/inventory/journal${queryString ? '?' + queryString : ''}`);
   }
 
-
-
-  // Load initial data on component mount and set up polling for updates
   onMount(() => {
     (async () => {
       await Promise.all([
@@ -222,57 +219,44 @@
       }
     }, 15000);
 
-    // Also attempt to connect to server-sent events for near-real-time updates
     let es: EventSource | null = null;
     let reconnectTimeout: number | null = null;
     let retryMs = 1000;
 
     function connectSSE() {
       if (typeof window === 'undefined') return;
-      if (es) {
-        es.close();
-        es = null;
-      }
-
+      if (es) { es.close(); es = null; }
       try {
-        es = new EventSource('/api/inventory/books/updates');
-
-        es.onopen = () => {
+        es = new EventSource('/api/inventory/journals/updates');
+        es.onopen = () => { 
           retryMs = 1000;
           console.debug('SSE connected');
         };
-
         es.onmessage = async (ev) => {
-          // Generic message - refresh stats and current page
           try {
             await fetchStats();
             await fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage);
           } catch (e) {
-            console.debug('SSE update handler failed:', e);
+            console.debug('SSE message handled:', e);
           }
         };
-
-        es.addEventListener('book-created', async (ev: MessageEvent) => {
+        es.addEventListener('journal-created', async (ev: MessageEvent) => {
           try {
             await fetchStats();
-            // New books usually should go to page 1; only change if user is already on page 1
             if (pagination.currentPage === 1) {
               await fetchBooks(1, committedSearchTerm, selectedCategory, selectedLanguage);
             }
           } catch (e) {
-            console.debug('book-created handler failed:', e);
+            console.debug('Journal created event handled:', e);
           }
         });
-
-        es.onerror = () => {
-          console.debug('SSE error, will attempt reconnect');
-          if (es) {
-            es.close();
-            es = null;
-          }
+        es.onerror = (err) => {
+          console.debug('SSE error:', err);
+          if (es) { es.close(); es = null; }
           scheduleReconnect();
         };
       } catch (err) {
+        console.debug('SSE connection error:', err);
         scheduleReconnect();
       }
     }
@@ -281,27 +265,14 @@
       if (reconnectTimeout) return;
       reconnectTimeout = window.setTimeout(() => {
         reconnectTimeout = null;
-        // Increase retry time (exponential backoff)
         retryMs = Math.min(30000, retryMs * 2);
-        // Only attempt reconnect if online
         if (navigator.onLine) connectSSE();
       }, retryMs);
     }
 
-    // Pause reconnect attempts when offline
-    function handleOnline() {
-      if (!es) connectSSE();
-    }
-
+    function handleOnline() { if (!es) connectSSE(); }
     window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', () => {
-      if (es) {
-        es.close();
-        es = null;
-      }
-    });
-
-    // Start SSE connection
+    window.addEventListener('offline', () => { if (es) { es.close(); es = null; } });
     connectSSE();
 
     return () => {
@@ -313,18 +284,12 @@
     };
   });
 
-  // Close dropdowns when clicking outside
   function handleClickOutside(event: MouseEvent) {
     const target = event.target as HTMLElement;
-    if (!target.closest('.category-dropdown')) {
-      categoryDropdownOpen = false;
-    }
-    if (!target.closest('.language-dropdown')) {
-      languageDropdownOpen = false;
-    }
+    if (!target.closest('.category-dropdown')) categoryDropdownOpen = false;
+    if (!target.closest('.language-dropdown')) languageDropdownOpen = false;
   }
 
-  // Add click outside listener
   $: if (browser) {
     if (categoryDropdownOpen) {
       document.addEventListener('click', handleClickOutside);
@@ -333,142 +298,140 @@
     }
   }
 
-  // Function to fetch categories from API
   async function fetchCategories() {
     if (!browser) return;
     try {
-      const response = await fetch('/api/inventory/books/categories?itemType=book', {
-        credentials: 'include'
-      });
+      const response = await fetch('/api/inventory/journals/categories?itemType=journal', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
-        if (data.success) {
-          categories = data.data.categories;
-          // Build categoryMap for ID -> name lookup
+        if (data?.success && data?.data?.categories) {
+          categories = data.data.categories || [];
           categoryMap = {};
           for (const cat of categories) {
-            if (cat && cat.id && cat.name) {
-              categoryMap[cat.id] = cat.name;
-            }
+            if (cat && cat.id && cat.name) categoryMap[cat.id] = cat.name;
           }
         }
       }
-    } catch (err) {
-      console.error('Error fetching categories:', err);
-    }
+    } catch (err) { console.error('Error fetching categories:', err); }
   }
 
-  // Function to fetch languages from API
   async function fetchLanguages() {
     if (!browser) return;
     try {
-      const response = await fetch('/api/inventory/books/languages', {
-        credentials: 'include'
-      });
+      const response = await fetch('/api/inventory/journals/languages', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
-        if (data.success) {
-          languages = data.data.languages;
-        }
+        if (data?.success && data?.data?.languages) languages = data.data.languages || [];
       }
-    } catch (err) {
-      console.error('Error fetching languages:', err);
-    }
+    } catch (err) { console.error('Error fetching languages:', err); }
   }
 
-  // Function to fetch statistics from API
   async function fetchStats() {
     if (!browser) return;
-    
     try {
-      const response = await fetch('/api/inventory/books/stats', {
-        credentials: 'include'
-      });
-
+      const response = await fetch('/api/inventory/journals/stats', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
-        if (data.success) {
+        if (data?.data) {
           stats = data.data;
+        } else {
+          stats = {
+            totalBooks: 0,
+            totalJournals: 0,
+            availableCopies: 0,
+            borrowedBooks: 0,
+            borrowedJournals: 0,
+            categoriesCount: 0,
+            lowStock: 0,
+            outOfStock: 0,
+            utilization: 0,
+            availability: 0
+          };
         }
+      } else {
+        stats = {
+          totalBooks: 0,
+          totalJournals: 0,
+          availableCopies: 0,
+          borrowedBooks: 0,
+          borrowedJournals: 0,
+          categoriesCount: 0,
+          lowStock: 0,
+          outOfStock: 0,
+          utilization: 0,
+          availability: 0
+        };
       }
     } catch (err) {
       console.error('Error fetching stats:', err);
+      stats = {
+        totalBooks: 0,
+        totalJournals: 0,
+        availableCopies: 0,
+        borrowedBooks: 0,
+        borrowedJournals: 0,
+        categoriesCount: 0,
+        lowStock: 0,
+        outOfStock: 0,
+        utilization: 0,
+        availability: 0
+      };
     }
   }
 
-  // Function to delete a book
   async function deleteBook(bookId: number, bookTitle: string) {
-    if (!confirm(`Are you sure you want to delete "${bookTitle}"?`)) {
-      return;
-    }
-
+    if (!confirm(`Are you sure you want to delete "${bookTitle}"?`)) return;
     try {
-      const response = await fetch('/api/inventory/books', {
+      const response = await fetch('/api/inventory/journals', {
         method: 'DELETE',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: bookId, itemType: 'book' })
+        body: JSON.stringify({ id: bookId, itemType: 'journal' })
       });
-
       const data = await response.json();
-      
       if (response.ok && data.success) {
-        // Refresh data with current pagination and filters
         await Promise.all([
           fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
           fetchStats()
         ]);
       } else {
-        throw new Error(data.message || 'Failed to delete book');
+        throw new Error(data.message || 'Failed to delete journal');
       }
     } catch (err) {
-      console.error('Error deleting book:', err);
-      error = err instanceof Error ? err.message : 'An error occurred while deleting the book';
+      console.error('Error deleting journal:', err);
+      error = err instanceof Error ? err.message : 'An error occurred while deleting the journal';
     }
   }
 
-  // Event handlers for the modal
   async function handleAddBookSuccess(event: CustomEvent) {
-    console.log('Book added successfully:', event.detail);
-    // Close modal, go to first page and refresh list and stats
     showAddModal = false;
     pagination.currentPage = 1;
     await fetchBooks(1, committedSearchTerm, selectedCategory, selectedLanguage);
     await fetchStats();
-    goto(`/dashboard/inventorybooks?page=1`, { replaceState: true });
+    goto(`/dashboard/inventory/journal?page=1`, { replaceState: true });
   }
 
   function handleAddBookError(event: CustomEvent) {
-    console.error('Error adding book:', event.detail);
     error = event.detail.message;
   }
 
-  function handleModalClose() {
-    showAddModal = false;
-  }
+  function handleModalClose() { showAddModal = false; }
 
-  // Category management
   let newCategoryName = "";
   let newCategoryDescription = "";
   let categoryError = "";
   let categoryLoading = false;
 
   async function addCategory() {
-    if (!newCategoryName.trim()) {
-      categoryError = "Category name is required.";
-      return;
-    }
+    if (!newCategoryName.trim()) { categoryError = "Category name is required."; return; }
     categoryLoading = true;
     categoryError = "";
     try {
-      const response = await fetch('/api/books/categories', {
+      const response = await fetch('/api/inventory/journals/categories', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newCategoryName.trim(),
-          description: newCategoryDescription.trim()
-        })
+        body: JSON.stringify({ name: newCategoryName.trim(), description: newCategoryDescription.trim(), itemType: 'journal' })
       });
       const data = await response.json();
       if (response.ok && data.success) {
@@ -486,21 +449,15 @@
     }
   }
 
-  // Utility function for status color
   function getStatusColor(status: string) {
     switch (status) {
-      case 'Available':
-        return 'bg-green-100 text-green-600';
-      case 'Limited':
-        return 'bg-amber-100 text-amber-600';
-      case 'Unavailable':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-slate-100 text-slate-800';
+      case 'Available': return 'bg-green-100 text-green-600';
+      case 'Limited': return 'bg-amber-100 text-amber-600';
+      case 'Unavailable': return 'bg-red-100 text-red-800';
+      default: return 'bg-slate-100 text-slate-800';
     }
   }
 
-  // Pagination handlers
   function goToPage(page: number) {
     if (page >= 1 && page <= pagination.totalPages) {
       const params = new URLSearchParams();
@@ -508,62 +465,31 @@
       if (committedSearchTerm) params.set('q', committedSearchTerm);
       if (selectedCategory && selectedCategory !== 'all') params.set('category', selectedCategory);
       if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
-      
       const queryString = params.toString();
-      goto(`/dashboard/inventory/books${queryString ? '?' + queryString : ''}`);
+      goto(`/dashboard/inventory/journal${queryString ? '?' + queryString : ''}`);
     }
   }
 
-  function nextPage() {
-    if (pagination.hasNextPage) {
-      goToPage(pagination.currentPage + 1);
-    }
-  }
+  function nextPage() { if (pagination.hasNextPage) goToPage(pagination.currentPage + 1); }
+  function prevPage() { if (pagination.hasPrevPage) goToPage(pagination.currentPage - 1); }
 
-  function prevPage() {
-    if (pagination.hasPrevPage) {
-      goToPage(pagination.currentPage - 1);
-    }
-  }
-
-  function handleAddCategorySuccess() {
-    showAddCategoryModal = false;
-    fetchCategories();
-  }
-  function handleAddCategoryError(event: CustomEvent) {
-    categoryError = event.detail.message;
-  }
-  function handleAddCategoryClose() {
-    showAddCategoryModal = false;
-  }
+  function handleAddCategorySuccess() { showAddCategoryModal = false; fetchCategories(); }
+  function handleAddCategoryError(event: CustomEvent) { categoryError = event.detail.message; }
+  function handleAddCategoryClose() { showAddCategoryModal = false; }
 
   let showViewBookModal = false;
   let showEditBookModal = false;
   let selectedBook: Book | null = null;
 
-  function openViewBookModal(book: Book) {
-    selectedBook = book;
-    showViewBookModal = true;
-    showEditBookModal = false;
-  }
-
-  function openEditBookModal(book: Book) {
-    selectedBook = book;
-    showEditBookModal = true;
-    showViewBookModal = false;
-  }
-
-  function closeBookModal() {
-    showViewBookModal = false;
-    showEditBookModal = false;
-    selectedBook = null;
-  }
+  function openViewBookModal(book: Book) { selectedBook = book; showViewBookModal = true; showEditBookModal = false; }
+  function openEditBookModal(book: Book) { selectedBook = book; showEditBookModal = true; showViewBookModal = false; }
+  function closeBookModal() { showViewBookModal = false; showEditBookModal = false; selectedBook = null; }
 
   function handleBookSave(event: CustomEvent) {
     (async () => {
       const updatedData = event.detail;
       try {
-        const response = await fetch('/api/books', {
+        const response = await fetch('/api/inventory/journals', {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -577,49 +503,29 @@
             fetchStats()
           ]);
         } else {
-          throw new Error(data.message || 'Failed to update book');
+          throw new Error(data.message || 'Failed to update journal');
         }
       } catch (err) {
-        console.error('Error updating book:', err);
-        error = err instanceof Error ? err.message : 'An error occurred while updating the book';
+        console.error('Error updating journal:', err);
+        error = err instanceof Error ? err.message : 'An error occurred while updating the journal';
       }
     })();
   }
 
-  // Generate page numbers to display
   $: pageNumbers = (() => {
     const pages: (number | string)[] = [];
     const total = pagination.totalPages;
     const current = pagination.currentPage;
-    const delta = 2; // pages to show around current
-
-    // Always show first page
-    if (1 < current - delta) {
-      pages.push(1);
-      if (2 < current - delta) pages.push('...');
-    }
-
-    // Show pages around current
-    for (let i = Math.max(1, current - delta); i <= Math.min(total, current + delta); i++) {
-      pages.push(i);
-    }
-
-    // Always show last page
-    if (total > current + delta) {
-      if (total - 1 > current + delta) pages.push('...');
-      pages.push(total);
-    }
-
+    const delta = 2;
+    if (1 < current - delta) { pages.push(1); if (2 < current - delta) pages.push('...'); }
+    for (let i = Math.max(1, current - delta); i <= Math.min(total, current + delta); i++) pages.push(i);
+    if (total > current + delta) { if (total - 1 > current + delta) pages.push('...'); pages.push(total); }
     return pages;
   })();
 
-  // Update category dropdown for filters
   $: categoryDropdownOptions = ['all', ...categories.filter(c => c && c.name).map(c => c.name)];
-
-  // Function to check if any filters are active
   $: hasActiveFilters = committedSearchTerm.trim() !== '' || selectedCategory !== 'all' || selectedLanguage.trim() !== '';
 
-  // Function to clear all filters
   function clearFilters() {
     searchTerm = '';
     committedSearchTerm = '';
@@ -630,15 +536,15 @@
 </script>
 
 <svelte:head>
-  <title>Books | E-Kalibro Admin Portal</title>
+  <title>Journals | E-Kalibro Admin Portal</title>
 </svelte:head>
 
 <div class="space-y-4">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-bold text-slate-900">Book Management</h2>
-        <p class="text-slate-600">Manage your library's book collection</p>
+        <h2 class="text-2xl font-bold text-slate-900">Journal Management</h2>
+        <p class="text-slate-600">Manage your library's journal collection</p>
       </div>
       <div class="flex justify-center gap-2">
         <button
@@ -648,7 +554,7 @@
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
           </svg>
-          Add New Book
+          Add New Journal
         </button>
         <button
           on:click={() => showAddCategoryModal = true}
@@ -660,9 +566,9 @@
           Add Category
         </button>
         <button
-          on:click={() => goto('/dashboard/inventory/books/quick_add')}
+          on:click={() => goto('/dashboard/inventory/journal/quick_add')}
           class="inline-flex items-center justify-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-lg text-slate-900 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
-          title="Quick Add Books"
+          title="Quick Add Journals"
         >
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
@@ -701,7 +607,6 @@
 
     <!-- Stats Cards -->
     {#if loading && books.length === 0}
-      <!-- Stats Skeleton -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {#each Array(4) as _, i}
           <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
@@ -714,19 +619,23 @@
         {/each}
       </div>
     {:else}
-      <!-- Stats Cards -->
+      <!-- Stats Cards — each with a distinct color -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+
+        <!-- Card 1: Total Journals — Blue -->
         <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           <div class="flex flex-col items-center text-center">
-            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-green-400 to-green-600 shadow-sm">
+            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-blue-400 to-blue-600 shadow-sm">
               <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
               </svg>
             </div>
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Total Books</p>
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Total Journals</p>
             <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.totalBooks}</p>
           </div>
         </div>
+
+        <!-- Card 2: Available Copies — Green -->
         <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           <div class="flex flex-col items-center text-center">
             <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-green-400 to-green-600 shadow-sm">
@@ -738,6 +647,8 @@
             <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.availableCopies}</p>
           </div>
         </div>
+
+        <!-- Card 3: Borrowed — Amber -->
         <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           <div class="flex flex-col items-center text-center">
             <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-amber-400 to-amber-600 shadow-sm">
@@ -750,9 +661,11 @@
             <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.borrowedBooks}</p>
           </div>
         </div>
+
+        <!-- Card 4: Categories — Purple -->
         <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           <div class="flex flex-col items-center text-center">
-            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-amber-400 to-amber-600 shadow-sm">
+            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-purple-400 to-purple-600 shadow-sm">
               <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
               </svg>
@@ -761,6 +674,7 @@
             <p class="text-lg sm:text-xl font-bold text-gray-900">{Math.max(0, stats.categoriesCount)}</p>
           </div>
         </div>
+
       </div>
     {/if}
 
@@ -831,6 +745,7 @@
         </div>
       </div>
     {/if}
+
     <!-- Filters and Search -->
     <div class="bg-white p-4 lg:p-6 rounded-xl shadow-lg border border-slate-200">
       <div class="flex flex-col lg:flex-row gap-4">
@@ -844,11 +759,7 @@
               type="text"
               placeholder="Search by title, author, or ISBN..."
               bind:value={searchTerm}
-              on:keydown={(e) => {
-                if (e.key === 'Enter') {
-                  debouncedSearch(true);
-                }
-              }}
+              on:keydown={(e) => { if (e.key === 'Enter') debouncedSearch(true); }}
               class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200 {committedSearchTerm ? 'border-green-500 bg-green-50' : ''}"
               disabled={loading}
             />
@@ -859,118 +770,82 @@
             {/if}
             {#if committedSearchTerm}
               <div class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center">
-                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  Active
-                </span>
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
               </div>
             {/if}
           </div>
         </div>
         <div class="flex flex-col sm:flex-row gap-2">
+          <!-- Category Dropdown -->
           <div class="relative category-dropdown">
-            <!-- Custom Category Dropdown -->
             <div class="relative">
               <button
                 on:click={() => categoryDropdownOpen = !categoryDropdownOpen}
                 class="px-4 py-3 w-full sm:w-48 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200 {selectedCategory !== 'all' ? 'border-green-500 bg-green-50' : ''} flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={loading}
               >
-                <span class="truncate">
-                  {selectedCategory === 'all' ? 'All Categories' : selectedCategory}
-                </span>
-                <svg 
-                  class="h-4 w-4 ml-2 transition-transform duration-200 {categoryDropdownOpen ? 'rotate-180' : ''}" 
-                  fill="none" 
-                  stroke="currentColor" 
-                  stroke-width="2" 
-                  viewBox="0 0 24 24"
-                >
+                <span class="truncate">{selectedCategory === 'all' ? 'All Categories' : selectedCategory}</span>
+                <svg class="h-4 w-4 ml-2 transition-transform duration-200 {categoryDropdownOpen ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                 </svg>
               </button>
-              
               {#if categoryDropdownOpen}
                 <div class="absolute z-10 mt-1 w-full sm:w-48 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                  <button 
-                    type="button"
-                    on:click={() => { selectedCategory = 'all'; categoryDropdownOpen = false; performSearch(); }}
-                    class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {selectedCategory === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}"
-                  >
+                  <button type="button" on:click={() => { selectedCategory = 'all'; categoryDropdownOpen = false; performSearch(); }}
+                    class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {selectedCategory === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}">
                     All Categories
                   </button>
                   {#each categories.filter(c => c && c.name) as category}
-                    <button 
-                      type="button"
-                      on:click={() => { selectedCategory = category.name; categoryDropdownOpen = false; performSearch(); }}
-                      class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {selectedCategory === category.name ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}"
-                    >
+                    <button type="button" on:click={() => { selectedCategory = category.name; categoryDropdownOpen = false; performSearch(); }}
+                      class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {selectedCategory === category.name ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}">
                       {category.name}
                     </button>
                   {/each}
                 </div>
               {/if}
             </div>
-            
             {#if selectedCategory !== 'all'}
               <div class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center">
-                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  Active
-                </span>
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
               </div>
             {/if}
           </div>
+
+          <!-- Language Dropdown -->
           <div class="relative language-dropdown">
-            <!-- Custom Language Dropdown -->
             <div class="relative">
               <button
                 on:click={() => languageDropdownOpen = !languageDropdownOpen}
                 class="px-4 py-3 w-full sm:w-48 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200 {selectedLanguage ? 'border-green-500 bg-green-50' : ''} flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={loading}
               >
-                <span class="truncate">
-                  {selectedLanguage || 'All Languages'}
-                </span>
-                <svg 
-                  class="h-4 w-4 ml-2 transition-transform duration-200 {languageDropdownOpen ? 'rotate-180' : ''}" 
-                  fill="none" 
-                  stroke="currentColor" 
-                  stroke-width="2" 
-                  viewBox="0 0 24 24"
-                >
+                <span class="truncate">{selectedLanguage || 'All Languages'}</span>
+                <svg class="h-4 w-4 ml-2 transition-transform duration-200 {languageDropdownOpen ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                 </svg>
               </button>
-              
               {#if languageDropdownOpen}
                 <div class="absolute z-10 mt-1 w-full sm:w-48 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                  <button 
-                    type="button"
-                    on:click={() => { selectedLanguage = ''; languageDropdownOpen = false; performSearch(); }}
-                    class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {!selectedLanguage ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}"
-                  >
+                  <button type="button" on:click={() => { selectedLanguage = ''; languageDropdownOpen = false; performSearch(); }}
+                    class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {!selectedLanguage ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}">
                     All Languages
                   </button>
                   {#each languages as language}
-                    <button 
-                      type="button"
-                      on:click={() => { selectedLanguage = language; languageDropdownOpen = false; performSearch(); }}
-                      class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {selectedLanguage === language ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}"
-                    >
+                    <button type="button" on:click={() => { selectedLanguage = language; languageDropdownOpen = false; performSearch(); }}
+                      class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {selectedLanguage === language ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}">
                       {language}
                     </button>
                   {/each}
                 </div>
               {/if}
             </div>
-            
             {#if selectedLanguage}
               <div class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center">
-                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  Active
-                </span>
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
               </div>
             {/if}
           </div>
+
           <button class="px-4 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 flex items-center justify-center text-slate-700 transition-colors duration-200" disabled={loading}>
             <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
@@ -985,284 +860,191 @@
 
     <!-- Loading State with Skeleton -->
     {#if loading && books.length === 0}
-      <!-- Desktop Table Skeleton -->
       <div class="bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-slate-200">
             <thead class="bg-slate-50">
               <tr>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Book Details
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Category
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Availability
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Status
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Journal Details</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Category</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Availability</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody class="bg-white divide-y divide-slate-100">
               {#each Array(8) as _, i}
                 <tr class="animate-pulse">
-                  <td class="px-6 py-4">
-                    <div class="space-y-2">
-                      <div class="h-4 bg-slate-200 rounded w-3/4"></div>
-                      <div class="h-3 bg-slate-200 rounded w-1/2"></div>
-                      <div class="h-3 bg-slate-200 rounded w-2/3"></div>
-                    </div>
-                  </td>
-                  <td class="px-6 py-4">
-                    <div class="h-6 bg-slate-200 rounded-full w-20"></div>
-                  </td>
-                  <td class="px-6 py-4">
-                    <div class="space-y-2">
-                      <div class="h-3 bg-slate-200 rounded w-24 mb-2"></div>
-                      <div class="h-2 bg-slate-200 rounded-full w-full"></div>
-                    </div>
-                  </td>
-                  <td class="px-6 py-4">
-                    <div class="h-6 bg-slate-200 rounded-full w-20"></div>
-                  </td>
-                  <td class="px-6 py-4">
-                    <div class="flex space-x-3">
-                      <div class="h-4 w-4 bg-slate-200 rounded"></div>
-                      <div class="h-4 w-4 bg-slate-200 rounded"></div>
-                      <div class="h-4 w-4 bg-slate-200 rounded"></div>
-                    </div>
-                  </td>
+                  <td class="px-6 py-4"><div class="space-y-2"><div class="h-4 bg-slate-200 rounded w-3/4"></div><div class="h-3 bg-slate-200 rounded w-1/2"></div><div class="h-3 bg-slate-200 rounded w-2/3"></div></div></td>
+                  <td class="px-6 py-4"><div class="h-6 bg-slate-200 rounded-full w-20"></div></td>
+                  <td class="px-6 py-4"><div class="space-y-2"><div class="h-3 bg-slate-200 rounded w-24 mb-2"></div><div class="h-2 bg-slate-200 rounded-full w-full"></div></div></td>
+                  <td class="px-6 py-4"><div class="h-6 bg-slate-200 rounded-full w-20"></div></td>
+                  <td class="px-6 py-4"><div class="flex space-x-3"><div class="h-4 w-4 bg-slate-200 rounded"></div><div class="h-4 w-4 bg-slate-200 rounded"></div><div class="h-4 w-4 bg-slate-200 rounded"></div></div></td>
                 </tr>
               {/each}
             </tbody>
           </table>
         </div>
       </div>
-
-      <!-- Mobile Card Skeleton -->
       <div class="grid grid-cols-1 gap-3 lg:hidden">
         {#each Array(5) as _, i}
           <div class="bg-white p-4 rounded-xl shadow-lg border border-slate-200 animate-pulse">
             <div class="flex items-start justify-between mb-3">
-              <div class="flex-1 space-y-2">
-                <div class="h-4 bg-slate-200 rounded w-3/4"></div>
-                <div class="h-3 bg-slate-200 rounded w-1/2"></div>
-                <div class="h-3 bg-slate-200 rounded w-2/3"></div>
-              </div>
+              <div class="flex-1 space-y-2"><div class="h-4 bg-slate-200 rounded w-3/4"></div><div class="h-3 bg-slate-200 rounded w-1/2"></div><div class="h-3 bg-slate-200 rounded w-2/3"></div></div>
               <div class="h-6 bg-slate-200 rounded-full w-16 ml-3"></div>
             </div>
-            
-            <div class="flex items-center justify-between mb-3">
-              <div class="h-6 bg-slate-200 rounded-full w-20"></div>
-              <div class="h-3 bg-slate-200 rounded w-24"></div>
-            </div>
-
-            <div class="mb-4">
-              <div class="w-full bg-slate-200 rounded-full h-2"></div>
-            </div>
-
-            <div class="flex justify-end space-x-3">
-              <div class="h-8 w-8 bg-slate-200 rounded-lg"></div>
-              <div class="h-8 w-8 bg-slate-200 rounded-lg"></div>
-              <div class="h-8 w-8 bg-slate-200 rounded-lg"></div>
-            </div>
+            <div class="flex items-center justify-between mb-3"><div class="h-6 bg-slate-200 rounded-full w-20"></div><div class="h-3 bg-slate-200 rounded w-24"></div></div>
+            <div class="mb-4"><div class="w-full bg-slate-200 rounded-full h-2"></div></div>
+            <div class="flex justify-end space-x-3"><div class="h-8 w-8 bg-slate-200 rounded-lg"></div><div class="h-8 w-8 bg-slate-200 rounded-lg"></div><div class="h-8 w-8 bg-slate-200 rounded-lg"></div></div>
           </div>
         {/each}
       </div>
     {/if}
 
-    <!-- Book List -->
+    <!-- Journal List -->
     {#key 'book-list'}
       <!-- Desktop Table View -->
       {#if !loading || books.length > 0}
         <div class="bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
-        <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200">
-            <thead class="bg-slate-50">
-              <tr>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Book Details
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Category
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Availability
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Status
-                </th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody class="bg-white divide-y divide-slate-100">
-              {#each books as book}
-                <tr class="hover:bg-yellow-50 transition-colors duration-200">
-                  <td class="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div class="text-sm font-semibold text-slate-900">{book.title}</div>
-                      <div class="text-sm text-slate-600">by {book.author}</div>
-                      <div class="text-xs text-slate-400">ISBN: {book.isbn} • {book.published}</div>
-                    </div>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap">
-                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
-                      {book.category || 'General'}
-                    </span>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
-                    <div class="mb-2">
-                      <span class="font-semibold">{book.availableCopies ?? book.copiesAvailable ?? 0}</span> / <span class="font-medium">{book.totalCopies ?? book.copiesAvailable ?? 0}</span> available
-                    </div>
-                    <div class="w-full bg-slate-200 rounded-full h-2">
-                      <div
-                        class="bg-green-600 h-2 rounded-full transition-all duration-300"
-                        style="width: {book.totalCopies && book.totalCopies > 0 ? Math.min(Math.round(( (book.availableCopies ?? book.copiesAvailable ?? 0) / book.totalCopies) * 100), 100) : 0}%"
-                      ></div>
-                    </div>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap">
-                    <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(book.status || 'Unknown')}`}>
-                      {book.status || 'Unknown'}
-                    </span>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div class="flex space-x-3">
-                      <button
-                        aria-label="View Details"
-                        class="text-slate-600 hover:text-slate-900 transition-colors duration-200"
-                        title="View Details"
-                        on:click={() => openViewBookModal(book)}
-                      >
-                        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                          <circle cx="12" cy="12" r="3"/>
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                        </svg>
-                      </button>
-                      <button
-                        aria-label="Edit Book"
-                        class="text-green-600 hover:text-green-700 transition-colors duration-200"
-                        title="Edit Book"
-                        on:click={() => openEditBookModal(book)}
-                      >
-                        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
-                        </svg>
-                      </button>
-                      <button aria-label="Delete Book" 
-                        class="text-red-600 hover:text-red-700 transition-colors duration-200" 
-                        title="Delete Book"
-                        on:click={() => deleteBook(book.id, book.title)}
-                      >
-                        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                          <polyline points="3 6 5 6 21 6"/>
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m5 6v6m4-6v6"/>
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M10 11V17M14 11V17"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200">
+              <thead class="bg-slate-50">
+                <tr>
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Journal Details</th>
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Category</th>
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Availability</th>
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
                 </tr>
-              {/each}
-            </tbody>
-          </table>
-          
+              </thead>
+              <tbody class="bg-white divide-y divide-slate-100">
+                {#each books as book}
+                  <tr class="hover:bg-yellow-50 transition-colors duration-200">
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div class="text-sm font-semibold text-slate-900">{book.title}</div>
+                        <div class="text-sm text-slate-600">by {book.author}</div>
+                        <div class="text-xs text-slate-400">ISBN: {book.isbn} • {book.published}</div>
+                      </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
+                        {book.category || 'General'}
+                      </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
+                      <div class="mb-2">
+                        <span class="font-semibold">{book.availableCopies ?? book.copiesAvailable ?? 0}</span> / <span class="font-medium">{book.totalCopies ?? book.copiesAvailable ?? 0}</span> available
+                      </div>
+                      <div class="w-full bg-slate-200 rounded-full h-2">
+                        <div
+                          class="bg-green-600 h-2 rounded-full transition-all duration-300"
+                          style="width: {book.totalCopies && book.totalCopies > 0 ? Math.min(Math.round(((book.availableCopies ?? book.copiesAvailable ?? 0) / book.totalCopies) * 100), 100) : 0}%"
+                        ></div>
+                      </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(book.status || 'Unknown')}`}>
+                        {book.status || 'Unknown'}
+                      </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div class="flex space-x-3">
+                        <button aria-label="View Details" class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details" on:click={() => openViewBookModal(book)}>
+                          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                          </svg>
+                        </button>
+                        <button aria-label="Edit Journal" class="text-green-600 hover:text-green-700 transition-colors duration-200" title="Edit Journal" on:click={() => openEditBookModal(book)}>
+                          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
+                          </svg>
+                        </button>
+                        <button aria-label="Delete Journal" class="text-red-600 hover:text-red-700 transition-colors duration-200" title="Delete Journal" on:click={() => deleteBook(book.id, book.title)}>
+                          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m5 6v6m4-6v6"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M10 11V17M14 11V17"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+            {#if books.length === 0 && !loading}
+              <div class="text-center py-8">
+                <p class="text-slate-500">No journals found matching your criteria.</p>
+              </div>
+            {/if}
+          </div>
+        </div>
+      {/if}
+
+      <!-- Mobile Card View -->
+      {#if !loading || books.length > 0}
+        <div class="grid grid-cols-1 gap-3 lg:hidden">
+          {#each books as book}
+            <div class="bg-white p-4 rounded-xl shadow-lg border border-slate-200">
+              <div class="flex items-start justify-between mb-3">
+                <div class="flex-1 min-w-0">
+                  <h3 class="text-base font-semibold text-slate-900 truncate">{book.title}</h3>
+                  <p class="text-sm text-slate-600">by {book.author}</p>
+                  <p class="text-xs text-slate-400">ISBN: {book.isbn} • {book.published}</p>
+                </div>
+                <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(book.status || 'Unknown')} ml-3`}>
+                  {book.status || 'Unknown'}
+                </span>
+              </div>
+              <div class="flex items-center justify-between mb-3">
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
+                  {book.category || 'General'}
+                </span>
+                <div class="text-right">
+                  <div class="text-sm text-slate-900">
+                    <span class="font-semibold">{book.availableCopies ?? book.copiesAvailable ?? 0}</span> / <span class="font-medium">{book.totalCopies ?? book.copiesAvailable ?? 0}</span> copies
+                  </div>
+                </div>
+              </div>
+              <div class="mb-4">
+                <div class="w-full bg-slate-200 rounded-full h-2">
+                  <div
+                    class="bg-green-600 h-2 rounded-full transition-all duration-300"
+                    style="width: {book.totalCopies && book.totalCopies > 0 ? Math.min(Math.round(((book.availableCopies ?? book.copiesAvailable ?? 0) / book.totalCopies) * 100), 100) : 0}%"
+                  ></div>
+                </div>
+              </div>
+              <div class="flex justify-center space-x-3">
+                <button aria-label="View Details" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors duration-200" title="View Details" on:click={() => openViewBookModal(book)}>
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                  </svg>
+                </button>
+                <button aria-label="Edit Journal" class="p-2 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors duration-200" title="Edit Journal" on:click={() => openEditBookModal(book)}>
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
+                  </svg>
+                </button>
+                <button aria-label="Delete Journal" class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" title="Delete Journal" on:click={() => deleteBook(book.id, book.title)}>
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m5 6v6m4-6v6"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 11V17M14 11V17"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          {/each}
           {#if books.length === 0 && !loading}
-            <div class="text-center py-8">
-              <p class="text-slate-500">No books found matching your criteria.</p>
+            <div class="bg-white p-8 rounded-xl shadow-lg border border-slate-200 text-center">
+              <p class="text-slate-500">No journals found matching your criteria.</p>
             </div>
           {/if}
         </div>
-      </div>
-    {/if}
-
-    <!-- Mobile Card View -->
-    {#if !loading || books.length > 0}
-      <div class="grid grid-cols-1 gap-3 lg:hidden">
-        {#each books as book}
-          <div class="bg-white p-4 rounded-xl shadow-lg border border-slate-200">
-            <div class="flex items-start justify-between mb-3">
-              <div class="flex-1 min-w-0">
-                <h3 class="text-base font-semibold text-slate-900 truncate">{book.title}</h3>
-                <p class="text-sm text-slate-600">by {book.author}</p>
-                <p class="text-xs text-slate-400">ISBN: {book.isbn} • {book.published}</p>
-              </div>
-              <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(book.status || 'Unknown')} ml-3`}>
-                {book.status || 'Unknown'}
-              </span>
-            </div>
-            
-            <div class="flex items-center justify-between mb-3">
-              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
-                {book.category || 'General'}
-              </span>
-              <div class="text-right">
-                <div class="text-sm text-slate-900">
-                  <span class="font-semibold">{book.availableCopies ?? book.copiesAvailable ?? 0}</span> / <span class="font-medium">{book.totalCopies ?? book.copiesAvailable ?? 0}</span> copies
-                </div>
-              </div>
-            </div>
-
-            <div class="mb-4">
-                <div class="w-full bg-slate-200 rounded-full h-2">
-                <div
-                  class="bg-green-600 h-2 rounded-full transition-all duration-300"
-                  style="width: {book.totalCopies && book.totalCopies > 0 ? Math.min(Math.round(((book.availableCopies ?? book.copiesAvailable ?? 0) / book.totalCopies) * 100), 100) : 0}%"
-                ></div>
-              </div>
-            </div>
-
-            <div class="flex justify-center space-x-3">
-              <button
-                aria-label="View Details"
-                class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors duration-200"
-                title="View Details"
-                on:click={() => openViewBookModal(book)}
-              >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="3"/>
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                </svg>
-              </button>
-              <button
-                aria-label="Edit Book"
-                class="p-2 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors duration-200"
-                title="Edit Book"
-                on:click={() => openEditBookModal(book)}
-              >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
-                </svg>
-              </button>
-              <button aria-label="Delete Book" 
-                class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" 
-                title="Delete Book"
-                on:click={() => deleteBook(book.id, book.title)}
-              >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m5 6v6m4-6v6"/>
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M10 11V17M14 11V17"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        {/each}
-        
-        {#if books.length === 0 && !loading}
-          <div class="bg-white p-8 rounded-xl shadow-lg border border-slate-200 text-center">
-            <p class="text-slate-500">No books found matching your criteria.</p>
-          </div>
-        {/if}
-      </div>
-    {/if}
+      {/if}
     {/key}
 
     <!-- Pagination -->
@@ -1274,7 +1056,6 @@
           <span class="font-semibold">{pagination.totalCount}</span> results
         </div>
         <nav class="relative z-0 inline-flex rounded-lg shadow-sm -space-x-px order-1 sm:order-2">
-          <!-- Previous Button -->
           <button 
             on:click={prevPage}
             disabled={!pagination.hasPrevPage || loading}
@@ -1285,13 +1066,9 @@
             </svg>
             <span class="hidden sm:inline">Previous</span>
           </button>
-          
-          <!-- Page Numbers -->
           {#each pageNumbers as pageNum}
             {#if pageNum === '...'}
-              <span class="relative inline-flex items-center px-4 py-2 border border-amber-300 bg-white text-sm font-medium text-slate-700">
-                ...
-              </span>
+              <span class="relative inline-flex items-center px-4 py-2 border border-amber-300 bg-white text-sm font-medium text-slate-700">...</span>
             {:else}
               <button 
                 on:click={() => goToPage(pageNum as number)}
@@ -1302,8 +1079,6 @@
               </button>
             {/if}
           {/each}
-          
-          <!-- Next Button -->
           <button 
             on:click={nextPage}
             disabled={!pagination.hasNextPage || loading}
@@ -1318,25 +1093,25 @@
       </div>
     {/if}
 
-    <!-- Add Book Modal -->
+    <!-- Add Journal Modal -->
     <AddBooks
       isOpen={showAddModal}
+      itemType={'journal'}
       on:close={handleModalClose}
       on:success={handleAddBookSuccess}
       on:bookAdded={handleAddBookSuccess}
       on:error={handleAddBookError}
     />
 
-    <!-- Add Category Modal Component -->
+    <!-- Add Category Modal -->
     <AddCategory
       isOpen={showAddCategoryModal}
       on:success={handleAddCategorySuccess}
       on:error={handleAddCategoryError}
       on:close={handleAddCategoryClose}
-      itemType={'book'}
     />
 
-    <!-- Book View/Edit Modal -->
+    <!-- Journal View/Edit Modal -->
     {#if showViewBookModal || showEditBookModal}
       <ViewBook
         isOpen={showViewBookModal || showEditBookModal}

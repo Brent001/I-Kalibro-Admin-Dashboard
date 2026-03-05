@@ -55,7 +55,8 @@
   async function loadDashboardData() {
     try {
       loading = true; errorMsg = null;
-      const response = await fetch('/api/dashboard', { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+      // POST endpoint clears the cache before returning fresh data
+      const response = await fetch('/api/dashboard', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       const result = await response.json();
       if (result.success && result.data) {
@@ -154,60 +155,64 @@
       <!-- ═══ ROW 1 — Collection stats ═══════════════════════════════════════════ -->
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {#each [
-          { label: 'Total Books',     value: dashboardData.totalBooks,     color: 'from-blue-400 to-blue-600',   icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
-          { label: 'Magazines',       value: dashboardData.totalMagazines, color: 'from-purple-400 to-purple-600',icon: 'M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z' },
-          { label: 'Thesis',          value: dashboardData.totalThesis,    color: 'from-teal-400 to-teal-600',   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-          { label: 'Journals',        value: dashboardData.totalJournals,  color: 'from-orange-400 to-orange-600',icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
+          { label: 'Total Books',     value: dashboardData.totalBooks,     color: 'from-blue-400 to-blue-600',   icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253', link: '/dashboard/inventory/books' },
+          { label: 'Total Magazines',       value: dashboardData.totalMagazines, color: 'from-purple-400 to-purple-600',icon: 'M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z', link: '/dashboard/inventory/magazines' },
+          { label: 'Total Thesis',          value: dashboardData.totalThesis,    color: 'from-teal-400 to-teal-600',   icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', link: '/dashboard/inventory/thesis' },
+          { label: 'Total Journals',        value: dashboardData.totalJournals,  color: 'from-orange-400 to-orange-600',icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253', link: '/dashboard/inventory/journals' },
         ] as stat}
-          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-            {#if loading}
-              <div class="animate-pulse flex flex-col items-center gap-2">
-                <div class="h-10 w-10 bg-gray-200 rounded-lg"></div>
-                <div class="h-5 w-14 bg-gray-200 rounded"></div>
-                <div class="h-3 w-20 bg-gray-200 rounded"></div>
-              </div>
-            {:else}
-              <div class="flex flex-col items-center text-center">
-                <div class="p-2.5 rounded-lg mb-2 bg-gradient-to-br {stat.color} shadow-sm">
-                  <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="{stat.icon}"/>
-                  </svg>
+          <a href="{stat.link}" class="block">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+              {#if loading}
+                <div class="animate-pulse flex flex-col items-center gap-2">
+                  <div class="h-10 w-10 bg-gray-200 rounded-lg"></div>
+                  <div class="h-5 w-14 bg-gray-200 rounded"></div>
+                  <div class="h-3 w-20 bg-gray-200 rounded"></div>
                 </div>
-                <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{stat.label}</p>
-                <p class="text-lg sm:text-xl font-bold text-gray-900">{stat.value.toLocaleString()}</p>
-              </div>
-            {/if}
-          </div>
+              {:else}
+                <div class="flex flex-col items-center text-center">
+                  <div class="p-2.5 rounded-lg mb-2 bg-gradient-to-br {stat.color} shadow-sm">
+                    <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="{stat.icon}"/>
+                    </svg>
+                  </div>
+                  <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{stat.label}</p>
+                  <p class="text-lg sm:text-xl font-bold text-gray-900">{stat.value.toLocaleString()}</p>
+                </div>
+              {/if}
+            </div>
+          </a>
         {/each}
       </div>
 
       <!-- ═══ ROW 2 — Key action stats ══════════════════════════════════════════ -->
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {#each [
-          { label: 'Active Members',   value: dashboardData.activeMembers,           color: 'from-yellow-400 to-yellow-600', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
-          { label: 'Currently Borrowed', value: dashboardData.totalBorrowed,         color: 'from-green-400 to-green-600',   icon: 'M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5' },
-          { label: 'Total Overdue',    value: dashboardData.totalOverdue,            color: 'from-red-400 to-red-600',       icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z' },
-          { label: 'Pending Reservations', value: dashboardData.totalPendingReservations, color: 'from-indigo-400 to-indigo-600', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+          { label: 'Active Members',   value: dashboardData.activeMembers,           color: 'from-yellow-400 to-yellow-600', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' , link: '/dashboard/members' },
+          { label: 'Currently Borrowed', value: dashboardData.totalBorrowed,         color: 'from-green-400 to-green-600',   icon: 'M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5', link: '/dashboard/transactions?tab=borrow' },
+          { label: 'Total Overdue',    value: dashboardData.totalOverdue,            color: 'from-red-400 to-red-600',       icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z', link: '/dashboard/transactions?tab=overdue' },
+          { label: 'Pending Reservations', value: dashboardData.totalPendingReservations, color: 'from-indigo-400 to-indigo-600', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', link: '/dashboard/transactions?tab=reserve' },
         ] as stat}
-          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-            {#if loading}
-              <div class="animate-pulse flex flex-col items-center gap-2">
-                <div class="h-10 w-10 bg-gray-200 rounded-lg"></div>
-                <div class="h-5 w-14 bg-gray-200 rounded"></div>
-                <div class="h-3 w-20 bg-gray-200 rounded"></div>
-              </div>
-            {:else}
-              <div class="flex flex-col items-center text-center">
-                <div class="p-2.5 rounded-lg mb-2 bg-gradient-to-br {stat.color} shadow-sm">
-                  <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="{stat.icon}"/>
-                  </svg>
+          <a href="{stat.link}" class="block">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+              {#if loading}
+                <div class="animate-pulse flex flex-col items-center gap-2">
+                  <div class="h-10 w-10 bg-gray-200 rounded-lg"></div>
+                  <div class="h-5 w-14 bg-gray-200 rounded"></div>
+                  <div class="h-3 w-20 bg-gray-200 rounded"></div>
                 </div>
-                <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{stat.label}</p>
-                <p class="text-lg sm:text-xl font-bold text-gray-900">{stat.value.toLocaleString()}</p>
-              </div>
-            {/if}
-          </div>
+              {:else}
+                <div class="flex flex-col items-center text-center">
+                  <div class="p-2.5 rounded-lg mb-2 bg-gradient-to-br {stat.color} shadow-sm">
+                    <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="{stat.icon}"/>
+                    </svg>
+                  </div>
+                  <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{stat.label}</p>
+                  <p class="text-lg sm:text-xl font-bold text-gray-900">{stat.value.toLocaleString()}</p>
+                </div>
+              {/if}
+            </div>
+          </a>
         {/each}
       </div>
 

@@ -8,6 +8,9 @@
 
   import { writable } from 'svelte/store';
 
+  // pagination constant used by server/clientside helpers
+  const ROWS_PER_PAGE = 100;
+
   let searchTerm = "";
   // status filter removed because tabs handle status
   let selectedItemType = 'all';
@@ -59,7 +62,101 @@
   let returnVerification = { method: "password", password: "", qrData: "", fine: 0 };
 
   // Use transactions from server data
-  const transactions = data.transactions ?? [];
+  let transactions = data.transactions ?? [];
+  let fineSettings: any | null = data.fineSettings || null;
+
+  // server pagination info (initial values provided by +page.server)
+  let serverPage = data.page || 1;
+  let serverLimit = data.limit || ROWS_PER_PAGE;
+  let totalCount: number | null = data.total ?? null;
+
+  // client-side helpers formerly on server
+  function isDateExemptClient(date: Date, settings: any | null) {
+    if (!settings) return false;
+    const ymd = date.toISOString().split('T')[0];
+    if (settings.holidays && Array.isArray(settings.holidays)) {
+      for (const h of settings.holidays) {
+        if (h && h.date === ymd) return true;
+      }
+    }
+    const wd = date.getDay();
+    if (settings.closedWeekdays && Array.isArray(settings.closedWeekdays) && settings.closedWeekdays.includes(wd)) return true;
+    if (settings.excludeSundays && wd === 0) return true;
+    return false;
+  }
+
+  function calculateFineAmountClient(dueDate: Date, currentDate: Date = new Date(), settings: any | null = null) {
+    if (currentDate <= dueDate) return 0;
+    const end = new Date(currentDate);
+    const diffMs = end.getTime() - dueDate.getTime();
+    let totalHoursElapsed = Math.ceil(diffMs / (1000 * 60 * 60));
+    let exemptHours = 0;
+    const cursor = new Date(dueDate);
+    while (cursor < end) {
+      const dayStart = new Date(cursor);
+      dayStart.setHours(0, 0, 0, 0);
+      if (isDateExemptClient(dayStart, settings)) {
+        exemptHours += 1;
+      }
+      cursor.setHours(cursor.getHours() + 1);
+    }
+    const totalNonExemptHours = Math.max(0, totalHoursElapsed - exemptHours);
+    return totalNonExemptHours * 5;
+  }
+
+  function calculateDaysOverdueClient(dueDate: Date, currentDate: Date = new Date(), settings: any | null = null) {
+    const normalizedDueDate = new Date(dueDate);
+    normalizedDueDate.setUTCHours(0, 0, 0, 0);
+    const normalizedCurrentDate = new Date(currentDate);
+    normalizedCurrentDate.setUTCHours(0, 0, 0, 0);
+    if (normalizedCurrentDate <= normalizedDueDate) return 0;
+    const cursor = new Date(dueDate);
+    cursor.setDate(cursor.getDate() + 1);
+    cursor.setHours(0, 0, 0, 0);
+    let count = 0;
+    const end = new Date(currentDate);
+    while (cursor <= end) {
+      if (!isDateExemptClient(cursor, settings)) count++;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return count;
+  }
+
+  function enrichTransaction(t: any) {
+    if (t.dueDate && !t.returnDate && ['borrowed', 'overdue'].includes((t.status||'').toLowerCase())) {
+      const days = calculateDaysOverdueClient(new Date(t.dueDate), new Date(), fineSettings);
+      const fine = calculateFineAmountClient(new Date(t.dueDate), new Date(), fineSettings);
+      const hours = fine > 0 ? Math.ceil(fine / 500) : 0;
+      return { ...t, daysOverdue: days, fine, hoursOverdue: hours };
+    }
+    return { ...t, daysOverdue: 0, fine: 0, hoursOverdue: 0 };
+  }
+
+  // automatically enrich whenever settings or transaction list change
+  $: if (transactions) {
+    transactions = transactions.map(enrichTransaction);
+  }
+
+  async function loadMore() {
+    if (totalCount !== null && transactions.length >= totalCount) return;
+    if (totalCount !== null && transactions.length >= totalCount) return;
+    try {
+      const nextPage = serverPage + 1;
+      const res = await fetch(`/api/transactions?page=${nextPage}&limit=${serverLimit}`);
+      if (!res.ok) throw new Error('failed');
+      const json = await res.json();
+      const more: Transaction[] = json.transactions || [];
+      // enrich each new record using existing settings
+      const enriched = fineSettings ? more.map(enrichTransaction) : more;
+      transactions = [...transactions, ...enriched];
+      serverPage = json.page || nextPage;
+      serverLimit = json.limit || serverLimit;
+      if (json.total != null) totalCount = json.total;
+    } catch (err) {
+      console.error('loadMore error', err);
+      alert('Unable to load more transactions');
+    }
+  }
 
   const tabs = [
     { id: 'all', label: 'All Transactions', icon: 'list' },
@@ -67,7 +164,9 @@
     { id: 'return', label: 'Return', icon: 'upload' },
     { id: 'reserve', label: 'Reserve', icon: 'bookmark' },
     { id: 'fulfilled', label: 'Fulfilled', icon: 'check' },
-    { id: 'cancelled', label: 'Cancelled', icon: 'x' }
+    { id: 'cancelled', label: 'Cancelled', icon: 'x' },
+    // new filter for items that have gone past their due date
+    { id: 'overdue', label: 'Overdue', icon: 'clock' }
   ];
   const itemTypeOptions = [
     { value: 'all', label: 'All Types' },
@@ -157,10 +256,23 @@
     // status already handled by tabs; no extra status filter
     const matchesStatus = true;
     const matchesType = (() => {
+      // user wants only overdue items? check the calculated fields
+      if (activeTab === 'overdue') {
+        return (
+          Number((transaction as any).daysOverdue || 0) > 0 ||
+          Number((transaction as any).hoursOverdue || 0) > 0
+        );
+      }
+
+      // always show fulfilled when user is on 'all' or 'fulfilled' tab
+      const status = transaction.status?.toLowerCase();
+      if (status === 'fulfilled') {
+        return activeTab === 'all' || activeTab === 'fulfilled';
+      }
       if (activeTab === 'all') return true;
-      if (activeTab === 'cancelled') return transaction.status?.toLowerCase() === 'cancelled';
-      if (activeTab === 'reserve') return (transaction.type?.toLowerCase() === 'reserve') && (transaction.status?.toLowerCase() === 'active');
-      if (activeTab === 'fulfilled') return transaction.status?.toLowerCase() === 'fulfilled';
+      if (activeTab === 'cancelled') return status === 'cancelled';
+      if (activeTab === 'reserve') return (transaction.type?.toLowerCase() === 'reserve') && (status === 'active');
+      if (activeTab === 'fulfilled') return status === 'fulfilled';
       return transaction.type?.toLowerCase() === activeTab.toLowerCase();
     })();
     const matchesItemType = selectedItemType === 'all' || (transaction.itemType || '').toLowerCase() === selectedItemType.toLowerCase();
@@ -229,6 +341,39 @@
       case 'fulfilled':  return 'bg-green-500';
       case 'cancelled':  return 'bg-gray-400';
       default:           return 'bg-gray-400';
+    }
+  }
+
+  // determine whether a returned transaction is still within the 1‑hour reversal window
+  function canRevert(transaction: Transaction) {
+    if (!transaction.returnDate) return false;
+    const s = transaction.status?.toLowerCase();
+    // only items still marked returned are eligible; they will stay returned until
+    // staff manually fulfil them (no automatic expiry)
+    if (s !== 'returned') return false;
+    return true;
+  }
+
+  async function revertReturn(transaction: Transaction) {
+    if (!confirm('Are you sure you want to undo this return?')) return;
+    let password = '';
+    if (!transaction || !transaction.id) return;
+    // ask for staff/admin password; empty allowed for admins
+    // prompt returns string|null so normalize to empty string
+    password = prompt('Enter your password (leave blank if you are an admin)') || '';
+    try {
+      const res = await fetch(`/api/transactions/${transaction.id}/return/revert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to revert');
+      alert('Return successfully reverted.');
+      // reload to refresh transactions
+      location.reload();
+    } catch (err: any) {
+      alert(err.message || 'Unable to revert return.');
     }
   }
 
@@ -422,8 +567,19 @@
     updateUrlParams();
   }
 
+  // pagination helpers (limit rendered rows to improve load speed)
+  let currentPage = 1;
+
+  $: totalPages = Math.ceil(filteredTransactions.length / ROWS_PER_PAGE) || 1;
+  // reset to first page whenever filters/search update
+  $: if (searchTerm !== undefined || activeTab !== undefined || selectedItemType !== undefined || selectedPeriod !== undefined || customDays !== undefined) {
+    currentPage = 1;
+  }
+  $: if (currentPage > totalPages) currentPage = totalPages;
+  $: pagedTransactions = filteredTransactions.slice((currentPage - 1) * ROWS_PER_PAGE, currentPage * ROWS_PER_PAGE);
+
   $: stats = {
-    active:   transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'borrowed').length,
+    borrowed: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'borrowed').length,
     returned: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'returned').length,
     overdue:  transactions.filter((t: Transaction) => Number((t as any).daysOverdue || 0) > 0 || Number((t as any).hoursOverdue || 0) > 0).length,
     reserved: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'active' && t.type?.toLowerCase() === 'reserve').length,
@@ -455,8 +611,8 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
           </svg>
         </div>
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Active Loans</p>
-        <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.active}</p>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Borrowed</p>
+        <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.borrowed}</p>
       </div>
     </div>
 
@@ -603,6 +759,12 @@
               <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
             {:else if tab.icon === 'x'}
               <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            {:else if tab.icon === 'clock'}
+              <!-- simple clock icon for overdue tab -->
+              <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M12 6v6l3 3" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
             {/if}
             {tab.label}
           </button>
@@ -723,7 +885,7 @@
           </thead>
 
           <tbody class="divide-y divide-gray-50">
-            {#each filteredTransactions as transaction}
+            {#each pagedTransactions as transaction}
               {@const daysLeft = calculateDaysRemaining(transaction.dueDate)}
               {@const daysOverdue = Number((transaction as any).daysOverdue || 0)}
               {@const hoursOverdue = Number((transaction as any).hoursOverdue || 0) || Math.ceil(Number((transaction as any).fine || 0) / 5)}
@@ -949,12 +1111,36 @@
         </table>
       </div>
 
+      <!-- desktop pagination -->
+      {#if totalPages > 1}
+        <div class="px-6 py-2 flex justify-end items-center space-x-2">
+          <button class="px-2 py-1 border rounded" on:click={() => currentPage = Math.max(1, currentPage-1)} disabled={currentPage === 1}>
+            Prev
+          </button>
+          <span>Page {currentPage} of {totalPages}</span>
+          <button class="px-2 py-1 border rounded" on:click={() => currentPage = Math.min(totalPages, currentPage+1)} disabled={currentPage === totalPages}>
+            Next
+          </button>
+        </div>
+      {/if}
+      {#if totalCount !== null && transactions.length < totalCount}
+        <div class="px-6 py-2 flex justify-center">
+          <button class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700" on:click={loadMore}>
+            Load more
+          </button>
+        </div>
+      {/if}
       <!-- Table footer -->
       {#if filteredTransactions.length > 0}
         <div class="px-6 py-3 border-t border-gray-100 bg-gray-50/40 flex items-center justify-between">
           <p class="text-xs text-gray-400">
-            Showing <span class="font-semibold text-gray-600">{filteredTransactions.length}</span> of <span class="font-semibold text-gray-600">{transactions.length}</span> transactions
+            Showing <span class="font-semibold text-gray-600">{pagedTransactions.length}</span> of <span class="font-semibold text-gray-600">{filteredTransactions.length}</span> loaded records
           </p>
+          {#if totalCount !== null}
+            <p class="text-xs text-gray-400 mt-1">
+              {transactions.length} of {totalCount} total transactions loaded
+            </p>
+          {/if}
         </div>
       {/if}
 
@@ -964,7 +1150,7 @@
 
   <!-- Mobile Card View -->
   <div class="lg:hidden space-y-2 mb-2">
-    {#each filteredTransactions as transaction}
+    {#each pagedTransactions as transaction}
       <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200 text-sm">
         <!-- Header -->
         <div class="flex items-start justify-between mb-4">
@@ -1053,6 +1239,17 @@
               on:click={() => openReturnModal(transaction)}
             >Return Book</button>
           {/if}
+          {#if transaction.status?.toLowerCase() === 'returned' && canRevert(transaction)}
+            <button
+              class="w-full px-4 py-2.5 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors duration-200 text-sm font-medium shadow-sm"
+              on:click={() => revertReturn(transaction)}
+            >Revert Return</button>
+            <!-- additional explicit revert button for convenience -->
+            <button
+              class="w-full px-4 py-2.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors duration-200 text-sm font-medium shadow-sm mt-1"
+              on:click={() => revertReturn(transaction)}
+            >Revert</button>
+          {/if}
           {#if transaction.type?.toLowerCase() === 'reserve' && transaction.status?.toLowerCase() === 'active'}
             <button
               class="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm font-medium shadow-sm"
@@ -1066,9 +1263,26 @@
         </div>
       </div>
     {/each}
-  </div>
 
-</div>
+      <!-- mobile pagination -->
+      <div class="flex justify-center items-center space-x-2 mt-2">
+        <button class="px-2 py-1 border rounded" on:click={() => currentPage = Math.max(1, currentPage-1)} disabled={currentPage === 1}>
+          Prev
+        </button>
+        <span>Page {currentPage} of {totalPages}</span>
+        <button class="px-2 py-1 border rounded" on:click={() => currentPage = Math.min(totalPages, currentPage+1)} disabled={currentPage === totalPages}>
+          Next
+        </button>
+      </div>
+      {#if totalCount !== null && transactions.length < totalCount}
+        <div class="flex justify-center mt-2">
+          <button class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700" on:click={loadMore}>
+            Load more
+          </button>
+        </div>
+      {/if}
+    </div> <!-- end mobile card view -->
+  </div> <!-- end outer space-y container -->
 
 <!-- Modals -->
 <CustomDateRangeModal

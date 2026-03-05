@@ -221,7 +221,8 @@
   async function fetchCategories() {
     if (!browser) return;
     try {
-      const response = await fetch('/api/books/categories', {
+      // request the magazines-specific categories via books endpoint
+      const response = await fetch('/api/inventory/magazines/categories', {
         credentials: 'include'
       });
       if (response.ok) {
@@ -342,13 +343,14 @@
     categoryLoading = true;
     categoryError = "";
     try {
-      const response = await fetch('/api/books/categories', {
+      const response = await fetch('/api/inventory/magazines/categories', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newCategoryName.trim(),
-          description: newCategoryDescription.trim()
+          description: newCategoryDescription.trim(),
+          itemType: 'magazine'
         })
       });
       const data = await response.json();
@@ -874,6 +876,7 @@
       on:success={handleAddCategorySuccess}
       on:error={handleAddCategoryError}
       on:close={handleAddCategoryClose}
+      itemType={'magazine'}
     />
 
     <!-- Magazine View/Edit Modal -->

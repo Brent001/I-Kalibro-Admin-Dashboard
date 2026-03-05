@@ -954,7 +954,7 @@
         </button>
         <!-- View All — icon only on mobile, full label on sm+ -->
         <a
-          href="/dashboard/report/visits"
+          href="/dashboard/reports/visits"
           class="inline-flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-semibold hover:bg-teal-700 transition-colors whitespace-nowrap"
         >
           <svg class="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

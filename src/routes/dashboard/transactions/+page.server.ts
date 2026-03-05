@@ -38,9 +38,12 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
             isActive: true
         };
 
-        // Fetch transactions from API
-        const res = await fetch('/api/transactions');
-        const transactions = res.ok ? await res.json().then(r => r.transactions || []) : [];
+        // Fetch transactions from API (limit results to reduce initial payload)
+        // the API supports pagination; we ask for first page only
+        const res = await fetch('/api/transactions?page=1&limit=200');
+        const jsonData = res.ok ? await res.json() : { transactions: [] };
+        const transactions = jsonData.transactions || [];
+        const fineSettings = jsonData.fineSettings || null;
 
         return {
             user: {
@@ -49,7 +52,12 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
                 email: user.email,
                 role: user.role
             },
-            transactions
+            transactions,
+            fineSettings,
+            // expose paging info if we want later
+            total: jsonData.total,
+            page: jsonData.page,
+            limit: jsonData.limit
         };
 
     } catch (error) {

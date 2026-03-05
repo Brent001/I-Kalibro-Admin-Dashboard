@@ -60,7 +60,7 @@
   const KPI_CARDS = [
     { label: 'Total Visits',     value: () => $dashboardData?.overview.totalVisits ?? 0,              color: 'from-blue-500 to-blue-600',    icon: 'Users' },
     { label: 'Active Members',   value: () => $dashboardData?.overview.activeMembers ?? 0,            color: 'from-emerald-500 to-emerald-600', icon: 'User' },
-    { label: 'Active Loans',     value: () => $dashboardData?.overview.activeBorrowings ?? 0,         color: 'from-amber-500 to-amber-600',   icon: 'BookOpen' },
+    { label: 'Borrowed',         value: () => $dashboardData?.overview.activeBorrowings ?? 0,         color: 'from-amber-500 to-amber-600',   icon: 'BookOpen' },
     { label: 'Total Overdue',    value: () => $dashboardData?.overview.totalOverdue ?? 0,             color: 'from-red-500 to-red-600',      icon: 'Clock' },
     { label: 'Pending Requests', value: () => (($dashboardData?.overview.totalPendingReservations ?? 0) + ($dashboardData?.overview.totalPendingReturnRequests ?? 0)), color: 'from-indigo-500 to-indigo-600', icon: 'Calendar' },
     { label: 'Paid Fines',       value: () => $dashboardData?.overview.totalPaidFines ?? 0,           color: 'from-emerald-500 to-emerald-600', icon: 'Peso', format: 'currency' },
@@ -220,8 +220,16 @@
     const catsEl = document.getElementById('categoriesChart') as HTMLCanvasElement;
     if (catsEl) createChart('categoriesChart', {
       type: 'bar',
-      data: { labels: cats.map(d => d.category.length > 14 ? d.category.slice(0, 13) + '…' : d.category), datasets: [{ label: 'Books', data: cats.map(d => d.count), backgroundColor: ['#6366F1','#8B5CF6','#EC4899','#F59E0B','#10B981','#3B82F6','#EF4444','#6B7280','#06B6D4','#84CC16','#F97316','#A855F7'], borderRadius: 4, borderSkipped: false }] },
-      options: { scales: { x: { grid: { display: false }, ticks: { maxRotation: 45 } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } } }, plugins: { legend: { display: false }, tooltip: { callbacks: { title: (ctx: any) => data.charts.categoryDistribution[ctx[0].dataIndex]?.category, label: (ctx: any) => { const c = data.charts.categoryDistribution[ctx.dataIndex]; return `${c.count} items (${c.percentage}%)`; } } } } },
+      data: { labels: cats.map(d => d.category.length > 14 ? d.category.slice(0, 13) + '…' : d.category), datasets: [{ label: 'Items', data: cats.map(d => d.count), backgroundColor: cats.map((_, i) => {
+            // cycle through some colors for visual variety
+            const cols = ['#6366F1','#8B5CF6','#EC4899','#F59E0B','#10B981','#3B82F6','#EF4444','#6B7280','#06B6D4','#84CC16','#F97316','#A855F7'];
+            return cols[i % cols.length];
+          }), borderRadius: 4, borderSkipped: false }] },
+      options: { scales: { x: { grid: { display: false }, ticks: { maxRotation: 45 } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0 } } }, plugins: { legend: { display: false }, tooltip: { callbacks: { title: (ctx: any) => data.charts.categoryDistribution[ctx[0].dataIndex]?.category, label: (ctx: any) => {
+              const c = data.charts.categoryDistribution[ctx.dataIndex];
+              // return as array to override default dataset label entirely
+              return [`${c.count} items (${c.percentage}%)`];
+            } } } } },
     });
   }
 
@@ -644,7 +652,7 @@
 
         {:else}
           <div>
-            <h4 class="text-sm font-semibold text-gray-700 mb-3">Books by Category</h4>
+            <h4 class="text-sm font-semibold text-gray-700 mb-3">Category Distribution</h4>
             <div class="h-64">{#if $loading}<div class="h-full bg-gray-100 animate-pulse rounded"></div>{:else}<canvas id="categoriesChart"></canvas>{/if}</div>
           </div>
         {/if}
