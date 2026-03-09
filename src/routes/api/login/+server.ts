@@ -1,18 +1,18 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { tbl_super_admin, tbl_admin, tbl_staff, tbl_user, tbl_security_log, tbl_staff_session } from '$lib/server/db/schema/schema.js';
+import { tbl_super_admin, tbl_admin, tbl_staff, tbl_user, tbl_security_log, tbl_staff_session, tbl_staff_permission } from '$lib/server/db/schema/schema.js';
 import { eq, or } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt, { type Secret } from 'jsonwebtoken';
 import { z } from 'zod';
 import type { ZodIssue } from 'zod';
 import { dev } from '$app/environment';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes } from 'crypto';
 import { redisClient } from '$lib/server/db/cache.js';
+import { generateTokens, logSecurityEvent, type AuthUser } from '$lib/server/db/auth.js';
 
 // Environment variables - ensure these are set
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
-const JWT_EXPIRES_IN: string = process.env.JWT_EXPIRES_IN || '7d';
 
 // Input validation schema
 const loginSchema = z.object({
@@ -29,23 +29,6 @@ const loginSchema = z.object({
 const loginAttempts = new Map<string, { count: number; resetTime: number }>();
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
-
-// Helper function to hash tokens for storage
-function hashToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
-}
-
-// Determine session TTL (milliseconds).
-// Use environment variable `SESSION_TTL_MS` (ms) to override. Default to 30 days.
-function getTimeUntilNextLogout(): number {
-    const env = process.env.SESSION_TTL_MS;
-    if (env) {
-        const parsed = parseInt(env, 10);
-        if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-    }
-    // Default: 30 days
-    return 30 * 24 * 60 * 60 * 1000;
-}
 
 function isRateLimited(identifier: string): boolean {
     const attempts = loginAttempts.get(identifier);
@@ -147,6 +130,36 @@ async function findUserByUsernameOrEmail(usernameOrEmail: string): Promise<{
     return null;
 }
 
+// Helper to create AuthUser object with permissions
+async function createAuthUser(foundUser: NonNullable<Awaited<ReturnType<typeof findUserByUsernameOrEmail>>>): Promise<AuthUser> {
+    // Fetch permissions for admin/staff users
+    let permissions: string[] = [];
+    if (['admin', 'super_admin', 'staff'].includes(foundUser.userType) && foundUser.uniqueId) {
+        const [perm] = await db.select({
+            canManageBooks: tbl_staff_permission.canManageBooks,
+            canManageUsers: tbl_staff_permission.canManageUsers,
+            canManageBorrowing: tbl_staff_permission.canManageBorrowing,
+            canManageReservations: tbl_staff_permission.canManageReservations,
+            canViewReports: tbl_staff_permission.canViewReports,
+            canManageFines: tbl_staff_permission.canManageFines,
+        }).from(tbl_staff_permission).where(eq(tbl_staff_permission.staffUniqueId, foundUser.uniqueId)).limit(1);
+
+        if (perm) {
+            permissions = (Object.keys(perm) as (keyof typeof perm)[]).filter((k) => perm[k]);
+        }
+    }
+
+    return {
+        id: foundUser.id,
+        name: foundUser.name,
+        username: foundUser.username,
+        email: foundUser.email,
+        userType: foundUser.userType,
+        isActive: foundUser.isActive,
+        permissions
+    };
+}
+
 export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
     try {
         const clientIP = getClientAddress();
@@ -217,77 +230,17 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                     );
                 }
                 
-                // Create new session from remember me token
-                const sessionId = randomBytes(16).toString('hex');
-                const refreshTokenPayload = {
-                    userId: foundUser.id,
-                    sessionId: sessionId,
-                    tokenType: 'refresh',
-                    jti: `${sessionId}-refresh`
-                };
+                // Create AuthUser object
+                const authUser = await createAuthUser(foundUser);
                 
-                const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production', {
-                    expiresIn: '30d',
-                    issuer: 'kalibro-library',
-                    subject: String(foundUser.id)
-                });
-                
-                const now = new Date();
-                const timeUntilLogout = getTimeUntilNextLogout();
-                const sessionData = {
-                    id: sessionId,
-                    userId: foundUser.id,
-                    token: undefined,
-                    refreshToken: hashToken(refreshToken),
+                // Generate tokens using centralized auth function
+                const { accessToken, refreshToken, sessionId } = await generateTokens(authUser, {
                     userAgent: userAgent || '',
-                    ipAddress: clientIP,
-                    createdAt: now,
-                    lastUsedAt: now,
-                    expiresAt: new Date(now.getTime() + timeUntilLogout),
-                    isActive: true
-                };
-                
-                // Persist session to DB and cache in Redis
-                await Promise.all([
-                    db.insert(tbl_staff_session).values({
-                        sessionId: sessionData.id,
-                        actorType: foundUser.userType,
-                        actorId: sessionData.userId,
-                        tokenHash: sessionData.token,
-                        refreshTokenHash: sessionData.refreshToken,
-                        userAgent: sessionData.userAgent,
-                        ipAddress: sessionData.ipAddress,
-                        createdAt: sessionData.createdAt,
-                        lastUsedAt: sessionData.lastUsedAt,
-                        expiresAt: sessionData.expiresAt,
-                        isActive: sessionData.isActive
-                    }).returning(),
-                    redisClient.setex(
-                        `session:${sessionId}`,
-                        Math.ceil(timeUntilLogout / 1000),
-                        JSON.stringify(sessionData)
-                    ),
-                    redisClient.sadd(`user:${foundUser.id}:sessions`, sessionId)
-                ]);
-                
-                const tokenPayload = {
-                    userId: foundUser.id,
-                    uniqueId: foundUser.uniqueId,
-                    username: foundUser.username,
-                    email: foundUser.email,
-                    userType: foundUser.userType,
-                    sessionId: sessionId,
-                    tokenType: 'access',
-                    jti: sessionId
-                };
-                
-                const token = jwt.sign(tokenPayload, JWT_SECRET as Secret, {
-                    expiresIn: '15m',
-                    issuer: 'kalibro-library',
-                    subject: String(foundUser.id)
+                    ipAddress: clientIP
                 });
                 
-                cookies.set('token', token, {
+                // Set cookies
+                cookies.set('token', accessToken, {
                     path: '/',
                     httpOnly: true,
                     sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
@@ -306,12 +259,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 console.log(`Remember me login: ${foundUser.username} (${foundUser.userType}) from ${clientIP}`);
                 
                 // Log security event
-                await db.insert(tbl_security_log).values({
-                    userType: foundUser.userType,
+                await logSecurityEvent({
+                    type: 'login',
                     userId: foundUser.id,
-                    eventType: 'login',
-                    ipAddress: clientIP,
-                    userAgent: browserType
+                    sessionId,
+                    ip: clientIP,
+                    userAgent: browserType,
+                    reason: 'remember_me_login',
+                    timestamp: new Date()
                 });
                 
                 return new Response(
@@ -372,83 +327,17 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         // Clear any failed attempts on successful login
         clearFailedAttempts(clientIP);
 
-        // Generate a unique session ID for this login
-        const sessionId = randomBytes(16).toString('hex');
+        // Create AuthUser object
+        const authUser = await createAuthUser(foundUser);
         
-        // Create refresh token payload first (we need to hash it in session)
-        const refreshTokenPayload = {
-            userId: foundUser.id,
-            sessionId: sessionId,
-            tokenType: 'refresh',
-            jti: `${sessionId}-refresh`
-        };
-        
-        const refreshToken = jwt.sign(refreshTokenPayload, process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production', {
-            expiresIn: '30d',
-            issuer: 'kalibro-library',
-            subject: String(foundUser.id)
-        });
-
-        // Create session data with hashed refresh token
-        const now = new Date();
-        const timeUntilLogout = getTimeUntilNextLogout();
-        const sessionData = {
-            id: sessionId,
-            userId: foundUser.id,
-            userType: foundUser.userType,
-            token: undefined,
-            refreshToken: hashToken(refreshToken),
+        // Generate tokens using centralized auth function
+        const { accessToken, refreshToken, sessionId } = await generateTokens(authUser, {
             userAgent: userAgent || '',
-            ipAddress: clientIP,
-            createdAt: now,
-            lastUsedAt: now,
-            expiresAt: new Date(now.getTime() + timeUntilLogout),
-            isActive: true
-        };
-        
-                // Persist session to DB and cache in Redis
-                await Promise.all([
-                    db.insert(tbl_staff_session).values({
-                        sessionId: sessionData.id,
-                        actorType: foundUser.userType,
-                        actorId: sessionData.userId,
-                        tokenHash: sessionData.token,
-                        refreshTokenHash: sessionData.refreshToken,
-                        userAgent: sessionData.userAgent,
-                        ipAddress: sessionData.ipAddress,
-                        createdAt: sessionData.createdAt,
-                        lastUsedAt: sessionData.lastUsedAt,
-                        expiresAt: sessionData.expiresAt,
-                        isActive: sessionData.isActive
-                    }).returning(),
-                    redisClient.setex(
-                        `session:${sessionId}`,
-                        Math.ceil(timeUntilLogout / 1000),
-                        JSON.stringify(sessionData)
-                    ),
-                    redisClient.sadd(`user:${foundUser.id}:sessions`, sessionId)
-                ]);
-
-        // Create JWT token with sessionId included
-        const tokenPayload = {
-            userId: foundUser.id,
-            uniqueId: foundUser.uniqueId,
-            username: foundUser.username,
-            email: foundUser.email,
-            userType: foundUser.userType,
-            sessionId: sessionId,
-            tokenType: 'access',
-            jti: sessionId
-        };
-        
-        const token = jwt.sign(tokenPayload, JWT_SECRET as Secret, {
-            expiresIn: '15m',
-            issuer: 'kalibro-library',
-            subject: String(foundUser.id)
+            ipAddress: clientIP
         });
 
         // Set cookies for authentication
-        cookies.set('token', token, {
+        cookies.set('token', accessToken, {
             path: '/',
             httpOnly: true,
             sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
@@ -470,14 +359,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         console.log(`Successful login: ${foundUser.username} (${foundUser.userType}) from ${clientIP}`);
 
         // Log security event
-        await db.insert(tbl_security_log).values({
-            userType: foundUser.userType,
+        await logSecurityEvent({
+            type: 'login',
             userId: foundUser.id,
-            eventType: 'login',
-            ipAddress: clientIP,
+            sessionId,
+            ip: clientIP,
             userAgent: browserType,
             timestamp: new Date()
-        } as any);
+        });
 
         // Generate remember me token if checkbox is checked (30 days)
         let rememberMeTokenToReturn: string | undefined;

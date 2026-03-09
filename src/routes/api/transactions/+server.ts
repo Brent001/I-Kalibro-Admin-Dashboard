@@ -3,7 +3,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
-import { eq, and, desc, count, inArray, lt } from 'drizzle-orm';
+import { eq, and, desc, count, inArray, lt, or, isNull } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import {
@@ -30,8 +30,7 @@ import {
     tbl_student,
     tbl_faculty
 } from '$lib/server/db/schema/schema.js';
-import { isSessionRevoked } from '$lib/server/db/auth.js';
-import { loadFineSettings } from '$lib/server/utils/fineCalculation.js';
+import { loadFineSettings, calculateFineAmount, calculateDaysOverdue } from '$lib/server/utils/fineCalculation.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -59,7 +58,7 @@ async function authenticateUser(request: Request): Promise<AuthenticatedUser | n
             }
         }
 
-        if (!token || await isSessionRevoked(token)) return null;
+        if (!token) return null;
 
         const decoded = jwt.verify(token, JWT_SECRET) as any;
         const userId = decoded.userId;
@@ -137,11 +136,30 @@ export const GET: RequestHandler = async ({ request, url }) => {
         }
 
         const page = parseInt(url.searchParams.get('page') || '1', 10);
-        const limit = Math.min(parseInt(url.searchParams.get('limit') || '10', 10), 100);
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '10', 10), 500);
         const itemType = url.searchParams.get('itemType') || 'all'; // 'book', 'magazine', 'research', 'multimedia', 'all'
         const transactionType = url.searchParams.get('type'); // 'borrow', 'return', 'reserve'
         const status = url.searchParams.get('status'); // 'borrowed', 'returned', 'overdue', 'pending', 'active', 'fulfilled', 'cancelled'
         const offset = (page - 1) * limit;
+
+        const search = url.searchParams.get('search') || '';
+        const tab = url.searchParams.get('tab') || 'all';
+        const period = url.searchParams.get('period') || 'all';
+        const customDays = url.searchParams.get('customDays') || '';
+
+        let fromDate: Date | null = null;
+        if (period !== 'all') {
+            let days: number | null = null;
+            if (period === 'custom' && customDays) {
+                days = parseInt(customDays, 10);
+            } else if (period.endsWith('d')) {
+                days = parseInt(period.slice(0, -1), 10);
+            }
+            if (days && !isNaN(days)) {
+                fromDate = new Date();
+                fromDate.setDate(fromDate.getDate() - days);
+            }
+        }
 
         // Helper function to determine transaction type based on status
         const getTransactionTypeFromStatus = (transactionStatus: string | null, isRequest: boolean = false): string => {
@@ -160,7 +178,32 @@ export const GET: RequestHandler = async ({ request, url }) => {
             // Fetch book borrowings (borrows + returns)
             if (!transactionType || transactionType === 'borrow' || transactionType === 'return') {
                 const bookWhereConditions = [];
-                if (status) bookWhereConditions.push(eq(tbl_book_borrowing.status, status));
+                if (search) {
+                    bookWhereConditions.push(or(
+                        sql`${tbl_book.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_book_copy.callNumber} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) {
+                    bookWhereConditions.push(sql`${tbl_book_borrowing.createdAt} >= ${fromDate}`);
+                }
+                if (tab === 'borrow') {
+                    bookWhereConditions.push(inArray(tbl_book_borrowing.status, ['borrowed', 'overdue']));
+                } else if (tab === 'return') {
+                    bookWhereConditions.push(eq(tbl_book_borrowing.status, 'returned'));
+                } else if (tab === 'fulfilled') {
+                    bookWhereConditions.push(eq(tbl_book_borrowing.status, 'fulfilled'));
+                } else if (tab === 'cancelled') {
+                    bookWhereConditions.push(eq(tbl_book_borrowing.status, 'cancelled'));
+                } else if (tab === 'overdue') {
+                    bookWhereConditions.push(and(
+                        inArray(tbl_book_borrowing.status, ['borrowed', 'overdue']),
+                        lt(tbl_book_borrowing.dueDate, new Date()),
+                        isNull(tbl_book_borrowing.returnDate)
+                    ));
+                }
 
                 const [{ count: bookCount }] = await db
                     .select({ count: count() })
@@ -189,9 +232,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                     .leftJoin(tbl_book_copy, eq(tbl_book_borrowing.bookCopyId, tbl_book_copy.id))
                     .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
                     .where(and(...bookWhereConditions))
-                    .orderBy(desc(tbl_book_borrowing.createdAt))
-                    .limit(limit)
-                    .offset(offset);
+                    .orderBy(desc(tbl_book_borrowing.createdAt));
                 
                 const mappedBookTransactions = bookTransactions.map(t => ({
                     ...t,
@@ -203,7 +244,20 @@ export const GET: RequestHandler = async ({ request, url }) => {
             // Fetch book reservations (pending/active/fulfilled/cancelled)
             if (!transactionType || transactionType === 'reserve') {
                 const bookReqWhereConditions = [];
-                if (status) bookReqWhereConditions.push(eq(tbl_book_reservation.status, status));
+                if (search) {
+                    bookReqWhereConditions.push(or(
+                        sql`${tbl_book.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) {
+                    bookReqWhereConditions.push(sql`${tbl_book_reservation.createdAt} >= ${fromDate}`);
+                }
+                if (tab !== 'all' && tab !== 'reserve') {
+                    // skip if not reserve or all
+                    bookReqWhereConditions.push(sql`false`); // to exclude
+                }
 
                 const [{ count: bookReqCount }] = await db
                     .select({ count: count() })
@@ -230,9 +284,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                     .leftJoin(tbl_book, eq(tbl_book_reservation.bookId, tbl_book.id))
                     .leftJoin(tbl_user, eq(tbl_book_reservation.userId, tbl_user.id))
                     .where(and(...bookReqWhereConditions))
-                    .orderBy(desc(tbl_book_reservation.createdAt))
-                    .limit(limit)
-                    .offset(offset);
+                    .orderBy(desc(tbl_book_reservation.createdAt));
                 
                 const mappedBookRequests = bookRequests.map(t => ({
                     ...t,
@@ -247,7 +299,32 @@ export const GET: RequestHandler = async ({ request, url }) => {
             // Fetch magazine borrowings
             if (!transactionType || transactionType === 'borrow' || transactionType === 'return') {
                 const magWhereConditions = [];
-                if (status) magWhereConditions.push(eq(tbl_magazine_borrowing.status, status));
+                if (search) {
+                    magWhereConditions.push(or(
+                        sql`${tbl_magazine.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_magazine_copy.callNumber} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) {
+                    magWhereConditions.push(sql`${tbl_magazine_borrowing.createdAt} >= ${fromDate}`);
+                }
+                if (tab === 'borrow') {
+                    magWhereConditions.push(inArray(tbl_magazine_borrowing.status, ['borrowed', 'overdue']));
+                } else if (tab === 'return') {
+                    magWhereConditions.push(eq(tbl_magazine_borrowing.status, 'returned'));
+                } else if (tab === 'fulfilled') {
+                    magWhereConditions.push(eq(tbl_magazine_borrowing.status, 'fulfilled'));
+                } else if (tab === 'cancelled') {
+                    magWhereConditions.push(eq(tbl_magazine_borrowing.status, 'cancelled'));
+                } else if (tab === 'overdue') {
+                    magWhereConditions.push(and(
+                        inArray(tbl_magazine_borrowing.status, ['borrowed', 'overdue']),
+                        lt(tbl_magazine_borrowing.dueDate, new Date()),
+                        isNull(tbl_magazine_borrowing.returnDate)
+                    ));
+                }
 
                 const [{ count: magCount }] = await db
                     .select({ count: count() })
@@ -276,9 +353,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                     .leftJoin(tbl_magazine_copy, eq(tbl_magazine_borrowing.magazineCopyId, tbl_magazine_copy.id))
                     .leftJoin(tbl_user, eq(tbl_magazine_borrowing.userId, tbl_user.id))
                     .where(and(...magWhereConditions))
-                    .orderBy(desc(tbl_magazine_borrowing.createdAt))
-                    .limit(limit)
-                    .offset(offset);
+                    .orderBy(desc(tbl_magazine_borrowing.createdAt));
                 
                 const mappedMagazines = magazines.map(t => ({
                     ...t,
@@ -290,7 +365,19 @@ export const GET: RequestHandler = async ({ request, url }) => {
             // Fetch magazine reservations
             if (!transactionType || transactionType === 'reserve') {
                 const magReqWhereConditions = [];
-                if (status) magReqWhereConditions.push(eq(tbl_magazine_reservation.status, status));
+                if (search) {
+                    magReqWhereConditions.push(or(
+                        sql`${tbl_magazine.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) {
+                    magReqWhereConditions.push(sql`${tbl_magazine_reservation.createdAt} >= ${fromDate}`);
+                }
+                if (tab !== 'all' && tab !== 'reserve') {
+                    magReqWhereConditions.push(sql`false`);
+                }
 
                 const [{ count: magReqCount }] = await db
                     .select({ count: count() })
@@ -317,9 +404,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                     .leftJoin(tbl_magazine, eq(tbl_magazine_reservation.magazineId, tbl_magazine.id))
                     .leftJoin(tbl_user, eq(tbl_magazine_reservation.userId, tbl_user.id))
                     .where(and(...magReqWhereConditions))
-                    .orderBy(desc(tbl_magazine_reservation.createdAt))
-                    .limit(limit)
-                    .offset(offset);
+                    .orderBy(desc(tbl_magazine_reservation.createdAt));
                 
                 const mappedMagRequests = magazineRequests.map(t => ({
                     ...t,
@@ -334,7 +419,32 @@ export const GET: RequestHandler = async ({ request, url }) => {
             // Fetch thesis borrowings
             if (!transactionType || transactionType === 'borrow' || transactionType === 'return') {
                 const thesisWhere: any[] = [];
-                if (status) thesisWhere.push(eq(tbl_thesis_borrowing.status, status));
+                if (search) {
+                    thesisWhere.push(or(
+                        sql`${tbl_thesis.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_thesis_copy.callNumber} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) {
+                    thesisWhere.push(sql`${tbl_thesis_borrowing.createdAt} >= ${fromDate}`);
+                }
+                if (tab === 'borrow') {
+                    thesisWhere.push(inArray(tbl_thesis_borrowing.status, ['borrowed', 'overdue']));
+                } else if (tab === 'return') {
+                    thesisWhere.push(eq(tbl_thesis_borrowing.status, 'returned'));
+                } else if (tab === 'fulfilled') {
+                    thesisWhere.push(eq(tbl_thesis_borrowing.status, 'fulfilled'));
+                } else if (tab === 'cancelled') {
+                    thesisWhere.push(eq(tbl_thesis_borrowing.status, 'cancelled'));
+                } else if (tab === 'overdue') {
+                    thesisWhere.push(and(
+                        inArray(tbl_thesis_borrowing.status, ['borrowed', 'overdue']),
+                        lt(tbl_thesis_borrowing.dueDate, new Date()),
+                        isNull(tbl_thesis_borrowing.returnDate)
+                    ));
+                }
 
                 const [{ count: thesisCount }] = await db
                     .select({ count: count() })
@@ -363,9 +473,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                     .leftJoin(tbl_thesis_copy, eq(tbl_thesis_borrowing.thesisCopyId, tbl_thesis_copy.id))
                     .leftJoin(tbl_user, eq(tbl_thesis_borrowing.userId, tbl_user.id))
                     .where(and(...thesisWhere))
-                    .orderBy(desc(tbl_thesis_borrowing.createdAt))
-                    .limit(limit)
-                    .offset(offset);
+                    .orderBy(desc(tbl_thesis_borrowing.createdAt));
                 
                 const mappedThesis = thesisTransactions.map(t => ({
                     ...t,
@@ -377,7 +485,19 @@ export const GET: RequestHandler = async ({ request, url }) => {
             // Fetch thesis reservations
             if (!transactionType || transactionType === 'reserve') {
                 const thesisReqWhere: any[] = [];
-                if (status) thesisReqWhere.push(eq(tbl_thesis_reservation.status, status));
+                if (search) {
+                    thesisReqWhere.push(or(
+                        sql`${tbl_thesis.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) {
+                    thesisReqWhere.push(sql`${tbl_thesis_reservation.createdAt} >= ${fromDate}`);
+                }
+                if (tab !== 'all' && tab !== 'reserve') {
+                    thesisReqWhere.push(sql`false`);
+                }
 
                 const [{ count: thesisReqCount }] = await db
                     .select({ count: count() })
@@ -404,9 +524,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                     .leftJoin(tbl_thesis, eq(tbl_thesis_reservation.thesisId, tbl_thesis.id))
                     .leftJoin(tbl_user, eq(tbl_thesis_reservation.userId, tbl_user.id))
                     .where(and(...thesisReqWhere))
-                    .orderBy(desc(tbl_thesis_reservation.createdAt))
-                    .limit(limit)
-                    .offset(offset);
+                    .orderBy(desc(tbl_thesis_reservation.createdAt));
                 
                 const mappedThesisReqs = thesisRequests.map(t => ({
                     ...t,
@@ -421,7 +539,32 @@ export const GET: RequestHandler = async ({ request, url }) => {
             // Fetch journal borrowings
             if (!transactionType || transactionType === 'borrow' || transactionType === 'return') {
                 const journalWhere: any[] = [];
-                if (status) journalWhere.push(eq(tbl_journal_borrowing.status, status));
+                if (search) {
+                    journalWhere.push(or(
+                        sql`${tbl_journal.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_journal_copy.callNumber} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) {
+                    journalWhere.push(sql`${tbl_journal_borrowing.createdAt} >= ${fromDate}`);
+                }
+                if (tab === 'borrow') {
+                    journalWhere.push(inArray(tbl_journal_borrowing.status, ['borrowed', 'overdue']));
+                } else if (tab === 'return') {
+                    journalWhere.push(eq(tbl_journal_borrowing.status, 'returned'));
+                } else if (tab === 'fulfilled') {
+                    journalWhere.push(eq(tbl_journal_borrowing.status, 'fulfilled'));
+                } else if (tab === 'cancelled') {
+                    journalWhere.push(eq(tbl_journal_borrowing.status, 'cancelled'));
+                } else if (tab === 'overdue') {
+                    journalWhere.push(and(
+                        inArray(tbl_journal_borrowing.status, ['borrowed', 'overdue']),
+                        lt(tbl_journal_borrowing.dueDate, new Date()),
+                        isNull(tbl_journal_borrowing.returnDate)
+                    ));
+                }
 
                 const [{ count: journalCount }] = await db
                     .select({ count: count() })
@@ -450,9 +593,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                     .leftJoin(tbl_journal_copy, eq(tbl_journal_borrowing.journalCopyId, tbl_journal_copy.id))
                     .leftJoin(tbl_user, eq(tbl_journal_borrowing.userId, tbl_user.id))
                     .where(and(...journalWhere))
-                    .orderBy(desc(tbl_journal_borrowing.createdAt))
-                    .limit(limit)
-                    .offset(offset);
+                    .orderBy(desc(tbl_journal_borrowing.createdAt));
                 
                 const mappedJournal = journalTransactions.map(t => ({
                     ...t,
@@ -464,7 +605,19 @@ export const GET: RequestHandler = async ({ request, url }) => {
             // Fetch journal reservations
             if (!transactionType || transactionType === 'reserve') {
                 const journalReqWhere: any[] = [];
-                if (status) journalReqWhere.push(eq(tbl_journal_reservation.status, status));
+                if (search) {
+                    journalReqWhere.push(or(
+                        sql`${tbl_journal.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) {
+                    journalReqWhere.push(sql`${tbl_journal_reservation.createdAt} >= ${fromDate}`);
+                }
+                if (tab !== 'all' && tab !== 'reserve') {
+                    journalReqWhere.push(sql`false`);
+                }
 
                 const [{ count: journalReqCount }] = await db
                     .select({ count: count() })
@@ -491,9 +644,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                     .leftJoin(tbl_journal, eq(tbl_journal_reservation.journalId, tbl_journal.id))
                     .leftJoin(tbl_user, eq(tbl_journal_reservation.userId, tbl_user.id))
                     .where(and(...journalReqWhere))
-                    .orderBy(desc(tbl_journal_reservation.createdAt))
-                    .limit(limit)
-                    .offset(offset);
+                    .orderBy(desc(tbl_journal_reservation.createdAt));
                 
                 const mappedJournalReqs = journalRequests.map(t => ({
                     ...t,
@@ -502,6 +653,21 @@ export const GET: RequestHandler = async ({ request, url }) => {
                 transactions.push(...mappedJournalReqs);
             }
         }
+
+        // Sort and paginate
+        transactions.sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+        transactions = transactions.slice(offset, offset + limit);
+
+        // Enrich with fine and daysOverdue
+        const enriched = await Promise.all(transactions.map(async (t) => {
+            if (t.type === 'borrow' && !t.returnDate && t.dueDate) {
+                const fine = await calculateFineAmount(t.dueDate);
+                const daysOverdue = await calculateDaysOverdue(t.dueDate);
+                return { ...t, fine, daysOverdue };
+            }
+            return { ...t, fine: 0, daysOverdue: 0 };
+        }));
+        transactions = enriched;
 
         // include fine settings so the frontend can calculate fines/days itself
         const fineSettings = await loadFineSettings();

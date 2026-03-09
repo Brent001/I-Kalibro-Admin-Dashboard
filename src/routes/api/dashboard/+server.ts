@@ -36,59 +36,30 @@ export const GET: RequestHandler = async () => {
     // keep the string form for any client‑side logic if needed
     const todayStr = today.toISOString().slice(0, 10);
 
-    // ─── Run all queries in parallel ───────────────────────────────────────────
+    // ─── Run queries in batches to avoid overwhelming connection pool ───
+
+    // Batch 1: Basic counts (totals and active members)
     const [
-      // Total item counts
       totalBooksResult,
       totalMagazinesResult,
       totalThesisResult,
       totalJournalsResult,
-
-      // Active members
       activeMembersResult,
-
-      // Currently borrowed counts (all types)
-      booksBorrowedResult,
-      magazinesBorrowedResult,
-      thesisBorrowedResult,
-      journalsBorrowedResult,
-
-      // Overdue counts (all types)
-      overdueBooksCntResult,
-      overdueMagazinesCntResult,
-      overdueThesisCntResult,
-      overdueJournalsCntResult,
-
-      // Pending reservations (all types)
-      pendingBookReservationsResult,
-      pendingMagazineReservationsResult,
-      pendingThesisReservationsResult,
-      pendingJournalReservationsResult,
-
-      // Overdue detail lists (limited to 5 each)
-      overdueBooksListResult,
-      overdueMagazinesListResult,
-      overdueThesisListResult,
-      overdueJournalsListResult,
-
-      // Recent activity across all types
-      recentBooksActivityResult,
-      recentMagazinesActivityResult,
-      recentThesisActivityResult,
-      recentJournalsActivityResult,
     ] = await Promise.all([
-
-      // ── Totals ──────────────────────────────────────────────────────────────
       db.select({ count: count() }).from(tbl_book).where(eq(tbl_book.isActive, true)),
       db.select({ count: count() }).from(tbl_magazine).where(eq(tbl_magazine.isActive, true)),
       db.select({ count: count() }).from(tbl_thesis).where(eq(tbl_thesis.isActive, true)),
       db.select({ count: count() }).from(tbl_journal).where(eq(tbl_journal.isActive, true)),
-
-      // ── Active members ───────────────────────────────────────────────────────
       db.select({ count: count() }).from(tbl_user).where(eq(tbl_user.isActive, true)),
+    ]);
 
-      // ── Borrowed counts ──────────────────────────────────────────────────────
-      // currently borrowed includes both normal borrowings and ones already marked overdue
+    // Batch 2: Borrowing counts
+    const [
+      booksBorrowedResult,
+      magazinesBorrowedResult,
+      thesisBorrowedResult,
+      journalsBorrowedResult,
+    ] = await Promise.all([
       db.select({ count: count() }).from(tbl_book_borrowing)
         .where(and(or(eq(tbl_book_borrowing.status, 'borrowed'), eq(tbl_book_borrowing.status, 'overdue')), isNull(tbl_book_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_magazine_borrowing)
@@ -97,9 +68,15 @@ export const GET: RequestHandler = async () => {
         .where(and(or(eq(tbl_thesis_borrowing.status, 'borrowed'), eq(tbl_thesis_borrowing.status, 'overdue')), isNull(tbl_thesis_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_journal_borrowing)
         .where(and(or(eq(tbl_journal_borrowing.status, 'borrowed'), eq(tbl_journal_borrowing.status, 'overdue')), isNull(tbl_journal_borrowing.returnDate))),
+    ]);
 
-      // ── Overdue counts ───────────────────────────────────────────────────────
-      // overdue counts should include items already flagged overdue as well
+    // Batch 3: Overdue counts
+    const [
+      overdueBooksCntResult,
+      overdueMagazinesCntResult,
+      overdueThesisCntResult,
+      overdueJournalsCntResult,
+    ] = await Promise.all([
       db.select({ count: count() }).from(tbl_book_borrowing)
         .where(and(or(eq(tbl_book_borrowing.status, 'borrowed'), eq(tbl_book_borrowing.status, 'overdue')), lt(tbl_book_borrowing.dueDate, today), isNull(tbl_book_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_magazine_borrowing)
@@ -108,19 +85,32 @@ export const GET: RequestHandler = async () => {
         .where(and(or(eq(tbl_thesis_borrowing.status, 'borrowed'), eq(tbl_thesis_borrowing.status, 'overdue')), lt(tbl_thesis_borrowing.dueDate, today), isNull(tbl_thesis_borrowing.returnDate))),
       db.select({ count: count() }).from(tbl_journal_borrowing)
         .where(and(or(eq(tbl_journal_borrowing.status, 'borrowed'), eq(tbl_journal_borrowing.status, 'overdue')), lt(tbl_journal_borrowing.dueDate, today), isNull(tbl_journal_borrowing.returnDate))),
+    ]);
 
-      // ── Pending reservation counts (include active / borrow_request statuses)
+    // Batch 4: Reservation counts
+    const [
+      pendingBookReservationsResult,
+      pendingMagazineReservationsResult,
+      pendingThesisReservationsResult,
+      pendingJournalReservationsResult,
+    ] = await Promise.all([
       db.select({ count: count() }).from(tbl_book_reservation).where(or(eq(tbl_book_reservation.status, 'pending'), eq(tbl_book_reservation.status, 'active'), eq(tbl_book_reservation.status, 'borrow_request'))),
       db.select({ count: count() }).from(tbl_magazine_reservation).where(or(eq(tbl_magazine_reservation.status, 'pending'), eq(tbl_magazine_reservation.status, 'active'), eq(tbl_magazine_reservation.status, 'borrow_request'))),
       db.select({ count: count() }).from(tbl_thesis_reservation).where(or(eq(tbl_thesis_reservation.status, 'pending'), eq(tbl_thesis_reservation.status, 'active'), eq(tbl_thesis_reservation.status, 'borrow_request'))),
       db.select({ count: count() }).from(tbl_journal_reservation).where(or(eq(tbl_journal_reservation.status, 'pending'), eq(tbl_journal_reservation.status, 'active'), eq(tbl_journal_reservation.status, 'borrow_request'))),
+    ]);
 
-      // ── Overdue detail lists ─────────────────────────────────────────────────
+    // Batch 5: Overdue detail lists
+    const [
+      overdueBooksListResult,
+      overdueMagazinesListResult,
+      overdueThesisListResult,
+      overdueJournalsListResult,
+    ] = await Promise.all([
       db.select({ id: tbl_book_borrowing.id, title: tbl_book.title, memberName: tbl_user.name, dueDate: tbl_book_borrowing.dueDate, itemType: sql<string>`'book'` })
         .from(tbl_book_borrowing)
         .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
         .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
-        // include rows already marked overdue as well
         .where(and(or(eq(tbl_book_borrowing.status, 'borrowed'), eq(tbl_book_borrowing.status, 'overdue')), lt(tbl_book_borrowing.dueDate, today), isNull(tbl_book_borrowing.returnDate)))
         .orderBy(tbl_book_borrowing.dueDate).limit(5),
 
@@ -144,8 +134,15 @@ export const GET: RequestHandler = async () => {
         .leftJoin(tbl_user, eq(tbl_journal_borrowing.userId, tbl_user.id))
         .where(and(or(eq(tbl_journal_borrowing.status, 'borrowed'), eq(tbl_journal_borrowing.status, 'overdue')), lt(tbl_journal_borrowing.dueDate, today), isNull(tbl_journal_borrowing.returnDate)))
         .orderBy(tbl_journal_borrowing.dueDate).limit(5),
+    ]);
 
-      // ── Recent activity ───────────────────────────────────────────────────────
+    // Batch 6: Recent activity (run last as it's the most complex)
+    const [
+      recentBooksActivityResult,
+      recentMagazinesActivityResult,
+      recentThesisActivityResult,
+      recentJournalsActivityResult,
+    ] = await Promise.all([
       db.select({ id: tbl_book_borrowing.id, status: tbl_book_borrowing.status, title: tbl_book.title, memberName: tbl_user.name, createdAt: tbl_book_borrowing.createdAt, returnDate: tbl_book_borrowing.returnDate, itemType: sql<string>`'book'` })
         .from(tbl_book_borrowing)
         .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
