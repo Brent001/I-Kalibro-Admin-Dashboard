@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { revokeToken, logSecurityEvent, getUserSessions, revokeAllUserSessions } from '$lib/server/db/auth.js';
 import { redisClient } from '$lib/server/db/cache.js';
 import { db } from '$lib/server/db/index.js';
-import { securityLog } from '$lib/server/db/schema/schema.js';
+import { tbl_security_log } from '$lib/server/db/schema/schema.js';
 import { z } from 'zod';
 
 // Request validation schema

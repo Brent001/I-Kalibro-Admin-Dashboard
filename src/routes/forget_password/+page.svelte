@@ -1,7 +1,7 @@
 <script lang="ts">
-  let step = 1; // 1: Email/Username, 2: OTP, 3: New Password
-  let identifier = ''; // Can be email or username
-  let actualEmail = ''; // Actual email from database
+  let step = 1;
+  let identifier = '';
+  let actualEmail = '';
   let useUsername = false;
   let otp = '';
   let newPassword = '';
@@ -12,13 +12,11 @@
   let resendTimer = 0;
   let resendInterval: any = null;
 
-  // Math problem variables (humanizer)
   let num1 = 0;
   let num2 = 0;
   let correctAnswer = 0;
   let captchaAnswer = '';
 
-  // Password visibility
   let showNewPassword = false;
   let showConfirmPassword = false;
 
@@ -207,10 +205,19 @@
   <title>Forgot Password | e-Kalibro Admin Portal</title>
 </svelte:head>
 
-<div class="min-h-screen flex">
+<style>
+  .login-wrapper {
+    background: url('/assets/login_bg.png') no-repeat center center fixed;
+    background-size: cover;
+  }
+</style>
+
+<div class="login-wrapper relative min-h-screen flex">
+
   <!-- Left side - Form -->
-  <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-[#FFF9E6]">
+  <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-[#FFF9E6]/70 backdrop-blur-sm">
     <div class="max-w-md w-full space-y-6">
+
       <!-- Header -->
       <div class="text-center">
         <h2 class="text-3xl font-bold text-[#0D5C29]">
@@ -248,7 +255,7 @@
               type={useUsername ? 'text' : 'email'}
               required
               bind:value={identifier}
-              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29]"
+              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29] bg-white/80"
               placeholder={useUsername ? 'Enter your username' : 'Enter your email'}
             />
             <button
@@ -265,7 +272,7 @@
               Verify you're human
             </label>
             <div class="mt-1 flex items-center gap-2">
-              <div class="flex-1 bg-white border border-gray-300 rounded-md px-3 py-2 flex items-center justify-center">
+              <div class="flex-1 bg-white/80 border border-gray-300 rounded-md px-3 py-2 flex items-center justify-center">
                 <span class="text-lg font-bold text-[#0D5C29]">
                   {num1} + {num2} = ?
                 </span>
@@ -275,12 +282,12 @@
                 type="number"
                 required
                 bind:value={captchaAnswer}
-                class="w-20 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29] text-center"
+                class="w-20 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29] text-center bg-white/80"
               />
               <button
                 type="button"
                 on:click={generateMathProblem}
-                class="p-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                class="p-2 border border-gray-300 rounded-md hover:bg-gray-50 bg-white/80"
                 title="Generate new problem"
               >
                 <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -294,7 +301,7 @@
             <div class="text-red-600 text-sm">{errorMsg}</div>
           {/if}
 
-          <div class="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-800">
+          <div class="bg-blue-50/80 border border-blue-200 rounded-md p-3 text-sm text-blue-800">
             <strong>Note:</strong> If you use your username, the OTP will be sent to your registered email address.
           </div>
 
@@ -347,7 +354,7 @@
               required
               maxlength="6"
               bind:value={otp}
-              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29] text-center text-2xl tracking-widest font-semibold"
+              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29] text-center text-2xl tracking-widest font-semibold bg-white/80"
               placeholder="000000"
             />
           </div>
@@ -360,7 +367,7 @@
             <div class="text-red-600 text-sm">{errorMsg}</div>
           {/if}
 
-          <div class="bg-[#FFF9E6] border border-[#E8B923] rounded-md p-3 text-sm text-gray-600 text-center">
+          <div class="bg-[#FFF9E6]/80 border border-[#E8B923] rounded-md p-3 text-sm text-gray-600 text-center">
             {#if resendTimer > 0}
               Resend OTP in <span class="font-semibold text-[#0D5C29]">{resendTimer}s</span>
             {:else}
@@ -416,7 +423,7 @@
                 type={showNewPassword ? 'text' : 'password'}
                 required
                 bind:value={newPassword}
-                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29]"
+                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29] bg-white/80"
                 placeholder="Enter new password"
               />
               <button
@@ -451,7 +458,7 @@
                 type={showConfirmPassword ? 'text' : 'password'}
                 required
                 bind:value={confirmPassword}
-                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29]"
+                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29] bg-white/80"
                 placeholder="Confirm new password"
               />
               <button
@@ -500,6 +507,7 @@
           </button>
         </form>
       {/if}
+
     </div>
   </div>
 
@@ -552,4 +560,5 @@
       </div>
     </div>
   </div>
+
 </div>

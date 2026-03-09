@@ -21,7 +21,7 @@ export const actions = {
         
         try {
             const dashboardResponse = await fetch('/api/dashboard', {
-                method: 'GET',
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Cookie': `token=${token}`
@@ -74,7 +74,7 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
             id: userId,
             username: decoded.username,
             email: decoded.email,
-            role: decoded.role,
+            userType: decoded.userType,
             isActive: true
         };
 
@@ -84,15 +84,16 @@ export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                role: user.role
+                userType: user.userType
             },
             dashboard: {} as any
         };
 
         // Try to fetch dashboard data, but don't fail if it's unavailable
         try {
+            // use POST so that the API invalidates any cached snapshot
             const dashboardResponse = await fetch('/api/dashboard', {
-                method: 'GET',
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Cookie': `token=${token}` // Pass auth cookie if API needs it

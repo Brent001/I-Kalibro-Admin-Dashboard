@@ -1,143 +1,245 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { securityLog, staffAccount, user } from '$lib/server/db/schema/schema.js'; // updated import
+import { tbl_security_log, tbl_staff, tbl_super_admin, tbl_admin, tbl_user } from '$lib/server/db/schema/schema.js';
 import { desc, eq, and, gte, lte, or, like, sql } from 'drizzle-orm';
+import { getShortUid } from '$lib/utils/uidHelper.js';
 
 export const GET: RequestHandler = async ({ url, locals }) => {
     try {
+        // Get the short UID from query params (passed by frontend)
+        // Can be either a shortened UUID (8 chars) or a user ID number
+        const shortUid = url.searchParams.get('uid');
+
+        // Look up user information by searching for uniqueId starting with short UID
+        let currentUserId: number | null = null;
+        let currentUserType: string | null = null;
+
+        if (shortUid) {
+            // First try searching by numeric ID (for backward compatibility with old tokens)
+            const numericId = parseInt(shortUid);
+            if (!isNaN(numericId)) {
+                // Try tbl_super_admin first
+                const superAdmin = await db
+                    .select({ id: tbl_super_admin.id, userType: sql`'super_admin'` })
+                    .from(tbl_super_admin)
+                    .where(eq(tbl_super_admin.id, numericId))
+                    .limit(1)
+                    .then(rows => rows[0]);
+
+                if (superAdmin) {
+                    currentUserId = superAdmin.id;
+                    currentUserType = 'super_admin';
+                } else {
+                    // Try tbl_admin
+                    const admin = await db
+                        .select({ id: tbl_admin.id, userType: sql`'admin'` })
+                        .from(tbl_admin)
+                        .where(eq(tbl_admin.id, numericId))
+                        .limit(1)
+                        .then(rows => rows[0]);
+
+                    if (admin) {
+                        currentUserId = admin.id;
+                        currentUserType = 'admin';
+                    } else {
+                        // Try tbl_staff
+                        const staff = await db
+                            .select({ id: tbl_staff.id, userType: sql`'staff'` })
+                            .from(tbl_staff)
+                            .where(eq(tbl_staff.id, numericId))
+                            .limit(1)
+                            .then(rows => rows[0]);
+
+                        if (staff) {
+                            currentUserId = staff.id;
+                            currentUserType = 'staff';
+                        } else {
+                            // Try tbl_user
+                            const user = await db
+                                .select({ id: tbl_user.id, userType: tbl_user.userType })
+                                .from(tbl_user)
+                                .where(eq(tbl_user.id, numericId))
+                                .limit(1)
+                                .then(rows => rows[0]);
+
+                            if (user) {
+                                currentUserId = user.id;
+                                currentUserType = user.userType;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // If not found by numeric ID, try searching by UUID prefix
+            if (!currentUserId && isNaN(parseInt(shortUid))) {
+                const uidPattern = `${shortUid}%`;
+
+                // Try tbl_super_admin first
+                const superAdmin = await db
+                    .select({ id: tbl_super_admin.id, userType: sql`'super_admin'` })
+                    .from(tbl_super_admin)
+                    .where(like(tbl_super_admin.uniqueId, uidPattern))
+                    .limit(1)
+                    .then(rows => rows[0]);
+
+                if (superAdmin) {
+                    currentUserId = superAdmin.id;
+                    currentUserType = 'super_admin';
+                } else {
+                    // Try tbl_admin
+                    const admin = await db
+                        .select({ id: tbl_admin.id, userType: sql`'admin'` })
+                        .from(tbl_admin)
+                        .where(like(tbl_admin.uniqueId, uidPattern))
+                        .limit(1)
+                        .then(rows => rows[0]);
+
+                    if (admin) {
+                        currentUserId = admin.id;
+                        currentUserType = 'admin';
+                    } else {
+                        // Try tbl_staff
+                        const staff = await db
+                            .select({ id: tbl_staff.id, userType: sql`'staff'` })
+                            .from(tbl_staff)
+                            .where(like(tbl_staff.uniqueId, uidPattern))
+                            .limit(1)
+                            .then(rows => rows[0]);
+
+                        if (staff) {
+                            currentUserId = staff.id;
+                            currentUserType = 'staff';
+                        } else {
+                            // Try tbl_user
+                            const user = await db
+                                .select({ id: tbl_user.id, userType: tbl_user.userType })
+                                .from(tbl_user)
+                                .where(like(tbl_user.uniqueId, uidPattern))
+                                .limit(1)
+                                .then(rows => rows[0]);
+
+                            if (user) {
+                                currentUserId = user.id;
+                                currentUserType = user.userType;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Optional query parameters for filtering
         const eventType = url.searchParams.get('eventType');
-        const userType = url.searchParams.get('userType'); // 'account' or 'user'
         const startDate = url.searchParams.get('startDate');
         const endDate = url.searchParams.get('endDate');
         const search = url.searchParams.get('search');
         const limit = parseInt(url.searchParams.get('limit') || '100');
         const offset = parseInt(url.searchParams.get('offset') || '0');
 
-        // Build the query with joins to get user/staffAccount names and emails
-        let query = db
-            .select({
-                id: securityLog.id,
-                staffAccountId: securityLog.staffAccountId, // <-- updated
-                userId: securityLog.userId,
-                eventType: securityLog.eventType,
-                eventTime: securityLog.eventTime,
-                browser: securityLog.browser,
-                ipAddress: securityLog.ipAddress,
-                createdAt: securityLog.createdAt,
-                // StaffAccount information
-                accountName: staffAccount.name,
-                accountEmail: staffAccount.email,
-                accountUsername: staffAccount.username,
-                accountRole: staffAccount.role,
-                // User information
-                userName: user.name,
-                userEmail: user.email,
-                userUsername: user.username,
-                userRole: user.role,
-            })
-            .from(securityLog)
-            .leftJoin(staffAccount, eq(securityLog.staffAccountId, staffAccount.id)) // <-- updated
-            .leftJoin(user, eq(securityLog.userId, user.id))
-            .orderBy(desc(securityLog.eventTime))
-            .limit(limit)
-            .offset(offset);
+        // Build the query with joins to get user/staff names and emails from all tables
+        const getBaseQuery = () => {
+            return db
+                .select({
+                    id: tbl_security_log.id,
+                    userId: tbl_security_log.userId,
+                    userType: tbl_security_log.userType,
+                    eventType: tbl_security_log.eventType,
+                    ipAddress: tbl_security_log.ipAddress,
+                    userAgent: tbl_security_log.userAgent,
+                    timestamp: tbl_security_log.timestamp,
+                    // Coalesce user information from all possible tables
+                    userName: sql<string>`COALESCE(${tbl_super_admin.name}, ${tbl_admin.name}, ${tbl_staff.name}, ${tbl_user.name})`,
+                    userEmail: sql<string>`COALESCE(${tbl_super_admin.email}, ${tbl_admin.email}, ${tbl_staff.email}, ${tbl_user.email})`,
+                    userUsername: sql<string>`COALESCE(${tbl_super_admin.username}, ${tbl_admin.username}, ${tbl_staff.username}, ${tbl_user.username})`,
+                })
+                .from(tbl_security_log)
+                .leftJoin(tbl_super_admin, and(eq(tbl_security_log.userId, tbl_super_admin.id), eq(tbl_security_log.userType, 'super_admin')))
+                .leftJoin(tbl_admin, and(eq(tbl_security_log.userId, tbl_admin.id), eq(tbl_security_log.userType, 'admin')))
+                .leftJoin(tbl_staff, and(eq(tbl_security_log.userId, tbl_staff.id), eq(tbl_security_log.userType, 'staff')))
+                .leftJoin(tbl_user, and(eq(tbl_security_log.userId, tbl_user.id), or(eq(tbl_security_log.userType, 'user'), eq(tbl_security_log.userType, 'student'), eq(tbl_security_log.userType, 'faculty'))));
+        };
 
         // Apply filters (note: where conditions need to be applied before executing)
         const conditions = [];
 
-        if (eventType && eventType !== 'all') {
-            conditions.push(eq(securityLog.eventType, eventType));
-        }
-
-        if (userType === 'account') {
-            conditions.push(sql`${securityLog.staffAccountId} IS NOT NULL`); // <-- updated
-        } else if (userType === 'user') {
+        // Role-based access control for logs
+        if (currentUserType === 'super_admin') {
+            // Super admin sees all logs - no filter needed
+        } else if (currentUserType === 'admin' && currentUserId !== null) {
+            // Admin sees: his own logs + all staff logs
             conditions.push(
-                and(
-                    sql`${securityLog.userId} IS NOT NULL`,
-                    sql`${securityLog.staffAccountId} IS NULL` // <-- updated
+                or(
+                    and(eq(tbl_security_log.userId, currentUserId), eq(tbl_security_log.userType, 'admin')),
+                    eq(tbl_security_log.userType, 'staff')
                 )
             );
+        } else if (currentUserType === 'staff' && currentUserId !== null) {
+            // Staff sees only his own logs
+            conditions.push(and(eq(tbl_security_log.userId, currentUserId), eq(tbl_security_log.userType, 'staff')));
+        } else if (currentUserId !== null && currentUserType) {
+            // Regular users see only their own logs
+            conditions.push(and(eq(tbl_security_log.userId, currentUserId), eq(tbl_security_log.userType, currentUserType)));
+        }
+
+        if (eventType && eventType !== 'all') {
+            conditions.push(eq(tbl_security_log.eventType, eventType));
         }
 
         if (startDate) {
-            conditions.push(gte(securityLog.eventTime, new Date(startDate)));
+            conditions.push(gte(tbl_security_log.timestamp, new Date(startDate)));
         }
 
         if (endDate) {
             const endDateTime = new Date(endDate);
             endDateTime.setHours(23, 59, 59, 999);
-            conditions.push(lte(securityLog.eventTime, endDateTime));
+            conditions.push(lte(tbl_security_log.timestamp, endDateTime));
         }
 
         if (search && search.trim()) {
             const searchPattern = `%${search.toLowerCase()}%`;
             conditions.push(
                 or(
-                    like(sql`LOWER(${securityLog.ipAddress})`, searchPattern),
-                    like(sql`LOWER(${securityLog.browser})`, searchPattern),
-                    like(sql`LOWER(${staffAccount.name})`, searchPattern),
-                    like(sql`LOWER(${staffAccount.email})`, searchPattern),
-                    like(sql`LOWER(${staffAccount.username})`, searchPattern),
-                    like(sql`LOWER(${user.name})`, searchPattern),
-                    like(sql`LOWER(${user.email})`, searchPattern),
-                    like(sql`LOWER(${user.username})`, searchPattern)
+                    like(sql`LOWER(${tbl_security_log.ipAddress})`, searchPattern),
+                    like(sql`LOWER(COALESCE(${tbl_super_admin.name}, ${tbl_admin.name}, ${tbl_staff.name}, ${tbl_user.name}))`, searchPattern),
+                    like(sql`LOWER(COALESCE(${tbl_super_admin.email}, ${tbl_admin.email}, ${tbl_staff.email}, ${tbl_user.email}))`, searchPattern),
+                    like(sql`LOWER(COALESCE(${tbl_super_admin.username}, ${tbl_admin.username}, ${tbl_staff.username}, ${tbl_user.username}))`, searchPattern)
                 )
             );
         }
 
         // Execute query with conditions
-        const logs = await (conditions.length > 0
-            ? db
-                  .select({
-                      id: securityLog.id,
-                      staffAccountId: securityLog.staffAccountId, // <-- updated
-                      userId: securityLog.userId,
-                      eventType: securityLog.eventType,
-                      eventTime: securityLog.eventTime,
-                      browser: securityLog.browser,
-                      ipAddress: securityLog.ipAddress,
-                      createdAt: securityLog.createdAt,
-                      accountName: staffAccount.name,
-                      accountEmail: staffAccount.email,
-                      accountUsername: staffAccount.username,
-                      userName: user.name,
-                      userEmail: user.email,
-                      userUsername: user.username,
-                      accountRole: staffAccount.role, // <-- add this for role
-                      userRole: user.role, // <-- add this for role
-                  })
-                  .from(securityLog)
-                  .leftJoin(staffAccount, eq(securityLog.staffAccountId, staffAccount.id)) // <-- updated
-                  .leftJoin(user, eq(securityLog.userId, user.id))
-                  .where(and(...conditions))
-                  .orderBy(desc(securityLog.eventTime))
-                  .limit(limit)
-                  .offset(offset)
-            : query);
+        let finalQuery = getBaseQuery();
+        if (conditions.length > 0) {
+            finalQuery = finalQuery.where(and(...conditions)) as any;
+        }
 
-        // Format the logs with proper user information
+        const logs = await finalQuery
+            .orderBy(desc(tbl_security_log.timestamp))
+            .limit(limit)
+            .offset(offset);
+
+        // Format the logs with proper user information for the frontend
         const formattedLogs = logs.map((log) => ({
             id: log.id,
-            staffAccountId: log.staffAccountId, // <-- updated
             userId: log.userId,
+            userType: log.userType,
             eventType: log.eventType,
-            eventTime: log.eventTime,
-            browser: log.browser,
-            ipAddress: log.ipAddress,
-            createdAt: log.createdAt,
-            userName: log.accountName || log.userName || 'Unknown',
-            userEmail: log.accountEmail || log.userEmail || null,
-            userUsername: log.accountUsername || log.userUsername || null,
-            role: log.accountRole || log.userRole || null, // <-- updated
+            ipAddress: log.ipAddress || 'N/A',
+            browser: log.userAgent || 'N/A', // Browser info from userAgent
+            eventTime: log.timestamp,
+            createdAt: log.timestamp,
+            userName: log.userName || 'Unknown',
+            userEmail: log.userEmail || 'N/A',
+            userUsername: log.userUsername || 'N/A',
+            role: log.userType // Map userType to role for frontend
         }));
 
         // Get total count for pagination
         const countResult = await db
             .select({ count: sql<number>`count(*)` })
-            .from(securityLog);
+            .from(tbl_security_log);
 
         const totalCount = Number(countResult[0]?.count || 0);
 
@@ -167,10 +269,9 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
     try {
         const body = await request.json();
         const {
-            staffAccountId, // <-- updated
             userId,
+            userType,
             eventType,
-            browser,
             ipAddress,
         } = body;
 
@@ -185,11 +286,11 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
             );
         }
 
-        if (!staffAccountId && !userId) { // <-- updated
+        if (!userId) {
             return json(
                 {
                     success: false,
-                    error: 'Either staffAccountId or userId is required',
+                    error: 'userId is required',
                 },
                 { status: 400 }
             );
@@ -200,14 +301,13 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 
         // Insert the log
         const [newLog] = await db
-            .insert(securityLog)
+            .insert(tbl_security_log)
             .values({
-                staffAccountId: staffAccountId || null, // <-- updated
-                userId: userId || null,
+                userId: userId,
+                userType: userType || 'user',
                 eventType,
-                browser: browser || null,
                 ipAddress: clientIp,
-                eventTime: new Date(),
+                timestamp: new Date(),
             })
             .returning();
 
@@ -235,8 +335,8 @@ export const DELETE: RequestHandler = async ({ url }) => {
         cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
 
         const deleted = await db
-            .delete(securityLog)
-            .where(lte(securityLog.createdAt, cutoffDate))
+            .delete(tbl_security_log)
+            .where(lte(tbl_security_log.timestamp, cutoffDate))
             .returning();
 
         return json({

@@ -1,14 +1,20 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { libraryVisit, user } from '$lib/server/db/schema/schema.js';
-import { and, eq, gte, lte, lt, desc } from 'drizzle-orm';
+import {
+  tbl_library_visit,
+  tbl_user,
+  tbl_student,
+  tbl_faculty
+} from '$lib/server/db/schema/schema.js';
+import { and, eq, gte, lt, lte, desc, sql } from 'drizzle-orm';
 
-// Utility: get date range for period
-function getDateRange(period: string) {
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function getDateRange(period: string): { start: Date; end: Date } {
   const now = new Date();
-  let start: Date, end: Date;
-  end = new Date(now);
+  const end = new Date(now);
+  let start: Date;
 
   switch (period) {
     case 'day':
@@ -27,99 +33,139 @@ function getDateRange(period: string) {
       start = new Date(now);
       start.setDate(now.getDate() - 365);
       break;
-    default:
-      start = new Date(0); // all time
+    default: // 'all'
+      start = new Date(0);
   }
+
   return { start, end };
 }
+
+function formatDuration(timeIn: Date | null, timeOut: Date | null): string {
+  if (!timeIn || !timeOut) return '—';
+  const diffMs = new Date(timeOut).getTime() - new Date(timeIn).getTime();
+  if (diffMs <= 0) return '—';
+  const mins  = Math.floor(diffMs / 60_000);
+  const hours = Math.floor(mins / 60);
+  const rem   = mins % 60;
+  return hours > 0 ? `${hours}h ${rem}m` : `${mins} min`;
+}
+
+// ─── GET /api/reports/visits ──────────────────────────────────────────────────
 
 export const GET: RequestHandler = async ({ url }) => {
   try {
     const period = url.searchParams.get('period') || 'month';
-    const date = url.searchParams.get('date');
-    const time = url.searchParams.get('time');
+    const dateParam = url.searchParams.get('date');   // YYYY-MM-DD
+    const timeParam = url.searchParams.get('time');   // HH:mm  (only used with date)
 
-    const { start, end } = getDateRange(period);
+    // ── Build time-range filters ──────────────────────────────────────────────
 
-    // Build filters
-    let filters: any[] = [gte(libraryVisit.timeIn, start), lte(libraryVisit.timeIn, end)];
+    let filters: ReturnType<typeof gte>[] = [];
 
-    if (date) {
-      // Filter by specific date
-      const dateObj = new Date(date);
-      const nextDay = new Date(dateObj);
-      nextDay.setDate(dateObj.getDate() + 1);
+    if (dateParam) {
+      // Specific calendar day (optionally narrowed to a single minute)
+      const dayStart = new Date(dateParam);
+      dayStart.setHours(0, 0, 0, 0);
+
+      if (timeParam) {
+        const [hour, minute] = timeParam.split(':').map(Number);
+        const minuteStart = new Date(dayStart);
+        minuteStart.setHours(hour, minute, 0, 0);
+        const minuteEnd = new Date(minuteStart);
+        minuteEnd.setMinutes(minute + 1);
+        filters = [
+          gte(tbl_library_visit.timeIn, minuteStart),
+          lt(tbl_library_visit.timeIn, minuteEnd)
+        ];
+      } else {
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayStart.getDate() + 1);
+        filters = [
+          gte(tbl_library_visit.timeIn, dayStart),
+          lt(tbl_library_visit.timeIn, dayEnd)
+        ];
+      }
+    } else {
+      // Period-based range
+      const { start, end } = getDateRange(period);
       filters = [
-        gte(libraryVisit.timeIn, dateObj),
-        lt(libraryVisit.timeIn, nextDay)
+        gte(tbl_library_visit.timeIn, start),
+        lte(tbl_library_visit.timeIn, end)
       ];
     }
 
-    if (time) {
-      // Filter by specific time (HH:mm)
-      // Only works if date is also provided
-      if (date) {
-        const [hour, minute] = time.split(':').map(Number);
-        const dateObj = new Date(date);
-        dateObj.setHours(hour, minute, 0, 0);
-        const nextMinute = new Date(dateObj);
-        nextMinute.setMinutes(minute + 1);
-        filters.push(gte(libraryVisit.timeIn, dateObj));
-        filters.push(lt(libraryVisit.timeIn, nextMinute));
-      }
-    }
+    // ── Single query: visit + user + student/faculty identifier ──────────────
+    //
+    // We LEFT JOIN tbl_user so named-user visits are enriched, then LEFT JOIN
+    // tbl_student and tbl_faculty to surface the enrollment / faculty number as
+    // `idNumber` on the returned row.
 
-    // Query visits - only select fields that exist in your schema
-    const visitsRaw = await db
+    const rows = await db
       .select({
-        id: libraryVisit.id,
-        userId: libraryVisit.userId,
-        username: libraryVisit.username,
-        fullName: libraryVisit.fullName,
-        visitorType: libraryVisit.visitorType,
-        purpose: libraryVisit.purpose, // <-- Add this line
-        timeIn: libraryVisit.timeIn,
-        timeOut: libraryVisit.timeOut,
-        createdAt: libraryVisit.createdAt
+        // Visit columns
+        id:          tbl_library_visit.id,
+        userId:      tbl_library_visit.userId,
+        visitorName: tbl_library_visit.visitorName,
+        visitorType: tbl_library_visit.visitorType,
+        purpose:     tbl_library_visit.purpose,
+        timeIn:      tbl_library_visit.timeIn,
+        timeOut:     tbl_library_visit.timeOut,
+        createdAt:   tbl_library_visit.createdAt,
+
+        // User columns (null when walk-in / userId is null)
+        userName:    tbl_user.name,
+        userEmail:   tbl_user.email,
+        userType:    tbl_user.userType,
+
+        // Identifiers from sub-tables (coalesce → one idNumber field)
+        enrollmentNo:  tbl_student.enrollmentNo,
+        facultyNumber: tbl_faculty.facultyNumber,
       })
-      .from(libraryVisit)
+      .from(tbl_library_visit)
+      .leftJoin(tbl_user,    eq(tbl_user.id,    tbl_library_visit.userId))
+      .leftJoin(tbl_student, eq(tbl_student.userId, tbl_library_visit.userId))
+      .leftJoin(tbl_faculty, eq(tbl_faculty.userId, tbl_library_visit.userId))
       .where(and(...filters))
-      .orderBy(desc(libraryVisit.timeIn));
+      .orderBy(desc(tbl_library_visit.timeIn));
 
-    // Optionally join user info
-    const visits = await Promise.all(
-      visitsRaw.map(async (visit) => {
-        let userInfo = null;
-        if (visit.userId) {
-          const userRes = await db
-            .select({ name: user.name, email: user.email })
-            .from(user)
-            .where(eq(user.id, visit.userId));
-          userInfo = userRes[0] || null;
-        }
-        
-        // Calculate duration
-        let duration = "—";
-        if (visit.timeIn && visit.timeOut) {
-          const diffMs = new Date(visit.timeOut).getTime() - new Date(visit.timeIn).getTime();
-          const mins = Math.floor(diffMs / 60000);
-          duration = mins > 0 ? `${mins} min` : "—";
-        }
-        
-        return {
-          ...visit,
-          user: userInfo,
-          duration
-        };
-      })
-    );
+    // ── Shape the response ────────────────────────────────────────────────────
 
-    return json({
-      success: true,
-      visits
+    const visits = rows.map((row) => {
+      // Prefer the linked user's name if available, otherwise use the stored
+      // visitor name (walk-in guests, externals, etc.)
+      const resolvedName = row.userName ?? row.visitorName ?? null;
+
+      // Resolve the identifier: students → enrollment no, faculty → faculty no,
+      // walk-ins without a linked user → nothing useful to show
+      const idNumber = row.enrollmentNo ?? row.facultyNumber ?? null;
+
+      // Derive status from whether the visitor has checked out
+      const status = row.timeOut ? 'checked_out' : 'checked_in';
+
+      return {
+        id:          row.id,
+        userId:      row.userId,
+        visitorName: resolvedName,
+        visitorType: row.visitorType,
+        idNumber,
+        purpose:     row.purpose ?? '',
+        timeIn:      row.timeIn,
+        timeOut:     row.timeOut,
+        status,
+        duration:    formatDuration(row.timeIn, row.timeOut),
+        createdAt:   row.createdAt,
+
+        // Keep nested user object for any legacy consumers
+        user: row.userName
+          ? { name: row.userName, email: row.userEmail }
+          : null,
+      };
     });
+
+    return json({ success: true, visits });
+
   } catch (err) {
-    console.error('Error fetching visit logs:', err);
+    console.error('[GET /api/reports/visits] Error:', err);
     throw error(500, { message: 'Internal server error' });
   }
 };

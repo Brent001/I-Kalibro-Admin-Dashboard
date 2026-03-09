@@ -54,8 +54,24 @@
 </script>
 
 <svelte:head>
-  <title>Admin Setup | e-Kalibro Admin Portal</title>
+  <title>System Setup | e-Kalibro Admin Portal</title>
 </svelte:head>
+
+<style>
+  .login-background {
+    background: url('/assets/login_bg.png') no-repeat center center fixed;
+    background-size: cover;
+    opacity: 0.4;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+  }
+</style>
+
+<div class="login-background"></div>
 
 <!-- Only show setup form if setup is required -->
 {#if data.setupRequired !== false}
@@ -66,7 +82,7 @@
       <!-- Header -->
       <div class="text-center">
         <h2 class="text-3xl font-bold text-[#0D5C29]">
-          Admin Setup
+          System Setup
         </h2>
         <p class="mt-2 text-sm text-gray-600">
           Create your administrator account
@@ -263,7 +279,7 @@
               </svg>
               Creating Account...
             {:else}
-              Create Admin Account
+              Create Super Admin Account
             {/if}
           </button>
         </div>

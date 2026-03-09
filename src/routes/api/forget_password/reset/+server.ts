@@ -4,7 +4,7 @@ import bcrypt from 'bcrypt';
 import { Resend } from 'resend';
 import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db/index.js';
-import { user, staffAccount, securityLog } from '$lib/server/db/schema/schema.js';
+import { tbl_user, tbl_staff, tbl_security_log } from '$lib/server/db/schema/schema.js';
 import { eq, or } from 'drizzle-orm';
 import { redisClient } from '$lib/server/db/cache.js';
 
@@ -85,24 +85,24 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 
     if (isStaff) {
       [userRow] = await db
-        .select({ id: staffAccount.id, email: staffAccount.email, username: staffAccount.username })
-        .from(staffAccount)
-        .where(eq(staffAccount.email, normalizedEmail))
+        .select({ id: tbl_staff.id, email: tbl_staff.email, username: tbl_staff.username })
+        .from(tbl_staff)
+        .where(eq(tbl_staff.email, normalizedEmail))
         .limit(1);
-      table = staffAccount;
-      idField = staffAccount.id;
-      emailField = staffAccount.email;
-      usernameField = staffAccount.username;
+      table = tbl_staff;
+      idField = tbl_staff.id;
+      emailField = tbl_staff.email;
+      usernameField = tbl_staff.username;
     } else {
       [userRow] = await db
-        .select({ id: user.id, email: user.email, username: user.username })
-        .from(user)
-        .where(eq(user.email, normalizedEmail))
+        .select({ id: tbl_user.id, email: tbl_user.email, username: tbl_user.username })
+        .from(tbl_user)
+        .where(eq(tbl_user.email, normalizedEmail))
         .limit(1);
-      table = user;
-      idField = user.id;
-      emailField = user.email;
-      usernameField = user.username;
+      table = tbl_user;
+      idField = tbl_user.id;
+      emailField = tbl_user.email;
+      usernameField = tbl_user.username;
     }
 
     if (!userRow) {
@@ -158,16 +158,14 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 
     console.log(`[Reset Password] Password updated in database for ${normalizedEmail}`);
 
-    // Save to security_log
+    // Save to security log
     try {
-      await db.insert(securityLog).values({
-        staffAccountId: isStaff ? userRow.id : null,
-        userId: isStaff ? null : userRow.id,
+      await db.insert(tbl_security_log).values({
+        userType: isStaff ? 'staff' : 'user',
+        userId: userRow.id,
         eventType: 'password_reset',
-        eventTime: new Date(),
-        browser: '', // Optionally, get from request headers
-        ipAddress: getClientAddress ? getClientAddress() : undefined,
-        createdAt: new Date()
+        timestamp: new Date(),
+        ipAddress: getClientAddress ? getClientAddress() : undefined
       });
     } catch (logErr) {
       console.error('[Reset Password] Failed to log security event:', logErr);

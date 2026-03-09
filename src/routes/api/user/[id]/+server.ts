@@ -2,8 +2,8 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { user, student, faculty, bookBorrowing, book, bookReturn } from '$lib/server/db/schema/schema.js';
-import { eq, count } from 'drizzle-orm';
+import { tbl_user, tbl_student, tbl_faculty, tbl_book_borrowing, tbl_book, tbl_return } from '$lib/server/db/schema/schema.js';
+import { eq, count, and } from 'drizzle-orm';
 
 // GET: Return specific user details with issued and returned books, using new schema
 export const GET: RequestHandler = async ({ params }) => {
@@ -17,8 +17,8 @@ export const GET: RequestHandler = async ({ params }) => {
     // Get user basic info
     const userInfoArr = await db
       .select()
-      .from(user)
-      .where(eq(user.id, userId))
+      .from(tbl_user)
+      .where(eq(tbl_user.id, userId))
       .limit(1);
 
     if (userInfoArr.length === 0) {
@@ -27,61 +27,56 @@ export const GET: RequestHandler = async ({ params }) => {
 
     const u = userInfoArr[0];
     let memberDetails: any = {
-      ...u,
-      type: u.role === 'student' ? 'Student' : 'Faculty'
+      ...u
     };
 
-    // Get extra info from student/faculty table
-    if (u.role === 'student') {
-      const [studentInfo] = await db
-        .select()
-        .from(student)
-        .where(eq(student.userId, userId))
-        .limit(1);
-      if (studentInfo) {
-        memberDetails.gender = studentInfo.gender;
-        memberDetails.age = studentInfo.age;
-        memberDetails.enrollmentNo = studentInfo.enrollmentNo;
-        memberDetails.course = studentInfo.course;
-        memberDetails.year = studentInfo.year;
-        memberDetails.department = studentInfo.department;
-      }
-    } else if (u.role === 'faculty') {
+    // Get extra info from student/faculty table - check which type of user this is
+    const [studentInfo] = await db
+      .select()
+      .from(tbl_student)
+      .where(eq(tbl_student.userId, userId))
+      .limit(1);
+    
+    if (studentInfo) {
+      memberDetails.userType = 'student';
+      memberDetails.enrollmentNo = studentInfo.enrollmentNo;
+      memberDetails.course = studentInfo.course;
+      memberDetails.year = studentInfo.year;
+      memberDetails.department = studentInfo.department;
+    } else {
       const [facultyInfo] = await db
         .select()
-        .from(faculty)
-        .where(eq(faculty.userId, userId))
+        .from(tbl_faculty)
+        .where(eq(tbl_faculty.userId, userId))
         .limit(1);
       if (facultyInfo) {
-        memberDetails.gender = facultyInfo.gender;
-        memberDetails.age = facultyInfo.age;
-        memberDetails.department = facultyInfo.department;
+        memberDetails.userType = 'faculty';
         memberDetails.facultyNumber = facultyInfo.facultyNumber;
+        memberDetails.position = facultyInfo.position;
+        memberDetails.department = facultyInfo.department;
       }
     }
 
-    // Get issued books count
+    // Get issued books count (only book borrowing for now, can extend to other types)
     const issuedBooksCountResult = await db
       .select({ count: count() })
-      .from(bookBorrowing)
-      .where(eq(bookBorrowing.userId, userId))
-      .where(eq(bookBorrowing.status, 'borrowed'));
+      .from(tbl_book_borrowing)
+      .where(and(eq(tbl_book_borrowing.userId, userId), eq(tbl_book_borrowing.status, 'borrowed')));
     const issuedBooksCount = issuedBooksCountResult[0]?.count ?? 0;
 
     // Get active borrowings
     const issuedBooksRaw = await db
       .select({
-        id: bookBorrowing.id,
-        bookTitle: book.title,
-        bookAuthor: book.author,
-        borrowDate: bookBorrowing.borrowDate,
-        dueDate: bookBorrowing.dueDate,
-        status: bookBorrowing.status
+        id: tbl_book_borrowing.id,
+        bookTitle: tbl_book.title,
+        bookAuthor: tbl_book.author,
+        borrowDate: tbl_book_borrowing.borrowDate,
+        dueDate: tbl_book_borrowing.dueDate,
+        status: tbl_book_borrowing.status
       })
-      .from(bookBorrowing)
-      .leftJoin(book, eq(bookBorrowing.bookId, book.id))
-      .where(eq(bookBorrowing.userId, userId))
-      .where(eq(bookBorrowing.status, 'borrowed'));
+      .from(tbl_book_borrowing)
+      .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
+      .where(and(eq(tbl_book_borrowing.userId, userId), eq(tbl_book_borrowing.status, 'borrowed')));
 
     // Calculate fines for each active borrowing
     const issuedBooks = issuedBooksRaw.map(b => {
@@ -97,19 +92,18 @@ export const GET: RequestHandler = async ({ params }) => {
       return { ...b, fine };
     });
 
-    // Get returned books from bookReturn
+    // Get returned books from tbl_return
     const returnedBooksRaw = await db
       .select({
-        id: bookReturn.id,
-        bookTitle: book.title,
-        bookAuthor: book.author,
-        returnDate: bookReturn.returnDate,
-        finePaid: bookReturn.finePaid,
-        remarks: bookReturn.remarks
+        id: tbl_return.id,
+        bookTitle: tbl_book.title,
+        bookAuthor: tbl_book.author,
+        returnDate: tbl_return.returnDate
       })
-      .from(bookReturn)
-      .leftJoin(book, eq(bookReturn.bookId, book.id))
-      .where(eq(bookReturn.userId, userId));
+      .from(tbl_return)
+      .leftJoin(tbl_book_borrowing, eq(tbl_return.borrowingId, tbl_book_borrowing.id))
+      .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
+      .where(eq(tbl_book_borrowing.userId, userId));
 
     memberDetails.booksCount = issuedBooks.length;
     memberDetails.issuedBooks = issuedBooks;
