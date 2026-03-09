@@ -5,14 +5,17 @@ import { tbl_super_admin, tbl_admin, tbl_staff, tbl_user } from '$lib/server/db/
 import { count } from 'drizzle-orm';
 
 async function getTotalUserCount(): Promise<number> {
-    const [adminResult] = await db.select({ count: count() }).from(tbl_super_admin);
-    const [staffResult] = await db.select({ count: count() }).from(tbl_staff);
-    const [userResult] = await db.select({ count: count() }).from(tbl_user);
-    
+    // Run all count queries in parallel for better performance
+    const [adminResult, staffResult, userResult] = await Promise.all([
+        db.select({ count: count() }).from(tbl_super_admin),
+        db.select({ count: count() }).from(tbl_staff),
+        db.select({ count: count() }).from(tbl_user)
+    ]);
+
     const adminCount = Number(adminResult?.count ?? 0);
     const staffCount = Number(staffResult?.count ?? 0);
     const userCount = Number(userResult?.count ?? 0);
-    
+
     return adminCount + staffCount + userCount;
 }
 

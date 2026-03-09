@@ -7,6 +7,7 @@
   export let data: any = {};
 
   import { writable } from 'svelte/store';
+  import { tweened } from 'svelte/motion';
 
   // pagination constant used by server/clientside helpers
   const ROWS_PER_PAGE = 100;
@@ -14,6 +15,28 @@
   let searchTerm = "";
   // status filter removed because tabs handle status
   let selectedItemType = 'all';
+
+  // loading state for table
+  let loading = false;
+
+  // debounced search
+  let debouncedSearchTerm = "";
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // animated stats
+  let totalAnimated = tweened(0, { duration: 1000 });
+  let borrowedAnimated = tweened(0, { duration: 1000 });
+  let returnedAnimated = tweened(0, { duration: 1000 });
+  let overdueAnimated = tweened(0, { duration: 1000 });
+  let reservedAnimated = tweened(0, { duration: 1000 });
+
+  // Debounce search term
+  $: if (searchTerm !== undefined) {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debouncedSearchTerm = searchTerm;
+    }, 300);
+  }
 
   // export dropdown state (styled like reports page)
   const exportDropdownOpen = writable(false);
@@ -27,7 +50,14 @@
     try {
       // adjust endpoint as needed
       const format = $selectedExportFormat;
-      const res = await fetch(`/api/transactions/export?format=${format}`);
+      const params = new URLSearchParams({
+        format,
+        search: searchTerm,
+        tab: activeTab,
+        period: selectedPeriod,
+        customDays
+      });
+      const res = await fetch(`/api/transactions/export?${params}`);
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
       const link = document.createElement('a');
@@ -38,6 +68,21 @@
       alert('Export failed.');
     }
   }
+
+  async function fetchTransactions(page = 1, limit = 500, params: Record<string, any> = {}) {
+    const url = new URL('/api/transactions', window.location.origin);
+    url.searchParams.set('page', page.toString());
+    url.searchParams.set('limit', limit.toString());
+    if (params.search) url.searchParams.set('search', params.search);
+    if (params.tab) url.searchParams.set('tab', params.tab);
+    if (params.period) url.searchParams.set('period', params.period);
+    if (params.customDays) url.searchParams.set('customDays', params.customDays);
+    if (params.itemType) url.searchParams.set('itemType', params.itemType);
+    const res = await fetch(url);
+    const json = await res.json();
+    return json;
+  }
+
   let activeTab = "all";
   let selectedPeriod = "all";
   let showFilters = false;
@@ -62,7 +107,7 @@
   let returnVerification = { method: "password", password: "", qrData: "", fine: 0 };
 
   // Use transactions from server data
-  let transactions = data.transactions ?? [];
+  let transactions: any[] = [];
   let fineSettings: any | null = data.fineSettings || null;
 
   // server pagination info (initial values provided by +page.server)
@@ -122,39 +167,26 @@
     return count;
   }
 
-  function enrichTransaction(t: any) {
-    if (t.dueDate && !t.returnDate && ['borrowed', 'overdue'].includes((t.status||'').toLowerCase())) {
-      const days = calculateDaysOverdueClient(new Date(t.dueDate), new Date(), fineSettings);
-      const fine = calculateFineAmountClient(new Date(t.dueDate), new Date(), fineSettings);
-      const hours = fine > 0 ? Math.ceil(fine / 500) : 0;
-      return { ...t, daysOverdue: days, fine, hoursOverdue: hours };
-    }
-    return { ...t, daysOverdue: 0, fine: 0, hoursOverdue: 0 };
-  }
-
-  // automatically enrich whenever settings or transaction list change
-  $: if (transactions) {
-    transactions = transactions.map(enrichTransaction);
-  }
-
   async function loadMore() {
     if (totalCount !== null && transactions.length >= totalCount) return;
-    if (totalCount !== null && transactions.length >= totalCount) return;
+    loading = true;
     try {
       const nextPage = serverPage + 1;
-      const res = await fetch(`/api/transactions?page=${nextPage}&limit=${serverLimit}`);
-      if (!res.ok) throw new Error('failed');
-      const json = await res.json();
+      const json = await fetchTransactions(nextPage, 500, {
+        search: debouncedSearchTerm,
+        tab: activeTab,
+        period: selectedPeriod,
+        customDays,
+        itemType: selectedItemType
+      });
       const more: Transaction[] = json.transactions || [];
-      // enrich each new record using existing settings
-      const enriched = fineSettings ? more.map(enrichTransaction) : more;
-      transactions = [...transactions, ...enriched];
-      serverPage = json.page || nextPage;
-      serverLimit = json.limit || serverLimit;
+      transactions.push(...more);
+      serverPage = nextPage;
       if (json.total != null) totalCount = json.total;
     } catch (err) {
-      console.error('loadMore error', err);
-      alert('Unable to load more transactions');
+      console.error('Load more error:', err);
+    } finally {
+      loading = false;
     }
   }
 
@@ -246,40 +278,7 @@
     }
   }
 
-  $: filteredTransactions = transactions.filter((transaction: Transaction) => {
-    const matchesSearch =
-      (transaction.itemTitle?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
-      (transaction.userName?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
-      (transaction.userIdentifier?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
-      (transaction.itemId?.toString().toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
-      (transaction.userId?.toString().toLowerCase() ?? '').includes(searchTerm.toLowerCase());
-    // status already handled by tabs; no extra status filter
-    const matchesStatus = true;
-    const matchesType = (() => {
-      // user wants only overdue items? check the calculated fields
-      if (activeTab === 'overdue') {
-        return (
-          Number((transaction as any).daysOverdue || 0) > 0 ||
-          Number((transaction as any).hoursOverdue || 0) > 0
-        );
-      }
-
-      // always show fulfilled when user is on 'all' or 'fulfilled' tab
-      const status = transaction.status?.toLowerCase();
-      if (status === 'fulfilled') {
-        return activeTab === 'all' || activeTab === 'fulfilled';
-      }
-      if (activeTab === 'all') return true;
-      if (activeTab === 'cancelled') return status === 'cancelled';
-      if (activeTab === 'reserve') return (transaction.type?.toLowerCase() === 'reserve') && (status === 'active');
-      if (activeTab === 'fulfilled') return status === 'fulfilled';
-      return transaction.type?.toLowerCase() === activeTab.toLowerCase();
-    })();
-    const matchesItemType = selectedItemType === 'all' || (transaction.itemType || '').toLowerCase() === selectedItemType.toLowerCase();
-    const customDaysNum = customDays ? parseInt(customDays) : 0;
-    const matchesPeriod = isDateInPeriod(transaction.borrowDate || transaction.createdAt, selectedPeriod, customDaysNum);
-    return matchesSearch && matchesStatus && matchesType && matchesItemType && matchesPeriod;
-  });
+  $: filteredTransactions = transactions;
 
   function toggleDropdown() { dropdownOpen = !dropdownOpen; }
 
@@ -548,6 +547,18 @@
       // ignore
     }
 
+    // Fetch initial transactions
+    const initial = await fetchTransactions(1, 200, {
+      search: searchTerm,
+      tab: activeTab,
+      period: selectedPeriod,
+      customDays,
+      itemType: selectedItemType
+    });
+    transactions = initial.transactions || [];
+    totalCount = initial.total || 0;
+    fineSettings = initial.fineSettings || fineSettings;
+
     // Mark initialized so reactive updates will push changes to the URL
     initializedFromUrl = true;
 
@@ -563,8 +574,31 @@
     selectedItemType;
     selectedPeriod;
     customDays;
-    searchTerm;
+    debouncedSearchTerm;
     updateUrlParams();
+    // Refetch transactions with new filters
+    (async () => {
+      loading = true;
+      currentPage = 1;
+      serverPage = 1;
+      transactions = [];
+      totalCount = null;
+      try {
+        const json = await fetchTransactions(1, 500, {
+          search: debouncedSearchTerm,
+          tab: activeTab,
+          period: selectedPeriod,
+          customDays,
+          itemType: selectedItemType
+        });
+        transactions = json.transactions || [];
+        totalCount = json.total || 0;
+      } catch (err) {
+        console.error('Error fetching transactions:', err);
+      } finally {
+        loading = false;
+      }
+    })();
   }
 
   // pagination helpers (limit rendered rows to improve load speed)
@@ -579,11 +613,19 @@
   $: pagedTransactions = filteredTransactions.slice((currentPage - 1) * ROWS_PER_PAGE, currentPage * ROWS_PER_PAGE);
 
   $: stats = {
+    total: filteredTransactions.length,
     borrowed: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'borrowed').length,
     returned: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'returned').length,
     overdue:  transactions.filter((t: Transaction) => Number((t as any).daysOverdue || 0) > 0 || Number((t as any).hoursOverdue || 0) > 0).length,
     reserved: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'active' && t.type?.toLowerCase() === 'reserve').length,
   };
+
+  // animate stats
+  $: totalAnimated.set(stats.total);
+  $: borrowedAnimated.set(stats.borrowed);
+  $: returnedAnimated.set(stats.returned);
+  $: overdueAnimated.set(stats.overdue);
+  $: reservedAnimated.set(stats.reserved);
 </script>
 
 <svelte:head>
@@ -612,7 +654,7 @@
           </svg>
         </div>
         <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Borrowed</p>
-        <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.borrowed}</p>
+        <p class="text-lg sm:text-xl font-bold text-gray-900">{Math.round($borrowedAnimated)}</p>
       </div>
     </div>
 
@@ -624,7 +666,7 @@
           </svg>
         </div>
         <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Returned</p>
-        <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.returned}</p>
+        <p class="text-lg sm:text-xl font-bold text-gray-900">{Math.round($returnedAnimated)}</p>
       </div>
     </div>
 
@@ -885,7 +927,46 @@
           </thead>
 
           <tbody class="divide-y divide-gray-50">
-            {#each pagedTransactions as transaction}
+            {#if loading}
+              {#each Array(10) as _}
+                <tr class="animate-pulse">
+                  <td class="pl-6 pr-3 py-4">
+                    <div class="flex flex-col gap-1.5">
+                      <div class="h-4 bg-gray-200 rounded w-16"></div>
+                      <div class="h-3 bg-gray-200 rounded w-12"></div>
+                    </div>
+                  </td>
+                  <td class="px-3 py-4">
+                    <div class="flex items-center gap-3">
+                      <div class="h-9 w-9 bg-gray-200 rounded-xl"></div>
+                      <div class="flex-1">
+                        <div class="h-4 bg-gray-200 rounded w-32 mb-1"></div>
+                        <div class="h-3 bg-gray-200 rounded w-20"></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="px-3 py-4">
+                    <div class="h-4 bg-gray-200 rounded w-24 mb-1"></div>
+                    <div class="h-3 bg-gray-200 rounded w-16"></div>
+                  </td>
+                  <td class="px-4 py-4">
+                    <div class="h-3 bg-gray-200 rounded w-20 mb-1"></div>
+                    <div class="h-3 bg-gray-200 rounded w-16"></div>
+                  </td>
+                  <td class="px-2.5 py-4">
+                    <div class="h-5 bg-gray-200 rounded w-14"></div>
+                  </td>
+                  <td class="pl-3 pr-6 py-4">
+                    <div class="flex justify-end gap-1.5">
+                      <div class="h-7 w-16 bg-gray-200 rounded"></div>
+                      <div class="h-7 w-7 bg-gray-200 rounded"></div>
+                      <div class="h-7 w-7 bg-gray-200 rounded"></div>
+                    </div>
+                  </td>
+                </tr>
+              {/each}
+            {:else}
+              {#each pagedTransactions as transaction}
               {@const daysLeft = calculateDaysRemaining(transaction.dueDate)}
               {@const daysOverdue = Number((transaction as any).daysOverdue || 0)}
               {@const hoursOverdue = Number((transaction as any).hoursOverdue || 0) || Math.ceil(Number((transaction as any).fine || 0) / 5)}
@@ -1107,6 +1188,7 @@
                 </td>
               </tr>
             {/if}
+            {/if}
           </tbody>
         </table>
       </div>
@@ -1150,7 +1232,46 @@
 
   <!-- Mobile Card View -->
   <div class="lg:hidden space-y-2 mb-2">
-    {#each pagedTransactions as transaction}
+    {#if loading}
+      {#each Array(5) as _}
+        <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 animate-pulse">
+          <div class="flex items-start justify-between mb-4">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-2">
+                <div class="h-4 bg-gray-200 rounded w-16"></div>
+                <div class="h-5 bg-gray-200 rounded w-12"></div>
+              </div>
+              <div class="h-5 bg-gray-200 rounded w-32 mb-1"></div>
+              <div class="h-3 bg-gray-200 rounded w-20"></div>
+              <div class="h-3 bg-gray-200 rounded w-16 mt-1"></div>
+            </div>
+            <div class="h-6 bg-gray-200 rounded w-16"></div>
+          </div>
+          <div class="flex items-center mb-4 pb-4 border-b border-gray-100">
+            <div class="h-10 w-10 bg-gray-200 rounded-full mr-3"></div>
+            <div class="flex-1">
+              <div class="h-4 bg-gray-200 rounded w-24 mb-1"></div>
+              <div class="h-3 bg-gray-200 rounded w-16"></div>
+            </div>
+          </div>
+          <div class="space-y-2 mb-4">
+            <div class="flex items-center">
+              <div class="h-4 w-4 bg-gray-200 rounded mr-2"></div>
+              <div class="h-3 bg-gray-200 rounded w-20"></div>
+            </div>
+            <div class="flex items-center">
+              <div class="h-4 w-4 bg-gray-200 rounded mr-2"></div>
+              <div class="h-3 bg-gray-200 rounded w-16"></div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <div class="h-8 bg-gray-200 rounded flex-1"></div>
+            <div class="h-8 bg-gray-200 rounded w-16"></div>
+          </div>
+        </div>
+      {/each}
+    {:else}
+      {#each pagedTransactions as transaction}
       <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200 text-sm">
         <!-- Header -->
         <div class="flex items-start justify-between mb-4">
@@ -1263,6 +1384,7 @@
         </div>
       </div>
     {/each}
+    {/if}
 
       <!-- mobile pagination -->
       <div class="flex justify-center items-center space-x-2 mt-2">

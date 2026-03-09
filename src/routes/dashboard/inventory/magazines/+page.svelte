@@ -316,7 +316,7 @@
   function handleAddMagazineSuccess(event: CustomEvent) {
     console.log('Magazine added successfully:', event.detail);
     // Refresh the list and stats, go to first page
-    goto('/dashboard/magazines?page=1');
+    goto('/dashboard/inventory/magazines?page=1');
     fetchStats();
   }
 

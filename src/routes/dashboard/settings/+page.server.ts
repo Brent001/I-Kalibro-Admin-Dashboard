@@ -1,54 +1,28 @@
 import type { PageServerLoad } from './$types.js';
 import { redirect } from '@sveltejs/kit';
-import jwt from 'jsonwebtoken';
-import { isSessionRevoked } from '$lib/server/db/auth.js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+import { verifyToken } from '$lib/server/db/auth.js';
 
 export const load: PageServerLoad = async ({ cookies, url }) => {
     const token = cookies.get('token');
-    
+
     if (!token) {
         throw redirect(302, '/');
     }
 
-    try {
-        // Check if session has been revoked (logout from all devices)
-        if (await isSessionRevoked(token)) {
-            console.warn('Session has been revoked');
-            cookies.delete('token', { path: '/' });
-            cookies.delete('refresh_token', { path: '/' });
-            throw redirect(302, '/');
-        }
-
-        const decoded = jwt.verify(token, JWT_SECRET) as any;
-        const userId = decoded.userId || decoded.id;
-        
-        if (!userId) {
-            cookies.delete('token', { path: '/' });
-            throw redirect(302, '/');
-        }
-
-        // Use user data from JWT token (no database query needed)
-        const user = {
-            id: userId,
-            username: decoded.username,
-            email: decoded.email,
-            role: decoded.role,
-            isActive: true
-        };
-
-        return {
-            user: {
-                id: user.id,
-                username: user.username,
-                email: user.email,
-                role: user.role
-            }
-        };
-
-    } catch (error) {
+    const user = await verifyToken(token);
+    if (!user) {
         cookies.delete('token', { path: '/' });
+        cookies.delete('refresh_token', { path: '/' });
         throw redirect(302, '/');
     }
+
+    return {
+        user: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            userType: user.userType,
+            permissions: user.permissions
+        }
+    };
 };

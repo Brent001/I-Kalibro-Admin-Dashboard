@@ -18,7 +18,6 @@
           await goto(data.redirect);
       }
       
-      // Check for remember me token
       const rememberMeToken = localStorage.getItem('rememberMe');
       if (rememberMeToken) {
         try {
@@ -49,7 +48,6 @@
     if (username && password) {
       isSubmitting = true;
       try {
-        // Only staff accounts can log in here (admin/staff)
         const res = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -57,11 +55,9 @@
         });
         const result = await res.json();
         if (result.success) {
-          // Store remember me token if checkbox is checked
           if (rememberMe && result.rememberMeToken) {
             localStorage.setItem('rememberMe', result.rememberMeToken);
           }
-          // Use optimized redirect: replaceState removes history entry, noScroll skips scroll animation
           await goto('/dashboard', { replaceState: true, noScroll: true });
         } else {
           errorMsg = result.message || 'Login failed';
@@ -79,10 +75,17 @@
   <title>Login | e-Kalibro Admin Portal</title>
 </svelte:head>
 
-<!-- Main Layout -->
-<div class="min-h-screen flex">
+<style>
+  .login-wrapper {
+    background: url('/assets/login_bg.png') no-repeat center center fixed;
+    background-size: cover;
+  }
+</style>
+
+<div class="login-wrapper relative min-h-screen flex">
+
   <!-- Left side - Login Form -->
-  <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-[#FFF9E6]">
+  <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-[#FFF9E6]/70 backdrop-blur-sm">
     <div class="max-w-md w-full space-y-8">
       <div class="text-center">
         <img src="/assets/logo.png" alt="E-Kalibro Logo" class="mx-auto h-20 w-20 rounded-full object-cover" />
@@ -97,7 +100,6 @@
         </p>
       </div>
 
-      <!-- Form inputs -->
       <form class="mt-8 space-y-6" on:submit|preventDefault={handleSubmit}>
         <div class="space-y-4">
           <div>
@@ -110,7 +112,7 @@
               type="text"
               required
               bind:value={username}
-              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29]"
+              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29] bg-white/80"
               placeholder="Enter your username"
             />
           </div>
@@ -125,7 +127,7 @@
                 type={showPassword ? 'text' : 'password'}
                 required
                 bind:value={password}
-                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29]"
+                class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#0D5C29] focus:border-[#0D5C29] bg-white/80"
                 placeholder="Enter your password"
               />
               <button
@@ -135,13 +137,11 @@
                 tabindex="-1"
               >
                 {#if showPassword}
-                  <!-- EyeOff SVG -->
                   <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path d="M17.94 17.94A10.94 10.94 0 0112 19c-5 0-9.27-3.11-10.94-7.5a10.97 10.97 0 012.92-4.19M1 1l22 22" />
                     <path d="M9.53 9.53A3.5 3.5 0 0012 15.5a3.5 3.5 0 003.5-3.5c0-.88-.32-1.69-.85-2.32" />
                   </svg>
                 {:else}
-                  <!-- Eye SVG -->
                   <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                     <circle cx="12" cy="12" r="3" />
@@ -206,7 +206,6 @@
 
   <!-- Right side - Feature showcase -->
   <div class="hidden lg:block lg:flex-1 relative bg-gradient-to-br from-[#0D5C29] to-[#1a8c42]">
-    <!-- Content overlay -->
     <div class="relative flex flex-col justify-center items-center h-full p-12 text-white z-10">
       <div class="max-w-md text-center">
         <h1 class="text-4xl font-bold mb-6">
@@ -218,7 +217,6 @@
         <div class="space-y-6">
           <div class="flex items-center space-x-4">
             <div class="bg-[#E8B923] p-3 rounded-full">
-              <!-- Library/Database Icon -->
               <svg class="h-6 w-6 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
               </svg>
@@ -230,7 +228,6 @@
           </div>
           <div class="flex items-center space-x-4">
             <div class="bg-[#E8B923] p-3 rounded-full">
-              <!-- ID Card/Badge Icon -->
               <svg class="h-6 w-6 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/>
               </svg>
@@ -242,7 +239,6 @@
           </div>
           <div class="flex items-center space-x-4">
             <div class="bg-[#E8B923] p-3 rounded-full">
-              <!-- Chart/Analytics Icon -->
               <svg class="h-6 w-6 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
               </svg>
@@ -256,4 +252,5 @@
       </div>
     </div>
   </div>
+
 </div>
