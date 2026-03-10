@@ -5,6 +5,16 @@
   let isSaving = $state(false);
   let saveSuccess = $state(false);
 
+  let storageInfo = $state<{
+    used: number;
+    total: number;
+    usedFormatted: string;
+    totalFormatted: string;
+    percentage: number;
+  } | null>(null);
+
+  let apiStatus = $state<'healthy' | 'degraded' | 'unhealthy' | 'checking'>('checking');
+
   type PermKey = 'canManageBooks'|'canManageUsers'|'canManageBorrowing'|'canManageReservations'|'canViewReports'|'canManageFines';
 
   let settings = $state({
@@ -14,6 +24,8 @@
     phone: '+63 75 522 4567',
     email: 'library@mdc.edu.ph',
     website: 'https://mdc.edu.ph/library',
+
+    visitScanMethod: 'qrcode' as 'qrcode' | 'barcode' | 'both',
 
     defaultLoanPeriodStudent: 7,
     defaultLoanPeriodFaculty: 14,
@@ -117,7 +129,7 @@
     { id:'fines',         name:'Fines & Returns',      icon:'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
     { id:'finecalc',      name:'Fine Exemptions',      icon:'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
     { id:'notifications', name:'Notifications',        icon:'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
-    { id:'permissions',   name:'Default Permissions',  icon:'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+    { id:'permissions',   name:'Permissions',          icon:'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
     { id:'security',      name:'Security',             icon:'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
     { id:'system',        name:'System',               icon:'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
   ];
@@ -166,13 +178,41 @@
     { label:'Theses',          key:'maxThesesPerUser' },
     { label:'Journals',        key:'maxJournalsPerUser' },
   ];
+
+  onMount(async () => {
+    try { const p = new URLSearchParams(location.search); const t = p.get('tab'); if (t) activeTab = t; } catch {}
+    try {
+      const res = await fetch('/api/settings/finecal', { credentials:'same-origin' });
+      if (res.ok) { const d = await res.json(); if (d?.fineCalculation) settings.fineCalculation = d.fineCalculation; }
+    } catch {}
+    try {
+      const res = await fetch('/api/settings/storage', { credentials:'same-origin' });
+      if (res.ok) { const d = await res.json(); if (d?.storage) storageInfo = d.storage; }
+    } catch {}
+    try {
+      const res = await fetch('/api/health', { credentials:'same-origin' });
+      if (res.ok) {
+        const d = await res.json();
+        if (d.status === 'healthy') {
+          apiStatus = 'healthy';
+        } else if (d.status === 'degraded') {
+          apiStatus = 'degraded';
+        } else {
+          apiStatus = 'unhealthy';
+        }
+      } else {
+        apiStatus = 'unhealthy';
+      }
+    } catch {
+      apiStatus = 'unhealthy';
+    }
+  });
 </script>
 
 <svelte:head>
   <title>Settings | E-Kalibro Admin Portal</title>
 </svelte:head>
 
-<!-- Toggle switch markup used inline -->
 {#snippet toggle(checked: boolean, onchange: (v: boolean) => void)}
   <label class="relative inline-flex items-center cursor-pointer">
     <input type="checkbox" checked={checked} onchange={e => onchange((e.target as HTMLInputElement).checked)} class="sr-only peer"/>
@@ -216,8 +256,26 @@
     </div>
   </div>
 
+  <!-- ✅ FIX: Mobile tab strip is NOW outside the flex row so it stacks above content -->
+  <div class="lg:hidden bg-white rounded-xl border border-gray-200 overflow-x-auto mb-3">
+    <div class="flex px-1">
+      {#each tabs as tab}
+        <button onclick={() => selectTab(tab.id)}
+          class="px-3 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-all flex flex-col items-center gap-1
+            {activeTab === tab.id ? 'border-[#0D5C29] text-[#0D5C29]' : 'border-transparent text-gray-500'}">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d={tab.icon}/>
+          </svg>
+          {tab.name}
+        </button>
+      {/each}
+    </div>
+  </div>
+
+  <!-- Sidebar + Content row (desktop sidebar lives here, mobile tab strip does NOT) -->
   <div class="flex gap-5">
-    <!-- Sidebar -->
+
+    <!-- Desktop Sidebar -->
     <aside class="hidden lg:flex flex-col w-52 shrink-0 gap-1">
       {#each tabs as tab}
         <button onclick={() => selectTab(tab.id)}
@@ -231,25 +289,7 @@
       {/each}
     </aside>
 
-    <!-- Mobile tab strip -->
-    <div class="lg:hidden w-full">
-      <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto mb-3">
-        <div class="flex px-1">
-          {#each tabs as tab}
-            <button onclick={() => selectTab(tab.id)}
-              class="px-3 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-all flex flex-col items-center gap-1
-                {activeTab === tab.id ? 'border-[#0D5C29] text-[#0D5C29]' : 'border-transparent text-gray-500'}">
-              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d={tab.icon}/>
-              </svg>
-              {tab.name}
-            </button>
-          {/each}
-        </div>
-      </div>
-    </div>
-
-    <!-- Content -->
+    <!-- Content Panel -->
     <div class="flex-1 min-w-0">
       <div class="bg-white rounded-xl shadow-sm border border-gray-200">
 
@@ -285,6 +325,53 @@
                 <label for="lWeb" class="block text-sm font-medium text-slate-700">Website URL</label>
                 <input id="lWeb" type="url" bind:value={settings.website} class={inp}/>
               </div>
+            </div>
+
+            <hr class="border-gray-100 max-w-3xl mt-8 mb-7"/>
+
+            <div class="max-w-3xl">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h3 class="text-base font-semibold text-slate-900">Visit Scan Method</h3>
+                  <p class="text-xs text-slate-400 mt-0.5">How the visit kiosk identifies visitors — tbl_library_settings.visitScanMethod</p>
+                </div>
+                <div class="flex items-center bg-gray-100 rounded-lg p-1 shrink-0">
+                  <button
+                    type="button"
+                    onclick={() => settings.visitScanMethod = 'qrcode'}
+                    class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all
+                      {settings.visitScanMethod === 'qrcode'
+                        ? 'bg-white text-[#0D5C29] shadow-sm ring-1 ring-gray-200'
+                        : 'text-slate-500 hover:text-slate-700'}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h6v6H3zm12 0h6v6h-6zM3 15h6v6H3zm2-10h2v2H5zm10 0h2v2h-2zM5 17h2v2H5zm5-14h2v2h-2zm0 4h2v2h-2zm4 4h2v2h-2zm0 4h2v2h-2zm-4 0h2v2h-2zm0 4h2v2h-2zm4-8h2v2h-2zm4 4h2v2h-2z"/>
+                    </svg>
+                    QR Code
+                  </button>
+                  <button
+                    type="button"
+                    onclick={() => settings.visitScanMethod = 'barcode'}
+                    class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all
+                      {settings.visitScanMethod === 'barcode'
+                        ? 'bg-white text-[#0D5C29] shadow-sm ring-1 ring-gray-200'
+                        : 'text-slate-500 hover:text-slate-700'}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h1v12H4zm3 0h1v12H7zm2 0h2v12H9zm3 0h1v12h-1zm2 0h1v12h-1zm2 0h2v12h-2z"/>
+                    </svg>
+                    Barcode
+                  </button>
+                </div>
+              </div>
+              <p class="text-xs text-slate-500 mt-4 flex items-start gap-2 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-4 py-3">
+                <svg class="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                {#if settings.visitScanMethod === 'qrcode'}
+                  The visit kiosk camera will read <span class="font-medium text-slate-700">QR codes</span> printed on student and faculty ID cards or on generated visit passes.
+                {:else}
+                  The visit kiosk scanner will read <span class="font-medium text-slate-700">1D barcodes</span> (Code 128 / EAN-13) on physical ID cards.
+                {/if}
+              </p>
             </div>
           </div>
 
@@ -653,14 +740,22 @@
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Current Status</h4>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {#each [
-                    { label:'Database', status:'Connected' },
-                    { label:'API Server', status:'Running' },
-                    { label:'File Storage', status:'Healthy' },
+                    { label:'Database', status:'Connected', color:'emerald' },
+                    {
+                      label:'API Server',
+                      status: apiStatus === 'healthy' ? 'Running' : apiStatus === 'degraded' ? 'Degraded' : apiStatus === 'unhealthy' ? 'Down' : 'Checking',
+                      color: apiStatus === 'healthy' ? 'emerald' : apiStatus === 'degraded' ? 'amber' : apiStatus === 'unhealthy' ? 'red' : 'gray'
+                    },
+                    {
+                      label:'File Storage',
+                      status: storageInfo ? (storageInfo.percentage >= 95 ? 'Critical' : storageInfo.percentage >= 80 ? 'Warning' : 'Healthy') : 'Checking',
+                      color: storageInfo ? (storageInfo.percentage >= 95 ? 'red' : storageInfo.percentage >= 80 ? 'amber' : 'emerald') : 'gray'
+                    },
                   ] as s}
-                    <div class="p-4 rounded-lg border border-emerald-200 bg-emerald-50">
+                    <div class="p-4 rounded-lg border {s.color === 'emerald' ? 'border-emerald-200 bg-emerald-50' : s.color === 'amber' ? 'border-amber-200 bg-amber-50' : s.color === 'red' ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'}">
                       <div class="flex items-center gap-2 mb-1">
-                        <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-                        <span class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">{s.status}</span>
+                        <span class="w-2 h-2 rounded-full {s.color === 'emerald' ? 'bg-emerald-500' : s.color === 'amber' ? 'bg-amber-500' : s.color === 'red' ? 'bg-red-500' : 'bg-gray-500'} inline-block"></span>
+                        <span class="text-xs font-semibold uppercase tracking-wide {s.color === 'emerald' ? 'text-emerald-700' : s.color === 'amber' ? 'text-amber-700' : s.color === 'red' ? 'text-red-700' : 'text-gray-700'}">{s.status}</span>
                       </div>
                       <div class="font-semibold text-slate-800 text-sm">{s.label}</div>
                     </div>
@@ -669,6 +764,38 @@
               </div>
 
               <hr class="border-gray-100"/>
+
+              <div>
+                <h4 class="text-sm font-semibold text-slate-700 mb-4">Storage Usage</h4>
+                {#if storageInfo}
+                  <div class="p-4 rounded-lg border border-gray-200 bg-white">
+                    <div class="flex items-center justify-between mb-3">
+                      <div>
+                        <div class="text-sm font-medium text-slate-800">Backblaze B2 Storage</div>
+                        <div class="text-xs text-slate-500 mt-0.5">{storageInfo.usedFormatted} used of {storageInfo.totalFormatted}</div>
+                      </div>
+                      <div class="text-right">
+                        <div class="text-lg font-semibold text-slate-800">{storageInfo.percentage}%</div>
+                      </div>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                      <div class="bg-[#0D5C29] h-2 rounded-full transition-all duration-300" style="width: {Math.min(storageInfo.percentage, 100)}%"></div>
+                    </div>
+                    {#if storageInfo.percentage > 80}
+                      <p class="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                        </svg>
+                        Storage usage is high. Consider cleaning up old files.
+                      </p>
+                    {/if}
+                  </div>
+                {:else}
+                  <div class="p-4 rounded-lg border border-gray-200 bg-gray-50">
+                    <div class="text-sm text-slate-500">Loading storage information...</div>
+                  </div>
+                {/if}
+              </div>
 
               <div>
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Maintenance Tasks</h4>

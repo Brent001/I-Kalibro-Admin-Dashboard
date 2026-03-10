@@ -1,171 +1,168 @@
 import type { PageServerLoad } from './$types.js';
 import { redirect } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
-import { isSessionRevoked } from '$lib/server/db/auth.js';
+import { isSessionRevoked, refreshAccessToken } from '$lib/server/db/auth.js';
 import { decryptData } from '$lib/utils/encryption.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const ACCESS_TOKEN_MAX_AGE_S = 15 * 60;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function clearAuthCookies(cookies: Parameters<PageServerLoad>[0]['cookies']) {
+    cookies.delete('token', { path: '/' });
+    cookies.delete('refresh_token', { path: '/' });
+}
+
+/**
+ * Resolve a valid, non-expired access token.
+ *
+ * 1. Try the existing token.
+ * 2. If it's expired, silently refresh using the refresh_token cookie.
+ * 3. If refresh succeeds, write the new token cookie and return the decoded payload.
+ * 4. If anything else fails, return null so the caller can redirect.
+ */
+async function resolveToken(
+    cookies: Parameters<PageServerLoad>[0]['cookies']
+): Promise<{ token: string; decoded: any } | null> {
+    const token = cookies.get('token');
+    if (!token) return null;
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        return { token, decoded };
+    } catch (err) {
+        if (!(err instanceof jwt.TokenExpiredError)) {
+            // Structurally invalid — don't bother refreshing
+            return null;
+        }
+    }
+
+    // ── Token expired: attempt silent refresh ─────────────────────────────────
+    const refreshToken = cookies.get('refresh_token');
+    if (!refreshToken) return null;
+
+    try {
+        const refreshed = await refreshAccessToken(refreshToken);
+        if (!refreshed?.accessToken) return null;
+
+        cookies.set('token', refreshed.accessToken, {
+            path: '/',
+            httpOnly: true,
+            secure: IS_PRODUCTION,
+            sameSite: IS_PRODUCTION ? 'strict' : 'lax',
+            maxAge: ACCESS_TOKEN_MAX_AGE_S,
+        });
+
+        const decoded = jwt.verify(refreshed.accessToken, JWT_SECRET);
+        return { token: refreshed.accessToken, decoded };
+    } catch {
+        return null;
+    }
+}
+
+// ─── Actions ──────────────────────────────────────────────────────────────────
 
 export const actions = {
-    default: async ({ request }) => {
-        // Default action - returns empty to prevent 405 errors
-        return { success: true };
-    },
-    refreshDashboard: async ({ request, cookies, fetch }) => {
-        // Action to refresh dashboard data
+    default: async () => ({ success: true }),
+
+    refreshDashboard: async ({ cookies, fetch }) => {
         const token = cookies.get('token');
-        
-        if (!token) {
-            return { success: false, error: 'Not authenticated' };
-        }
-        
+        if (!token) return { success: false, error: 'Not authenticated' };
+
         try {
-            const dashboardResponse = await fetch('/api/dashboard', {
+            const res = await fetch('/api/dashboard', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Cookie': `token=${token}`
-                }
+                headers: { 'Content-Type': 'application/json', Cookie: `token=${token}` },
             });
-            
-            if (dashboardResponse.ok) {
-                const data = await dashboardResponse.json();
+
+            if (res.ok) {
+                const data = await res.json();
                 return { success: true, data: data.data };
             }
-            
+
             return { success: false, error: 'Failed to fetch dashboard data' };
         } catch (error) {
             console.error('Dashboard refresh error:', error);
             return { success: false, error: 'Error refreshing dashboard' };
         }
-    }
+    },
 };
 
-export const load: PageServerLoad = async ({ cookies, url, fetch }) => {
-    const token = cookies.get('token');
-    
-    if (!token) {
-        // Not logged in, redirect to login page
+// ─── Load ─────────────────────────────────────────────────────────────────────
+
+export const load: PageServerLoad = async ({ cookies, fetch }) => {
+    // ── 1. Resolve a valid token (refresh silently if expired) ────────────────
+    const resolved = await resolveToken(cookies);
+
+    if (!resolved) {
+        clearAuthCookies(cookies);
         throw redirect(302, '/');
     }
 
+    const { token, decoded } = resolved;
+
+    // ── 2. Revocation check ───────────────────────────────────────────────────
     try {
-        // Check if session has been revoked (logout from all devices)
         if (await isSessionRevoked(token)) {
-            console.warn('Session has been revoked');
-            cookies.delete('token', { path: '/' });
-            cookies.delete('refresh_token', { path: '/' });
+            console.warn('[dashboard] Session revoked');
+            clearAuthCookies(cookies);
             throw redirect(302, '/');
         }
+    } catch (err) {
+        // Re-throw redirects, swallow other errors (revocation check is best-effort)
+        if (err instanceof Response || (err as any)?.status) throw err;
+        console.warn('[dashboard] isSessionRevoked check failed (non-fatal):', (err as any)?.message);
+    }
 
-        // Verify and decode the JWT token
-        const decoded = jwt.verify(token, JWT_SECRET) as any;
-        const userId = decoded.userId || decoded.id;
-        
-        if (!userId) {
-            console.warn('Token missing user ID');
-            cookies.delete('token', { path: '/' });
-            throw redirect(302, '/');
+    // ── 3. Extract user from verified token ───────────────────────────────────
+    const userId = decoded.userId || decoded.id;
+
+    if (!userId) {
+        console.warn('[dashboard] Token missing user ID');
+        clearAuthCookies(cookies);
+        throw redirect(302, '/');
+    }
+
+    // ── 4. Fetch dashboard data (never fails the page load) ───────────────────
+    const emptyDashboard = {
+        totalBooks: 0,
+        activeMembers: 0,
+        booksBorrowed: 0,
+        overdueBooks: 0,
+        recentActivity: [],
+        overdueBooksList: [],
+    };
+
+    let dashboard: any = emptyDashboard;
+
+    try {
+        const res = await fetch('/api/dashboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Cookie: `token=${token}` },
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            if (result.success && result.data) {
+                dashboard = result.encrypted ? decryptData(result.data) : result.data;
+            }
+        } else {
+            console.warn('[dashboard] API returned', res.status);
         }
+    } catch (err) {
+        console.warn('[dashboard] Data fetch failed (non-fatal):', (err as any)?.message);
+    }
 
-        // Use user data from JWT token (no database query needed)
-        // The JWT data is already validated and contains all necessary user info
-        const user = {
+    // ── 5. Return ─────────────────────────────────────────────────────────────
+    return {
+        user: {
             id: userId,
             username: decoded.username,
             email: decoded.email,
             userType: decoded.userType,
-            isActive: true
-        };
-
-        // Prepare base response with user data
-        const response = {
-            user: {
-                id: user.id,
-                username: user.username,
-                email: user.email,
-                userType: user.userType
-            },
-            dashboard: {} as any
-        };
-
-        // Try to fetch dashboard data, but don't fail if it's unavailable
-        try {
-            // use POST so that the API invalidates any cached snapshot
-            const dashboardResponse = await fetch('/api/dashboard', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Cookie': `token=${token}` // Pass auth cookie if API needs it
-                }
-            });
-
-            if (dashboardResponse.ok) {
-                const dashboardResult = await dashboardResponse.json();
-                
-                if (dashboardResult.success && dashboardResult.data) {
-                    try {
-                        // Decrypt the data if it's encrypted
-                        if (dashboardResult.encrypted) {
-                            response.dashboard = decryptData(dashboardResult.data);
-                        } else {
-                            response.dashboard = dashboardResult.data;
-                        }
-                    } catch (decryptError) {
-                        console.error('Failed to decrypt dashboard data:', decryptError);
-                        // Fallback to empty data if decryption fails
-                        response.dashboard = {
-                            totalBooks: 0,
-                            activeMembers: 0,
-                            booksBorrowed: 0,
-                            overdueBooks: 0,
-                            recentActivity: [],
-                            overdueBooksList: []
-                        };
-                    }
-                }
-            } else {
-                console.warn('Dashboard API returned non-ok status:', dashboardResponse.status);
-                // Set empty dashboard data as fallback
-                response.dashboard = {
-                    totalBooks: 0,
-                    activeMembers: 0,
-                    booksBorrowed: 0,
-                    overdueBooks: 0,
-                    recentActivity: [],
-                    overdueBooksList: []
-                };
-            }
-        } catch (dashboardError) {
-            // Dashboard fetch failed, but user auth is valid
-            console.warn('Dashboard data fetch failed:', dashboardError);
-            
-            // Provide empty dashboard data as fallback
-            response.dashboard = {
-                totalBooks: 0,
-                activeMembers: 0,
-                booksBorrowed: 0,
-                overdueBooks: 0,
-                recentActivity: [],
-                overdueBooksList: []
-            };
-        }
-
-        return response;
-
-    } catch (error) {
-        // Token is invalid or expired
-        if (error instanceof jwt.JsonWebTokenError || error instanceof jwt.TokenExpiredError) {
-            console.warn('Invalid or expired token:', error.message);
-            cookies.delete('token', { path: '/' });
-            throw redirect(302, '/');
-        }
-        
-        // Database or other errors
-        console.error('Dashboard page server load error:', error);
-        
-        // Still redirect to login on any auth error
-        cookies.delete('token', { path: '/' });
-        throw redirect(302, '/');
-    }
+        },
+        dashboard,
+    };
 };
