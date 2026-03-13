@@ -1,303 +1,737 @@
+// src/routes/api/transactions/+server.ts - Unified transaction management
+
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
+import jwt from 'jsonwebtoken';
+import { eq, and, desc, count, inArray, lt, or, isNull } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import {
-  tbl_book_borrowing,
-  tbl_magazine_borrowing,
-  tbl_thesis_borrowing,
-  tbl_journal_borrowing,
-  
-  tbl_return,
-  tbl_book,
-  tbl_magazine,
-  tbl_thesis,
-  tbl_journal,
-  tbl_fine,
-  
-  tbl_book_copy,
-  tbl_magazine_copy,
-  tbl_thesis_copy,
-  tbl_journal_copy,
-  
-  tbl_staff,
-  tbl_admin,
-  tbl_super_admin
+    tbl_book_borrowing,
+    tbl_magazine_borrowing,
+    tbl_thesis_borrowing,
+    tbl_journal_borrowing,
+    tbl_book_reservation,
+    tbl_magazine_reservation,
+    tbl_thesis_reservation,
+    tbl_journal_reservation,
+    tbl_book,
+    tbl_magazine,
+    tbl_thesis,
+    tbl_journal,
+    tbl_user,
+    tbl_staff,
+    tbl_book_copy,
+    tbl_magazine_copy,
+    tbl_thesis_copy,
+    tbl_journal_copy,
+    tbl_super_admin,
+    tbl_admin,
+    tbl_student,
+    tbl_faculty
 } from '$lib/server/db/schema/schema.js';
-import { eq, sql } from 'drizzle-orm';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import { isSessionRevoked } from '$lib/server/db/auth.js';
-import { calculateFineAmount, calculateDaysOverdue } from '$lib/server/utils/fineCalculation.js';
+import { loadFineSettings, calculateFineAmount, calculateDaysOverdue } from '$lib/server/utils/fineCalculation.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
-const FINE_PER_HOUR = 5; // 5 pesos per hour overdue
 
-// Extract token from request
-function extractToken(request: Request): string | null {
-  const authHeader = request.headers.get('Authorization');
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    return authHeader.substring(7);
-  }
+// How long (in ms) after a return before the record is promoted to 'fulfilled'.
+// Must match REVERSAL_WINDOW_MS in the revert endpoint.
+const FULFILLMENT_DELAY_MS = 60 * 60 * 1000; // 1 hour
 
-  const cookies = request.headers.get('Cookie');
-  if (cookies) {
-    const tokenMatch = cookies.match(/token=([^;]+)/);
-    if (tokenMatch) {
-      return tokenMatch[1];
-    }
-  }
-
-  return null;
+interface AuthenticatedUser {
+    id: number;
+    userType: 'super_admin' | 'admin' | 'staff' | 'user';
 }
 
-// We'll use the shared fine calculation utilities which respect exemption settings.
-
-export const POST: RequestHandler = async ({ params, request, cookies }) => {
-  try {
-    // Get token from cookies or Authorization header
-    const token = cookies.get('token') || extractToken(request);
-    
-    if (!token) {
-      throw error(401, { message: 'Not authenticated. Please log in.' });
-    }
-
-    // Check if session has been revoked
-    if (await isSessionRevoked(token)) {
-      throw error(401, { message: 'Your session has been revoked. Please log in again.' });
-    }
-
-    // Verify JWT token and resolve actor (staff/admin/super_admin)
-    let decoded: any;
+async function authenticateUser(request: Request): Promise<AuthenticatedUser | null> {
     try {
-      decoded = jwt.verify(token, JWT_SECRET);
+        let token: string | null = null;
+
+        const authHeader = request.headers.get('authorization');
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.substring(7);
+        }
+
+        if (!token) {
+            const cookieHeader = request.headers.get('cookie');
+            if (cookieHeader) {
+                const cookies = Object.fromEntries(
+                    cookieHeader.split('; ').map(c => c.split('='))
+                );
+                token = cookies.token;
+            }
+        }
+
+        if (!token) return null;
+
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        const userId = decoded.userId;
+
+        if (!userId) return null;
+
+        const [staff] = await db
+            .select({ id: tbl_staff.id })
+            .from(tbl_staff)
+            .where(and(eq(tbl_staff.id, userId), eq(tbl_staff.isActive, true)))
+            .limit(1);
+
+        if (staff) return { id: userId, userType: 'staff' };
+
+        const [admin] = await db
+            .select({ id: tbl_admin.id })
+            .from(tbl_admin)
+            .where(and(eq(tbl_admin.id, userId), eq(tbl_admin.isActive, true)))
+            .limit(1);
+
+        if (admin) return { id: userId, userType: 'admin' };
+
+        const [superAdmin] = await db
+            .select({ id: tbl_super_admin.id })
+            .from(tbl_super_admin)
+            .where(and(eq(tbl_super_admin.id, userId), eq(tbl_super_admin.isActive, true)))
+            .limit(1);
+
+        if (superAdmin) return { id: userId, userType: 'super_admin' };
+
+        const [user] = await db
+            .select({ id: tbl_user.id })
+            .from(tbl_user)
+            .where(and(eq(tbl_user.id, userId), eq(tbl_user.isActive, true)))
+            .limit(1);
+
+        if (user) return { id: userId, userType: 'user' };
+
+        return null;
     } catch (err) {
-      throw error(401, { message: 'Invalid or expired token. Please log in again.' });
+        console.error('Auth error:', err);
+        return null;
     }
+}
 
-    const actorId = decoded.userId || decoded.id;
-    if (!actorId) {
-      throw error(401, { message: 'Invalid token payload.' });
+/**
+ * Promote any 'returned' borrowing records that are older than the revert window
+ * to 'fulfilled'. This runs at the top of every GET so tabs are always accurate
+ * without needing a background job.
+ */
+async function promoteExpiredReturns(): Promise<void> {
+    const cutoff = new Date(Date.now() - FULFILLMENT_DELAY_MS);
+    try {
+        await Promise.all([
+            db.update(tbl_book_borrowing)
+                .set({ status: 'fulfilled' })
+                .where(and(
+                    eq(tbl_book_borrowing.status, 'returned'),
+                    lt(tbl_book_borrowing.returnDate, cutoff)
+                )),
+            db.update(tbl_magazine_borrowing)
+                .set({ status: 'fulfilled' })
+                .where(and(
+                    eq(tbl_magazine_borrowing.status, 'returned'),
+                    lt(tbl_magazine_borrowing.returnDate, cutoff)
+                )),
+            db.update(tbl_thesis_borrowing)
+                .set({ status: 'fulfilled' })
+                .where(and(
+                    eq(tbl_thesis_borrowing.status, 'returned'),
+                    lt(tbl_thesis_borrowing.returnDate, cutoff)
+                )),
+            db.update(tbl_journal_borrowing)
+                .set({ status: 'fulfilled' })
+                .where(and(
+                    eq(tbl_journal_borrowing.status, 'returned'),
+                    lt(tbl_journal_borrowing.returnDate, cutoff)
+                )),
+        ]);
+    } catch (err) {
+        // Non-fatal — log and continue so the GET still returns data
+        console.warn('[transactions] promoteExpiredReturns error (non-fatal):', err);
     }
+}
 
-    // Resolve actor across staff, admin, super_admin
-    let actor: any = null;
-    let actorType: 'staff' | 'admin' | 'super_admin' | null = null;
+// GET - Fetch all transactions
+export const GET: RequestHandler = async ({ request, url }) => {
+    try {
+        // ── Promote 'returned' records that are past the 1-hour revert window ──────
+        // This must run BEFORE the queries below so the tab counts are accurate.
+        await promoteExpiredReturns();
 
-    const [staffRec] = await db.select().from(tbl_staff).where(eq(tbl_staff.id, actorId)).limit(1);
-    if (staffRec) {
-      actor = staffRec;
-      actorType = 'staff';
-    } else {
-      const [adminRec] = await db.select().from(tbl_admin).where(eq(tbl_admin.id, actorId)).limit(1);
-      if (adminRec) {
-        actor = adminRec;
-        actorType = 'admin';
-      } else {
-        const [superRec] = await db.select().from(tbl_super_admin).where(eq(tbl_super_admin.id, actorId)).limit(1);
-        if (superRec) {
-          actor = superRec;
-          actorType = 'super_admin';
+        const user = await authenticateUser(request);
+        if (!user) {
+            throw error(401, { message: 'Unauthorized' });
         }
-      }
-    }
 
-    if (!actor) {
-      throw error(401, { message: 'Actor account not found or inactive.' });
-    }
+        const page = parseInt(url.searchParams.get('page') || '1', 10);
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '10', 10), 500);
+        const itemType = url.searchParams.get('itemType') || 'all';
+        const transactionType = url.searchParams.get('type');
+        const offset = (page - 1) * limit;
 
-    // Parse request body
-    const borrowingId = parseInt(params.id);
-    if (isNaN(borrowingId)) {
-      throw error(400, { message: 'Invalid borrowing ID' });
-    }
+        const search = url.searchParams.get('search') || '';
+        const tab = url.searchParams.get('tab') || 'all';
+        const period = url.searchParams.get('period') || 'all';
+        const customDays = url.searchParams.get('customDays') || '';
 
-    const { password } = await request.json();
-
-    // Verify actor credentials: staff must provide password; admin/super_admin may use token-only
-    if (actorType === 'staff') {
-      if (!password || !password.trim()) {
-        throw error(400, { message: 'Password is required.' });
-      }
-      const valid = await bcrypt.compare(password, actor.password);
-      if (!valid) throw error(401, { message: 'Invalid staff password.' });
-    } else {
-      // admin or super_admin: allow token-based auth; if password provided, verify it against their password
-      if (password && password.trim()) {
-        const valid = await bcrypt.compare(password, actor.password);
-        if (!valid) throw error(401, { message: 'Invalid password.' });
-      }
-    }
-
-    // Try to find borrowing across item types
-    const [bBook] = await db.select().from(tbl_book_borrowing).where(eq(tbl_book_borrowing.id, borrowingId)).limit(1);
-    const [bMag] = await db.select().from(tbl_magazine_borrowing).where(eq(tbl_magazine_borrowing.id, borrowingId)).limit(1);
-    const [bThesis] = await db.select().from(tbl_thesis_borrowing).where(eq(tbl_thesis_borrowing.id, borrowingId)).limit(1);
-    const [bJournal] = await db.select().from(tbl_journal_borrowing).where(eq(tbl_journal_borrowing.id, borrowingId)).limit(1);
-
-    let b: any = null;
-    let itemType = '';
-    let copyId: number | null = null;
-    // will hold call number fetched from copy table
-    let returnedCallNumber: string | null = null;
-
-    if (bBook) {
-      b = bBook;
-      itemType = 'book';
-      copyId = b.bookCopyId;
-    } else if (bMag) {
-      b = bMag;
-      itemType = 'magazine';
-      copyId = b.magazineCopyId;
-    } else if (bThesis) {
-      b = bThesis;
-      itemType = 'thesis';
-      copyId = b.thesisCopyId;
-    } else if (bJournal) {
-      b = bJournal;
-      itemType = 'journal';
-      copyId = b.journalCopyId;
-    } else {
-      throw error(404, { message: 'Borrowing record not found' });
-    }
-
-    if (!b) throw error(404, { message: 'Borrowing record not found' });
-
-    if (b.status === 'returned') throw error(400, { message: 'Item has already been returned.' });
-    // Accept both 'borrowed' and 'overdue' as valid statuses for return
-    if (b.status !== 'borrowed' && b.status !== 'overdue') throw error(400, { message: 'Invalid borrowing status. Only borrowed or overdue items can be returned.' });
-
-    // calculate fine (in pesos) and days overdue using shared utils
-    // calculate fine using shared utility (returns pesos directly)
-    const calculatedFine = await calculateFineAmount(new Date(b.dueDate));
-    const daysOverdue = await calculateDaysOverdue(new Date(b.dueDate));
-    const returnDate = new Date();
-    const hoursOverdue = calculatedFine > 0 ? Math.ceil(calculatedFine / FINE_PER_HOUR) : 0;
-
-    const returnInsert = await db.insert(tbl_return).values({
-      userId: b.userId,
-      itemType: itemType,
-      borrowingId: b.id,
-      copyId: (copyId ?? 0) as number,
-      returnDate: returnDate,
-      remarks: `Returned by ${actor.username ?? actor.name}${calculatedFine > 0 ? `. Fine: ₱${calculatedFine.toFixed(2)} (hours: ${hoursOverdue})` : ''}`,
-      processedBy: actorType === 'staff' ? actor.id : null
-    });
-
-    // Persist fine record if applicable
-    let fineRecord: any = null;
-    if (calculatedFine > 0) {
-      try {
-        const [r] = await db.insert(tbl_fine).values({
-          userId: b.userId,
-          itemType: itemType,
-          borrowingId: b.id,
-          fineAmount: String(calculatedFine.toFixed(2)),
-          daysOverdue: daysOverdue,
-          status: 'paid' // return confirmation includes immediate settlement
-        }).returning();
-        fineRecord = r;
-      } catch (e) {
-        console.debug('Failed to persist fine record:', e);
-      }
-    }
-    // Update borrowing and copy status depending on itemType
-    if (itemType === 'book') {
-      await db.update(tbl_book_borrowing).set({ status: 'returned', returnDate }).where(eq(tbl_book_borrowing.id, borrowingId));
-      if (copyId) {
-        // fetch call number before updating status (not mutated by update)
-        const [copyRec] = await db.select({ callNumber: tbl_book_copy.callNumber })
-          .from(tbl_book_copy)
-          .where(eq(tbl_book_copy.id, copyId))
-          .limit(1);
-        returnedCallNumber = copyRec?.callNumber || null;
-
-        await db.update(tbl_book_copy).set({ status: 'available' }).where(eq(tbl_book_copy.id, copyId));
-      }
-
-      // Increment availableCopies on parent book
-      try {
-        const parentBookId = b.bookId || null;
-        if (parentBookId) {
-          await db.update(tbl_book).set({ availableCopies: sql`COALESCE(${tbl_book.availableCopies}, 0) + 1` }).where(eq(tbl_book.id, parentBookId));
+        let fromDate: Date | null = null;
+        if (period !== 'all') {
+            let days: number | null = null;
+            if (period === 'custom' && customDays) {
+                days = parseInt(customDays, 10);
+            } else if (period.endsWith('d')) {
+                days = parseInt(period.slice(0, -1), 10);
+            }
+            if (days && !isNaN(days)) {
+                fromDate = new Date();
+                fromDate.setDate(fromDate.getDate() - days);
+            }
         }
-      } catch (e) {
-        console.debug('Failed to increment book.availableCopies on return:', e);
-      }
-    } else if (itemType === 'magazine') {
-      await db.update(tbl_magazine_borrowing).set({ status: 'returned', returnDate }).where(eq(tbl_magazine_borrowing.id, borrowingId));
-      if (copyId) {
-        const [copyRec] = await db.select({ callNumber: tbl_magazine_copy.callNumber })
-          .from(tbl_magazine_copy)
-          .where(eq(tbl_magazine_copy.id, copyId))
-          .limit(1);
-        returnedCallNumber = copyRec?.callNumber || null;
 
-        await db.update(tbl_magazine_copy).set({ status: 'available' }).where(eq(tbl_magazine_copy.id, copyId));
-      }
+        const getTransactionTypeFromStatus = (transactionStatus: string | null): string => {
+            if (!transactionStatus) return 'borrow';
+            const s = transactionStatus.toLowerCase();
+            if (s === 'returned' || s === 'fulfilled') return 'return';
+            return 'borrow';
+        };
 
-      // increment parent's available copies
-      try {
-        const parentId = b.magazineId || null;
-        if (parentId) {
-          await db.update(tbl_magazine).set({ availableCopies: sql`COALESCE(${tbl_magazine.availableCopies}, 0) + 1` }).where(eq(tbl_magazine.id, parentId));
+        let transactions: any[] = [];
+        let totalCount = 0;
+
+        // ── Helper: build the status filter condition for a borrow table ──────────
+        // Accepts the column reference so we can reuse across all four item types.
+        function borrowStatusCondition(statusCol: any) {
+            if (tab === 'borrow') return inArray(statusCol, ['borrowed', 'overdue']);
+            if (tab === 'return') return eq(statusCol, 'returned');
+            if (tab === 'fulfilled') return eq(statusCol, 'fulfilled');
+            if (tab === 'cancelled') return eq(statusCol, 'cancelled');
+            // 'overdue' tab: borrowed/overdue AND past due date AND not yet returned
+            return null; // 'all' and 'reserve' handled by callers
         }
-      } catch (e) {
-        console.debug('Failed to increment magazine.availableCopies on return:', e);
-      }
-    } else if (itemType === 'thesis') {
-      await db.update(tbl_thesis_borrowing).set({ status: 'returned', returnDate }).where(eq(tbl_thesis_borrowing.id, borrowingId));
-      if (copyId) {
-        await db.update(tbl_thesis_copy).set({ status: 'available' }).where(eq(tbl_thesis_copy.id, copyId));
-        // fetch call number
-        const [copyRec] = await db.select({ callNumber: tbl_thesis_copy.callNumber }).from(tbl_thesis_copy).where(eq(tbl_thesis_copy.id, copyId)).limit(1);
-        returnedCallNumber = copyRec?.callNumber || null;
-      }
-    } else if (itemType === 'journal') {
-      await db.update(tbl_journal_borrowing).set({ status: 'returned', returnDate }).where(eq(tbl_journal_borrowing.id, borrowingId));
-      if (copyId) {
-        const [copyRec] = await db.select({ callNumber: tbl_journal_copy.callNumber })
-          .from(tbl_journal_copy)
-          .where(eq(tbl_journal_copy.id, copyId))
-          .limit(1);
-        returnedCallNumber = copyRec?.callNumber || null;
 
-        await db.update(tbl_journal_copy).set({ status: 'available' }).where(eq(tbl_journal_copy.id, copyId));
-      }
+        // ── BOOKS ────────────────────────────────────────────────────────────────
+        if (itemType === 'book' || itemType === 'all') {
+            // --- borrowings ---
+            if (!transactionType || transactionType === 'borrow' || transactionType === 'return') {
+                const conds: any[] = [];
+                if (search) {
+                    conds.push(or(
+                        sql`${tbl_book.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_book_copy.callNumber} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) conds.push(sql`${tbl_book_borrowing.createdAt} >= ${fromDate}`);
 
-      // increment parent journal available copies
-      try {
-        const parentId = b.journalId || null;
-        if (parentId) {
-          await db.update(tbl_journal).set({ availableCopies: sql`COALESCE(${tbl_journal.availableCopies}, 0) + 1` }).where(eq(tbl_journal.id, parentId));
+                if (tab === 'borrow') {
+                    conds.push(inArray(tbl_book_borrowing.status, ['borrowed', 'overdue']));
+                } else if (tab === 'return') {
+                    conds.push(eq(tbl_book_borrowing.status, 'returned'));
+                } else if (tab === 'fulfilled') {
+                    conds.push(eq(tbl_book_borrowing.status, 'fulfilled'));
+                } else if (tab === 'cancelled') {
+                    conds.push(eq(tbl_book_borrowing.status, 'cancelled'));
+                } else if (tab === 'overdue') {
+                    conds.push(and(
+                        inArray(tbl_book_borrowing.status, ['borrowed', 'overdue']),
+                        lt(tbl_book_borrowing.dueDate, new Date()),
+                        isNull(tbl_book_borrowing.returnDate)
+                    ));
+                }
+                // tab === 'all' → no extra status filter (show everything)
+
+                const [{ count: c }] = await db.select({ count: count() }).from(tbl_book_borrowing).where(and(...conds));
+                totalCount += c || 0;
+
+                const rows = await db
+                    .select({
+                        id: tbl_book_borrowing.id,
+                        itemType: sql<string>`'book'`,
+                        itemId: tbl_book.id,
+                        itemTitle: tbl_book.title,
+                        callNumber: tbl_book_copy.callNumber,
+                        userId: tbl_user.id,
+                        userName: tbl_user.name,
+                        borrowDate: tbl_book_borrowing.borrowDate,
+                        dueDate: tbl_book_borrowing.dueDate,
+                        returnDate: tbl_book_borrowing.returnDate,
+                        status: tbl_book_borrowing.status,
+                        approvedBy: tbl_book_borrowing.approvedBy,
+                        createdAt: tbl_book_borrowing.createdAt
+                    })
+                    .from(tbl_book_borrowing)
+                    .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
+                    .leftJoin(tbl_book_copy, eq(tbl_book_borrowing.bookCopyId, tbl_book_copy.id))
+                    .leftJoin(tbl_user, eq(tbl_book_borrowing.userId, tbl_user.id))
+                    .where(and(...conds))
+                    .orderBy(desc(tbl_book_borrowing.createdAt));
+
+                transactions.push(...rows.map(t => ({ ...t, type: getTransactionTypeFromStatus(t.status) })));
+            }
+
+            // --- reservations ---
+            if (!transactionType || transactionType === 'reserve') {
+                const conds: any[] = [];
+                if (search) {
+                    conds.push(or(
+                        sql`${tbl_book.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) conds.push(sql`${tbl_book_reservation.createdAt} >= ${fromDate}`);
+                // only show reservations when tab is 'all' or 'reserve'
+                if (tab !== 'all' && tab !== 'reserve') conds.push(sql`false`);
+
+                const [{ count: c }] = await db.select({ count: count() }).from(tbl_book_reservation).where(and(...conds));
+                totalCount += c || 0;
+
+                const rows = await db
+                    .select({
+                        id: tbl_book_reservation.id,
+                        itemType: sql<string>`'book'`,
+                        itemId: tbl_book.id,
+                        itemTitle: tbl_book.title,
+                        userId: tbl_user.id,
+                        userName: tbl_user.name,
+                        borrowDate: tbl_book_reservation.requestedBorrowDate,
+                        dueDate: tbl_book_reservation.requestedDueDate,
+                        returnDate: sql<string | null>`null`,
+                        status: tbl_book_reservation.status,
+                        approvedBy: tbl_book_reservation.reviewedBy,
+                        createdAt: tbl_book_reservation.createdAt
+                    })
+                    .from(tbl_book_reservation)
+                    .leftJoin(tbl_book, eq(tbl_book_reservation.bookId, tbl_book.id))
+                    .leftJoin(tbl_user, eq(tbl_book_reservation.userId, tbl_user.id))
+                    .where(and(...conds))
+                    .orderBy(desc(tbl_book_reservation.createdAt));
+
+                transactions.push(...rows.map(t => ({ ...t, type: 'reserve' as const })));
+            }
         }
-      } catch (e) {
-        console.debug('Failed to increment journal.availableCopies on return:', e);
-      }
-    }
 
-    return json({
-      success: true,
-      message: calculatedFine > 0 ? `Item returned successfully. Fine of ₱${calculatedFine.toFixed(2)} recorded.` : 'Item returned successfully.',
-      data: {
-        borrowingId: b.id,
-        returnDate: returnDate.toISOString(),
-        staffUsername: actor.username ?? actor.name,
-        fine: calculatedFine,
-        daysOverdue: daysOverdue,
-        hoursOverdue,
-        isOverdue: calculatedFine > 0,
-        itemType,
-        callNumber: returnedCallNumber
-      }
-    });
-  } catch (err: any) {
-    console.error('Return error:', err);
-    
-    // Handle specific error types
-    if (err.status) {
-      throw err;
+        // ── MAGAZINES ────────────────────────────────────────────────────────────
+        if (itemType === 'magazine' || itemType === 'all') {
+            // --- borrowings ---
+            if (!transactionType || transactionType === 'borrow' || transactionType === 'return') {
+                const conds: any[] = [];
+                if (search) {
+                    conds.push(or(
+                        sql`${tbl_magazine.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_magazine_copy.callNumber} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) conds.push(sql`${tbl_magazine_borrowing.createdAt} >= ${fromDate}`);
+
+                if (tab === 'borrow') {
+                    conds.push(inArray(tbl_magazine_borrowing.status, ['borrowed', 'overdue']));
+                } else if (tab === 'return') {
+                    conds.push(eq(tbl_magazine_borrowing.status, 'returned'));
+                } else if (tab === 'fulfilled') {
+                    conds.push(eq(tbl_magazine_borrowing.status, 'fulfilled'));
+                } else if (tab === 'cancelled') {
+                    conds.push(eq(tbl_magazine_borrowing.status, 'cancelled'));
+                } else if (tab === 'overdue') {
+                    conds.push(and(
+                        inArray(tbl_magazine_borrowing.status, ['borrowed', 'overdue']),
+                        lt(tbl_magazine_borrowing.dueDate, new Date()),
+                        isNull(tbl_magazine_borrowing.returnDate)
+                    ));
+                }
+
+                const [{ count: c }] = await db.select({ count: count() }).from(tbl_magazine_borrowing).where(and(...conds));
+                totalCount += c || 0;
+
+                const rows = await db
+                    .select({
+                        id: tbl_magazine_borrowing.id,
+                        itemType: sql<string>`'magazine'`,
+                        itemId: tbl_magazine.id,
+                        itemTitle: tbl_magazine.title,
+                        callNumber: tbl_magazine_copy.callNumber,
+                        userId: tbl_user.id,
+                        userName: tbl_user.name,
+                        borrowDate: tbl_magazine_borrowing.borrowDate,
+                        dueDate: tbl_magazine_borrowing.dueDate,
+                        returnDate: tbl_magazine_borrowing.returnDate,
+                        status: tbl_magazine_borrowing.status,
+                        approvedBy: tbl_magazine_borrowing.approvedBy,
+                        createdAt: tbl_magazine_borrowing.createdAt
+                    })
+                    .from(tbl_magazine_borrowing)
+                    .leftJoin(tbl_magazine, eq(tbl_magazine_borrowing.magazineId, tbl_magazine.id))
+                    .leftJoin(tbl_magazine_copy, eq(tbl_magazine_borrowing.magazineCopyId, tbl_magazine_copy.id))
+                    .leftJoin(tbl_user, eq(tbl_magazine_borrowing.userId, tbl_user.id))
+                    .where(and(...conds))
+                    .orderBy(desc(tbl_magazine_borrowing.createdAt));
+
+                transactions.push(...rows.map(t => ({ ...t, type: getTransactionTypeFromStatus(t.status) })));
+            }
+
+            // --- reservations ---
+            if (!transactionType || transactionType === 'reserve') {
+                const conds: any[] = [];
+                if (search) {
+                    conds.push(or(
+                        sql`${tbl_magazine.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) conds.push(sql`${tbl_magazine_reservation.createdAt} >= ${fromDate}`);
+                if (tab !== 'all' && tab !== 'reserve') conds.push(sql`false`);
+
+                const [{ count: c }] = await db.select({ count: count() }).from(tbl_magazine_reservation).where(and(...conds));
+                totalCount += c || 0;
+
+                const rows = await db
+                    .select({
+                        id: tbl_magazine_reservation.id,
+                        itemType: sql<string>`'magazine'`,
+                        itemId: tbl_magazine.id,
+                        itemTitle: tbl_magazine.title,
+                        userId: tbl_user.id,
+                        userName: tbl_user.name,
+                        borrowDate: tbl_magazine_reservation.requestedBorrowDate,
+                        dueDate: tbl_magazine_reservation.requestedDueDate,
+                        returnDate: sql<string | null>`null`,
+                        status: tbl_magazine_reservation.status,
+                        approvedBy: tbl_magazine_reservation.reviewedBy,
+                        createdAt: tbl_magazine_reservation.createdAt
+                    })
+                    .from(tbl_magazine_reservation)
+                    .leftJoin(tbl_magazine, eq(tbl_magazine_reservation.magazineId, tbl_magazine.id))
+                    .leftJoin(tbl_user, eq(tbl_magazine_reservation.userId, tbl_user.id))
+                    .where(and(...conds))
+                    .orderBy(desc(tbl_magazine_reservation.createdAt));
+
+                transactions.push(...rows.map(t => ({ ...t, type: 'reserve' as const })));
+            }
+        }
+
+        // ── THESIS ───────────────────────────────────────────────────────────────
+        if (itemType === 'thesis' || itemType === 'all') {
+            // --- borrowings ---
+            if (!transactionType || transactionType === 'borrow' || transactionType === 'return') {
+                const conds: any[] = [];
+                if (search) {
+                    conds.push(or(
+                        sql`${tbl_thesis.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_thesis_copy.callNumber} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) conds.push(sql`${tbl_thesis_borrowing.createdAt} >= ${fromDate}`);
+
+                if (tab === 'borrow') {
+                    conds.push(inArray(tbl_thesis_borrowing.status, ['borrowed', 'overdue']));
+                } else if (tab === 'return') {
+                    conds.push(eq(tbl_thesis_borrowing.status, 'returned'));
+                } else if (tab === 'fulfilled') {
+                    conds.push(eq(tbl_thesis_borrowing.status, 'fulfilled'));
+                } else if (tab === 'cancelled') {
+                    conds.push(eq(tbl_thesis_borrowing.status, 'cancelled'));
+                } else if (tab === 'overdue') {
+                    conds.push(and(
+                        inArray(tbl_thesis_borrowing.status, ['borrowed', 'overdue']),
+                        lt(tbl_thesis_borrowing.dueDate, new Date()),
+                        isNull(tbl_thesis_borrowing.returnDate)
+                    ));
+                }
+
+                const [{ count: c }] = await db.select({ count: count() }).from(tbl_thesis_borrowing).where(and(...conds));
+                totalCount += c || 0;
+
+                const rows = await db
+                    .select({
+                        id: tbl_thesis_borrowing.id,
+                        itemType: sql<string>`'thesis'`,
+                        itemId: tbl_thesis.id,
+                        itemTitle: tbl_thesis.title,
+                        callNumber: tbl_thesis_copy.callNumber,
+                        userId: tbl_user.id,
+                        userName: tbl_user.name,
+                        borrowDate: tbl_thesis_borrowing.borrowDate,
+                        dueDate: tbl_thesis_borrowing.dueDate,
+                        returnDate: tbl_thesis_borrowing.returnDate,
+                        status: tbl_thesis_borrowing.status,
+                        approvedBy: tbl_thesis_borrowing.approvedBy,
+                        createdAt: tbl_thesis_borrowing.createdAt
+                    })
+                    .from(tbl_thesis_borrowing)
+                    .leftJoin(tbl_thesis, eq(tbl_thesis_borrowing.thesisId, tbl_thesis.id))
+                    .leftJoin(tbl_thesis_copy, eq(tbl_thesis_borrowing.thesisCopyId, tbl_thesis_copy.id))
+                    .leftJoin(tbl_user, eq(tbl_thesis_borrowing.userId, tbl_user.id))
+                    .where(and(...conds))
+                    .orderBy(desc(tbl_thesis_borrowing.createdAt));
+
+                transactions.push(...rows.map(t => ({ ...t, type: getTransactionTypeFromStatus(t.status) })));
+            }
+
+            // --- reservations ---
+            if (!transactionType || transactionType === 'reserve') {
+                const conds: any[] = [];
+                if (search) {
+                    conds.push(or(
+                        sql`${tbl_thesis.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) conds.push(sql`${tbl_thesis_reservation.createdAt} >= ${fromDate}`);
+                if (tab !== 'all' && tab !== 'reserve') conds.push(sql`false`);
+
+                const [{ count: c }] = await db.select({ count: count() }).from(tbl_thesis_reservation).where(and(...conds));
+                totalCount += c || 0;
+
+                const rows = await db
+                    .select({
+                        id: tbl_thesis_reservation.id,
+                        itemType: sql<string>`'thesis'`,
+                        itemId: tbl_thesis.id,
+                        itemTitle: tbl_thesis.title,
+                        userId: tbl_user.id,
+                        userName: tbl_user.name,
+                        borrowDate: tbl_thesis_reservation.requestedBorrowDate,
+                        dueDate: tbl_thesis_reservation.requestedDueDate,
+                        returnDate: sql<string | null>`null`,
+                        status: tbl_thesis_reservation.status,
+                        approvedBy: tbl_thesis_reservation.reviewedBy,
+                        createdAt: tbl_thesis_reservation.createdAt
+                    })
+                    .from(tbl_thesis_reservation)
+                    .leftJoin(tbl_thesis, eq(tbl_thesis_reservation.thesisId, tbl_thesis.id))
+                    .leftJoin(tbl_user, eq(tbl_thesis_reservation.userId, tbl_user.id))
+                    .where(and(...conds))
+                    .orderBy(desc(tbl_thesis_reservation.createdAt));
+
+                transactions.push(...rows.map(t => ({ ...t, type: 'reserve' as const })));
+            }
+        }
+
+        // ── JOURNALS ─────────────────────────────────────────────────────────────
+        if (itemType === 'journal' || itemType === 'all') {
+            // --- borrowings ---
+            if (!transactionType || transactionType === 'borrow' || transactionType === 'return') {
+                const conds: any[] = [];
+                if (search) {
+                    conds.push(or(
+                        sql`${tbl_journal.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_journal_copy.callNumber} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) conds.push(sql`${tbl_journal_borrowing.createdAt} >= ${fromDate}`);
+
+                if (tab === 'borrow') {
+                    conds.push(inArray(tbl_journal_borrowing.status, ['borrowed', 'overdue']));
+                } else if (tab === 'return') {
+                    conds.push(eq(tbl_journal_borrowing.status, 'returned'));
+                } else if (tab === 'fulfilled') {
+                    conds.push(eq(tbl_journal_borrowing.status, 'fulfilled'));
+                } else if (tab === 'cancelled') {
+                    conds.push(eq(tbl_journal_borrowing.status, 'cancelled'));
+                } else if (tab === 'overdue') {
+                    conds.push(and(
+                        inArray(tbl_journal_borrowing.status, ['borrowed', 'overdue']),
+                        lt(tbl_journal_borrowing.dueDate, new Date()),
+                        isNull(tbl_journal_borrowing.returnDate)
+                    ));
+                }
+
+                const [{ count: c }] = await db.select({ count: count() }).from(tbl_journal_borrowing).where(and(...conds));
+                totalCount += c || 0;
+
+                const rows = await db
+                    .select({
+                        id: tbl_journal_borrowing.id,
+                        itemType: sql<string>`'journal'`,
+                        itemId: tbl_journal.id,
+                        itemTitle: tbl_journal.title,
+                        callNumber: tbl_journal_copy.callNumber,
+                        userId: tbl_user.id,
+                        userName: tbl_user.name,
+                        borrowDate: tbl_journal_borrowing.borrowDate,
+                        dueDate: tbl_journal_borrowing.dueDate,
+                        returnDate: tbl_journal_borrowing.returnDate,
+                        status: tbl_journal_borrowing.status,
+                        approvedBy: tbl_journal_borrowing.approvedBy,
+                        createdAt: tbl_journal_borrowing.createdAt
+                    })
+                    .from(tbl_journal_borrowing)
+                    .leftJoin(tbl_journal, eq(tbl_journal_borrowing.journalId, tbl_journal.id))
+                    .leftJoin(tbl_journal_copy, eq(tbl_journal_borrowing.journalCopyId, tbl_journal_copy.id))
+                    .leftJoin(tbl_user, eq(tbl_journal_borrowing.userId, tbl_user.id))
+                    .where(and(...conds))
+                    .orderBy(desc(tbl_journal_borrowing.createdAt));
+
+                transactions.push(...rows.map(t => ({ ...t, type: getTransactionTypeFromStatus(t.status) })));
+            }
+
+            // --- reservations ---
+            if (!transactionType || transactionType === 'reserve') {
+                const conds: any[] = [];
+                if (search) {
+                    conds.push(or(
+                        sql`${tbl_journal.title} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.name} ILIKE ${'%' + search + '%'}`,
+                        sql`${tbl_user.id}::text ILIKE ${'%' + search + '%'}`
+                    ));
+                }
+                if (fromDate) conds.push(sql`${tbl_journal_reservation.createdAt} >= ${fromDate}`);
+                if (tab !== 'all' && tab !== 'reserve') conds.push(sql`false`);
+
+                const [{ count: c }] = await db.select({ count: count() }).from(tbl_journal_reservation).where(and(...conds));
+                totalCount += c || 0;
+
+                const rows = await db
+                    .select({
+                        id: tbl_journal_reservation.id,
+                        itemType: sql<string>`'journal'`,
+                        itemId: tbl_journal.id,
+                        itemTitle: tbl_journal.title,
+                        userId: tbl_user.id,
+                        userName: tbl_user.name,
+                        borrowDate: tbl_journal_reservation.requestedBorrowDate,
+                        dueDate: tbl_journal_reservation.requestedDueDate,
+                        returnDate: sql<string | null>`null`,
+                        status: tbl_journal_reservation.status,
+                        approvedBy: tbl_journal_reservation.reviewedBy,
+                        createdAt: tbl_journal_reservation.createdAt
+                    })
+                    .from(tbl_journal_reservation)
+                    .leftJoin(tbl_journal, eq(tbl_journal_reservation.journalId, tbl_journal.id))
+                    .leftJoin(tbl_user, eq(tbl_journal_reservation.userId, tbl_user.id))
+                    .where(and(...conds))
+                    .orderBy(desc(tbl_journal_reservation.createdAt));
+
+                transactions.push(...rows.map(t => ({ ...t, type: 'reserve' as const })));
+            }
+        }
+
+        // ── Sort, paginate, enrich ───────────────────────────────────────────────
+        transactions.sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+        transactions = transactions.slice(offset, offset + limit);
+
+        const enriched = await Promise.all(transactions.map(async (t) => {
+            if (t.type === 'borrow' && !t.returnDate && t.dueDate) {
+                const fine = await calculateFineAmount(t.dueDate);
+                const daysOverdue = await calculateDaysOverdue(t.dueDate);
+                return { ...t, fine, daysOverdue };
+            }
+            return { ...t, fine: 0, daysOverdue: 0 };
+        }));
+        transactions = enriched;
+
+        const fineSettings = await loadFineSettings();
+
+        // Enrich with student/faculty identifier numbers
+        const userIds = Array.from(new Set(transactions.map((t: any) => t.userId).filter((id: any) => id != null)));
+        if (userIds.length > 0) {
+            const userRows: any[] = await db
+                .select({
+                    id: tbl_user.id,
+                    enrollmentNo: tbl_student.enrollmentNo,
+                    facultyNumber: tbl_faculty.facultyNumber
+                })
+                .from(tbl_user)
+                .leftJoin(tbl_student, eq(tbl_user.id, tbl_student.userId))
+                .leftJoin(tbl_faculty, eq(tbl_user.id, tbl_faculty.userId))
+                .where(inArray(tbl_user.id, userIds));
+
+            const idMap: Record<number, string | null> = {};
+            userRows.forEach(u => { idMap[u.id] = u.enrollmentNo || u.facultyNumber || null; });
+            transactions = transactions.map((t: any) => ({ ...t, userIdentifier: idMap[t.userId] || null }));
+        }
+
+        return json({
+            success: true,
+            page,
+            limit,
+            total: totalCount,
+            itemType,
+            transactionType,
+            fineSettings,
+            transactions
+        });
+    } catch (err: any) {
+        console.error('GET /api/transactions error:', err);
+        return json(
+            { success: false, message: err.message || 'Failed to fetch transactions' },
+            { status: err.status || 500 }
+        );
     }
-    
-    throw error(500, { message: err.message || 'Failed to process return.' });
-  }
+};
+
+// POST - Create a new borrowing transaction
+export const POST: RequestHandler = async ({ request }) => {
+    try {
+        const user = await authenticateUser(request);
+        if (!user || !['super_admin', 'admin', 'staff'].includes(user.userType)) {
+            throw error(401, { message: 'Unauthorized' });
+        }
+
+        const body = await request.json();
+        const { itemType = 'book', userId, itemId, copyId, borrowDate, dueDate } = body;
+
+        if (!userId || !itemId || !copyId || !borrowDate || !dueDate) {
+            throw error(400, { message: 'All fields are required' });
+        }
+
+        let borrowing;
+
+        if (itemType === 'book') {
+            await db.update(tbl_book_copy).set({ status: 'borrowed' }).where(eq(tbl_book_copy.id, copyId));
+            await db.update(tbl_book)
+                .set({ availableCopies: sql`GREATEST(${tbl_book.availableCopies} - 1, 0)` })
+                .where(eq(tbl_book.id, itemId));
+            const [result] = await db.insert(tbl_book_borrowing).values({
+                userId, bookId: itemId, bookCopyId: copyId,
+                borrowDate, dueDate, status: 'borrowed', approvedBy: user.id
+            }).returning();
+            borrowing = result;
+        } else if (itemType === 'magazine') {
+            await db.update(tbl_magazine_copy).set({ status: 'borrowed' }).where(eq(tbl_magazine_copy.id, copyId));
+            try {
+                await db.update(tbl_magazine)
+                    .set({ availableCopies: sql`GREATEST(${tbl_magazine.availableCopies} - 1, 0)` })
+                    .where(eq(tbl_magazine.id, itemId));
+            } catch (e) { console.debug('Failed to decrement magazine.availableCopies:', e); }
+            const [result] = await db.insert(tbl_magazine_borrowing).values({
+                userId, magazineId: itemId, magazineCopyId: copyId,
+                borrowDate, dueDate, status: 'borrowed', approvedBy: user.id
+            }).returning();
+            borrowing = result;
+        } else if (itemType === 'research') {
+            await db.update(tbl_thesis_copy).set({ status: 'borrowed' }).where(eq(tbl_thesis_copy.id, copyId));
+            const [result] = await db.insert(tbl_thesis_borrowing).values({
+                userId, thesisId: itemId, thesisCopyId: copyId,
+                borrowDate, dueDate, status: 'borrowed', approvedBy: user.id
+            }).returning();
+            borrowing = result;
+        } else if (itemType === 'multimedia' || itemType === 'journal') {
+            await db.update(tbl_journal_copy).set({ status: 'borrowed' }).where(eq(tbl_journal_copy.id, copyId));
+            try {
+                await db.update(tbl_journal)
+                    .set({ availableCopies: sql`GREATEST(${tbl_journal.availableCopies} - 1, 0)` })
+                    .where(eq(tbl_journal.id, itemId));
+            } catch (e) { console.debug('Failed to decrement journal.availableCopies:', e); }
+            const [result] = await db.insert(tbl_journal_borrowing).values({
+                userId, journalId: itemId, journalCopyId: copyId,
+                borrowDate, dueDate, status: 'borrowed', approvedBy: user.id
+            }).returning();
+            borrowing = result;
+        }
+
+        return json({ success: true, message: 'Borrowing transaction created successfully', data: borrowing });
+    } catch (err: any) {
+        console.error('POST /api/transactions error:', err);
+        return json(
+            { success: false, message: err.message || 'Failed to create transaction' },
+            { status: err.status || 500 }
+        );
+    }
 };

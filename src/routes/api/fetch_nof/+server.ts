@@ -121,7 +121,20 @@ export const GET: RequestHandler = async ({ request, url, cookies }) => {
       .where(whereClause)
       .orderBy(desc(tbl_notification.sentAt));
 
-    return json({ success: true, data: rows });
+    // add navigation fields for certain notification types
+    const enhanced = rows.map((r: any) => {
+      let actionUrl: string | null = null;
+      let actionText: string | null = null;
+      // reservation notifications should lead to the reserve tab
+      if (r.type === 'reservation') {
+        actionUrl = '/dashboard/transactions?tab=reserve';
+        actionText = 'View reservation';
+      }
+      // other types could be added here in the future
+      return { ...r, actionUrl, actionText };
+    });
+
+    return json({ success: true, data: enhanced });
   } catch (err: any) {
     console.error('fetch notifications error', err);
     return error(500, { message: 'Failed to fetch notifications' });
