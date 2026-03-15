@@ -160,7 +160,8 @@ export const GET: RequestHandler = async ({ request, url }) => {
         if (!user) throw error(401, { message: 'Unauthorized' });
 
         const page      = parseInt(url.searchParams.get('page')  || '1',  10);
-        const limit     = Math.min(parseInt(url.searchParams.get('limit') || '10', 10), 500);
+        const requestedLimit = parseInt(url.searchParams.get('limit') || '10', 10);
+        const limit     = Math.max(1, Math.min(isNaN(requestedLimit) ? 10 : requestedLimit, 20));
         const itemType  = url.searchParams.get('itemType') || 'all';
         const transType = url.searchParams.get('type') || null;
         const offset    = (page - 1) * limit;

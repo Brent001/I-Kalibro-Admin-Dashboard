@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { tbl_super_admin, tbl_admin, tbl_staff, tbl_user, tbl_security_log, tbl_staff_session, tbl_staff_permission } from '$lib/server/db/schema/schema.js';
+import { tbl_super_admin, tbl_admin, tbl_staff, tbl_user, tbl_library_settings, tbl_security_log, tbl_staff_session, tbl_staff_permission } from '$lib/server/db/schema/schema.js';
 import { eq, or } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt, { type Secret } from 'jsonwebtoken';
@@ -10,6 +10,9 @@ import { dev } from '$app/environment';
 import { randomBytes } from 'crypto';
 import { redisClient } from '$lib/server/db/cache.js';
 import { generateTokens, logSecurityEvent, type AuthUser } from '$lib/server/db/auth.js';
+import { Resend } from 'resend';
+import { env } from '$env/dynamic/private';
+
 
 // Environment variables - ensure these are set
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
@@ -158,6 +161,45 @@ async function createAuthUser(foundUser: NonNullable<Awaited<ReturnType<typeof f
         isActive: foundUser.isActive,
         permissions
     };
+}
+
+async function getTwoFactorAuthSetting(): Promise<boolean> {
+    try {
+        const [row] = await db
+            .select({ settingValue: tbl_library_settings.settingValue })
+            .from(tbl_library_settings)
+            .where(eq(tbl_library_settings.settingKey, 'twoFactorAuth'))
+            .limit(1);
+
+        return row?.settingValue?.toLowerCase() === 'true';
+    } catch (error) {
+        console.warn('[login] Failed to read twoFactorAuth setting', error);
+        return false;
+    }
+}
+
+function sendTwoFactorEmail(toEmail: string, otp: string) {
+    if (!toEmail) {
+        console.warn('[login] No email to send 2FA OTP to');
+        return;
+    }
+
+    if (!env.VITE_RESEND_API_KEY) {
+        console.log(`[2FA] OTP for ${toEmail}: ${otp}`);
+        return;
+    }
+
+    try {
+        const resend = new Resend(env.VITE_RESEND_API_KEY);
+        resend.emails.send({
+            from: 'i-Kalibro <system@i-kalibro.online>',
+            to: toEmail,
+            subject: 'Your 2FA verification code',
+            html: `<p>Your login verification code is <strong>${otp}</strong>. It expires in 10 minutes.</p>`
+        });
+    } catch (error) {
+        console.error('[2FA] Failed to send 2FA email', error);
+    }
 }
 
 export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
@@ -329,8 +371,52 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
         // Create AuthUser object
         const authUser = await createAuthUser(foundUser);
-        
-        // Generate tokens using centralized auth function
+
+        // Two-factor flow for privileged accounts
+        const twoFactorEnabled = await getTwoFactorAuthSetting();
+        if (twoFactorEnabled && ['super_admin', 'admin', 'staff'].includes(authUser.userType)) {
+            if (!authUser.email) {
+                return new Response(
+                    JSON.stringify({ success: false, message: 'Two-factor authentication requires a registered email address.' }),
+                    { status: 400, headers: { 'Content-Type': 'application/json' } }
+                );
+            }
+
+            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            const twoFactorToken = randomBytes(24).toString('hex');
+            const tokenKey = `login:2fa:token:${twoFactorToken}`;
+            const userKey = `login:2fa:${authUser.id}`;
+            const expiresAt = Date.now() + 10 * 60 * 1000;
+
+            await redisClient.setex(userKey, 10 * 60, JSON.stringify({ otp, expiresAt, attempts: 0, userId: authUser.id }));
+            await redisClient.setex(tokenKey, 10 * 60, JSON.stringify({ userId: authUser.id, expiresAt, rememberMe: !!rememberMe }));
+
+            sendTwoFactorEmail(authUser.email, otp);
+
+            await logSecurityEvent({
+                type: '2fa_required',
+                userId: authUser.id,
+                ip: clientIP,
+                userAgent: browserType,
+                reason: '2fa_required',
+                timestamp: new Date()
+            });
+
+            cookies.set('twoFactorToken', twoFactorToken, {
+                path: '/',
+                httpOnly: true,
+                sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 10 * 60
+            });
+
+            return new Response(
+                JSON.stringify({ success: true, nextStep: '2fa', message: '2FA code sent to your email.', userId: authUser.id }),
+                { status: 200, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+
+        // Continue normal login when 2FA not required
         const { accessToken, refreshToken, sessionId } = await generateTokens(authUser, {
             userAgent: userAgent || '',
             ipAddress: clientIP
