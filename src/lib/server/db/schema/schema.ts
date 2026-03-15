@@ -134,6 +134,23 @@ export const tbl_faculty = pgTable('tbl_faculty', {
 });
 
 // ============================================
+// USER RESTRICTION TABLES
+// ============================================
+
+export const tbl_user_restriction = pgTable('tbl_user_restriction', {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').references(() => tbl_user.id).notNull(),
+    restrictionType: varchar('restriction_type', { length: 50 }).notNull(), // 'ban_borrowing' | 'ban_reservation' | 'temporary_suspension'
+    reason: text('reason'),
+    startDate: timestamp('start_date').notNull(),
+    endDate: timestamp('end_date'), // null for permanent
+    appliedBy: integer('applied_by').references(() => tbl_staff.id),
+    isActive: boolean('is_active').default(true),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow()
+});
+
+// ============================================
 // LIBRARY ITEM TABLES
 // ============================================
 

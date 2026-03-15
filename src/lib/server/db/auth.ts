@@ -4,7 +4,6 @@ import { randomBytes, createHash } from 'crypto';
 import { db } from '$lib/server/db/index.js';
 import { tbl_super_admin, tbl_admin, tbl_staff, tbl_staff_permission, tbl_user, tbl_staff_session } from '$lib/server/db/schema/schema.js';
 import { eq, and, gte, lte } from 'drizzle-orm';
-import { redisClient, isRedisConfigured } from '$lib/server/db/cache.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production';
@@ -75,7 +74,7 @@ export interface UserSession {
 }
 
 export interface SecurityEvent {
-    type: 'login' | 'logout' | 'logout_error' | 'token_refresh' | 'unauthorized_access' | 'suspicious_activity';
+    type: 'login' | 'logout' | 'logout_error' | 'token_refresh' | 'unauthorized_access' | 'suspicious_activity' | '2fa_required';
     userId: string | number;
     sessionId?: string;
     ip: string;
@@ -95,39 +94,6 @@ function generateSessionId(): string {
 
 function hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
-}
-
-/**
- * Safe Redis get — returns null instead of throwing if Redis is down or key missing.
- */
-async function safeRedisGet(key: string): Promise<string | null> {
-    if (!isRedisConfigured()) return null;
-    try {
-        return await redisClient.get(key);
-    } catch {
-        return null;
-    }
-}
-
-/**
- * Safe Redis set — silently ignores failures so Redis is always best-effort cache.
- */
-async function safeRedisSetex(key: string, ttlSeconds: number, value: string): Promise<void> {
-    if (!isRedisConfigured()) return;
-    try {
-        await redisClient.setex(key, ttlSeconds, value);
-    } catch (err) {
-        console.warn(`[auth] Redis setex failed for key "${key}":`, (err as any)?.message);
-    }
-}
-
-async function safeRedisDel(key: string): Promise<void> {
-    if (!isRedisConfigured()) return;
-    try {
-        await redisClient.del(key);
-    } catch (err) {
-        console.warn(`[auth] Redis del failed for key "${key}":`, (err as any)?.message);
-    }
 }
 
 // ─── Core: DB session lookup ───────────────────────────────────────────────────
@@ -163,25 +129,16 @@ async function getActiveDbSession(sessionId: string) {
 
 // ─── verifyToken ──────────────────────────────────────────────────────────────
 
-/**
- * Verify JWT token and return user data.
- *
- * FIX: Previously the function could fall through and return a user even when
- * the DB session check failed (wrong hash / inactive). Now any DB session
- * mismatch returns null immediately.
- */
 export async function verifyToken(token: string, tokenType: 'access' | 'refresh' = 'access'): Promise<AuthUser | null> {
     try {
         const secret = tokenType === 'refresh' ? JWT_REFRESH_SECRET : JWT_SECRET;
         let decoded: JWTPayload;
         try {
             decoded = jwt.verify(token, secret) as JWTPayload;
-        } catch (jwtErr) {
-            // Token is invalid or expired — not a crash-worthy event
+        } catch {
             return null;
         }
 
-        // Verify declared token type matches the intended use
         if (decoded.tokenType !== tokenType) return null;
 
         // ── DB session validation (source of truth) ──────────────────────────
@@ -190,14 +147,12 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
             try {
                 sessionRow = await getActiveDbSession(decoded.sessionId);
             } catch (dbErr) {
-                // DB is unreachable — fail closed to prevent ghost sessions
                 console.error('[auth] DB session lookup failed, rejecting token:', (dbErr as any)?.message);
                 return null;
             }
 
-            if (!sessionRow) return null; // missing, inactive, or expired
+            if (!sessionRow) return null;
 
-            // Validate the token hash so a stolen-then-rotated token can't be reused
             const providedHash = hashToken(token);
             if (tokenType === 'access' && sessionRow.tokenHash && providedHash !== sessionRow.tokenHash) {
                 console.warn(`[auth] Access token hash mismatch for session ${decoded.sessionId}`);
@@ -241,41 +196,19 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
 // ─── isSessionRevoked ─────────────────────────────────────────────────────────
 
 /**
- * Quick revocation check for lightweight API endpoints.
- * DB is the source of truth; Redis is a fast-path fallback only.
+ * Quick revocation check — DB is the sole source of truth.
  */
 export async function isSessionRevoked(token: string): Promise<boolean> {
     try {
         const decoded = jwt.decode(token) as JWTPayload | null;
         if (!decoded?.sessionId) return false;
 
-        const { sessionId } = decoded;
-
         try {
-            const row = await getActiveDbSession(sessionId);
-            // If getActiveDbSession returns null the session is expired/inactive/missing → revoked
+            const row = await getActiveDbSession(decoded.sessionId);
             return row === null;
         } catch (dbErr) {
-            console.warn('[auth] DB revocation check failed, trying Redis fallback:', (dbErr as any)?.message);
-
-            // Redis fallback (best-effort, never trust if Redis says "not revoked" since it may be stale)
-            const revokedFlag = await safeRedisGet(`revoked:session:${sessionId}`);
-            if (revokedFlag) return true;
-
-            const sessionData = await safeRedisGet(`session:${sessionId}`);
-            if (sessionData) {
-                try {
-                    const session: any = JSON.parse(sessionData);
-                    if (!session.isActive) return true;
-                    if (session.expiresAt && new Date(session.expiresAt) <= new Date()) return true;
-                } catch {
-                    // corrupt cache entry — assume revoked for safety
-                    return true;
-                }
-            }
-
-            // Can't confirm either way — fail open (degraded mode) so users aren't mass-logged-out
-            // during a DB outage. Adjust to `return true` if you prefer fail-closed.
+            console.warn('[auth] DB revocation check failed:', (dbErr as any)?.message);
+            // Fail open during DB outage to avoid mass logouts; switch to `return true` for fail-closed.
             return false;
         }
     } catch (error) {
@@ -320,7 +253,6 @@ export async function generateTokens(
     const now = new Date();
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 
-    // ── Persist to DB ─────────────────────────────────────────────────────────
     try {
         await db.insert(tbl_staff_session).values({
             sessionId,
@@ -336,29 +268,8 @@ export async function generateTokens(
             isActive: true,
         });
     } catch (dbErr) {
-        // If we can't persist the session the tokens would always fail verification.
-        // Throw so the caller (login endpoint) can return a 500 instead of issuing bad tokens.
         console.error('[auth] Failed to persist new session to DB:', dbErr);
         throw new Error('Session creation failed');
-    }
-
-    // ── Optional Redis cache ──────────────────────────────────────────────────
-    const ttlSeconds = Math.ceil(SESSION_TTL_MS / 1000);
-    const sessionCache = JSON.stringify({
-        id: sessionId,
-        userId: user.id,
-        token: hashToken(accessToken),
-        refreshToken: hashToken(refreshToken),
-        userAgent: sessionInfo.userAgent,
-        ipAddress: sessionInfo.ipAddress,
-        createdAt: now,
-        lastUsedAt: now,
-        expiresAt,
-        isActive: true,
-    });
-    await safeRedisSetex(`session:${sessionId}`, ttlSeconds, sessionCache);
-    if (isRedisConfigured()) {
-        try { await redisClient.sadd(`user:${user.id}:sessions`, sessionId); } catch { /* ignore */ }
     }
 
     return { accessToken, refreshToken, sessionId };
@@ -366,12 +277,6 @@ export async function generateTokens(
 
 // ─── refreshAccessToken ───────────────────────────────────────────────────────
 
-/**
- * Rotate access token using a valid refresh token.
- *
- * FIX: Previously trusted the JWT payload for user data without a live DB check.
- * Now fetches the user from DB to ensure the account is still active.
- */
 export async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: string } | null> {
     try {
         let decoded: JWTPayload;
@@ -382,14 +287,9 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
         }
 
         if (decoded.tokenType !== 'refresh') return null;
-
-        // ── Optional Redis blacklist fast-path ────────────────────────────────
-        const blacklisted = await safeRedisGet(`blacklist:refresh:${hashToken(refreshToken)}`);
-        if (blacklisted) return null;
-
-        // ── DB session validation ─────────────────────────────────────────────
         if (!decoded.sessionId) return null;
 
+        // ── DB session validation ─────────────────────────────────────────────
         let sessionRow: Awaited<ReturnType<typeof getActiveDbSession>>;
         try {
             sessionRow = await getActiveDbSession(decoded.sessionId);
@@ -404,7 +304,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
             return null;
         }
 
-        // ── Validate user is still active in DB ───────────────────────────────
+        // ── Validate user is still active ─────────────────────────────────────
         const { user, userType } = await fetchUser(decoded.userId, decoded.userType);
         if (!user || !user.isActive) return null;
 
@@ -428,27 +328,14 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
         );
 
         // ── Update session row ────────────────────────────────────────────────
-        const newExpiry = new Date(Date.now() + SESSION_TTL_MS);
         try {
             await db.update(tbl_staff_session).set({
                 tokenHash: hashToken(accessToken),
                 lastUsedAt: new Date(),
-                expiresAt: newExpiry,
+                expiresAt: new Date(Date.now() + SESSION_TTL_MS),
             }).where(eq(tbl_staff_session.sessionId, decoded.sessionId));
         } catch (dbErr) {
             console.warn('[auth] Failed to update session during token refresh (non-fatal):', (dbErr as any)?.message);
-        }
-
-        // ── Sync Redis cache ──────────────────────────────────────────────────
-        const cached = await safeRedisGet(`session:${decoded.sessionId}`);
-        if (cached) {
-            try {
-                const s = JSON.parse(cached);
-                s.token = hashToken(accessToken);
-                s.lastUsedAt = new Date();
-                s.expiresAt = newExpiry;
-                await safeRedisSetex(`session:${decoded.sessionId}`, Math.ceil(SESSION_TTL_MS / 1000), JSON.stringify(s));
-            } catch { /* stale cache, ignore */ }
         }
 
         return { accessToken };
@@ -460,46 +347,24 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
 
 // ─── updateSessionLastUsed (throttled) ────────────────────────────────────────
 
-/**
- * In-process map to track the last time each session was touched.
- * Prevents a DB write on every single authenticated request.
- *
- * NOTE: This map lives in a single Node.js process. If you run multiple
- * instances (e.g. with a cluster or separate pods), each instance keeps its
- * own map, meaning a session may be touched slightly more often than the
- * interval across the fleet — but never more than once per interval per pod,
- * which is still a big improvement.
- */
 const sessionLastTouched = new Map<string, number>();
 
 async function touchSessionThrottled(sessionId: string): Promise<void> {
     const now = Date.now();
     const last = sessionLastTouched.get(sessionId) ?? 0;
-    if (now - last < SESSION_TOUCH_INTERVAL_MS) return; // skip — touched recently
+    if (now - last < SESSION_TOUCH_INTERVAL_MS) return;
     sessionLastTouched.set(sessionId, now);
     await updateSessionLastUsed(sessionId);
 }
 
 export async function updateSessionLastUsed(sessionId: string): Promise<void> {
-    const newExpiry = new Date(Date.now() + SESSION_TTL_MS);
     try {
         await db.update(tbl_staff_session).set({
             lastUsedAt: new Date(),
-            expiresAt: newExpiry,
+            expiresAt: new Date(Date.now() + SESSION_TTL_MS),
         }).where(eq(tbl_staff_session.sessionId, sessionId));
     } catch (error) {
         console.error('[auth] Failed to update session lastUsedAt:', error);
-        return; // don't propagate — let the request succeed
-    }
-
-    const cached = await safeRedisGet(`session:${sessionId}`);
-    if (cached) {
-        try {
-            const session: any = JSON.parse(cached);
-            session.lastUsedAt = new Date();
-            session.expiresAt = newExpiry;
-            await safeRedisSetex(`session:${sessionId}`, Math.ceil(SESSION_TTL_MS / 1000), JSON.stringify(session));
-        } catch { /* stale / corrupt cache, ignore */ }
     }
 }
 
@@ -511,31 +376,15 @@ export async function revokeToken(sessionId: string, tokenType: 'access' | 'refr
             await db.update(tbl_staff_session)
                 .set({ isActive: false })
                 .where(eq(tbl_staff_session.sessionId, sessionId));
-
-            const cached = await safeRedisGet(`session:${sessionId}`);
-            if (cached) {
-                try {
-                    const session: any = JSON.parse(cached);
-                    session.isActive = false;
-                    await safeRedisSetex(`session:${sessionId}`, Math.ceil(SESSION_TTL_MS / 1000), JSON.stringify(session));
-                } catch { /* ignore */ }
-            }
         } else {
-            const [deleted] = await db.delete(tbl_staff_session)
-                .where(eq(tbl_staff_session.sessionId, sessionId))
-                .returning();
-
-            await safeRedisDel(`session:${sessionId}`);
-            if (deleted && (deleted as any).actorId && isRedisConfigured()) {
-                try { await redisClient.srem(`user:${(deleted as any).actorId}:sessions`, sessionId); } catch { /* ignore */ }
-            }
+            await db.delete(tbl_staff_session)
+                .where(eq(tbl_staff_session.sessionId, sessionId));
         }
 
-        // Evict throttle-map entry so a re-created session isn't skipped
         sessionLastTouched.delete(sessionId);
     } catch (error) {
         console.error('[auth] revokeToken failed:', error);
-        throw error; // callers (logout endpoint) should know revocation failed
+        throw error;
     }
 }
 
@@ -588,20 +437,9 @@ export async function revokeAllUserSessions(userId: number): Promise<void> {
             .set({ isActive: false })
             .where(eq(tbl_staff_session.actorId, userId));
 
-        if (isRedisConfigured()) {
-            try {
-                const sessionIds = await redisClient.smembers(`user:${userId}:sessions`);
-                const ops: Promise<any>[] = [];
-                for (const sid of sessionIds) {
-                    ops.push(safeRedisDel(`session:${sid}`));
-                    ops.push(safeRedisSetex(`revoked:session:${sid}`, Math.ceil(SESSION_TTL_MS / 1000), 'revoked_all_devices'));
-                    sessionLastTouched.delete(sid);
-                }
-                ops.push(safeRedisDel(`user:${userId}:sessions`));
-                await Promise.all(ops);
-            } catch (cacheErr) {
-                console.warn('[auth] Failed to clear Redis during revokeAllUserSessions:', (cacheErr as any)?.message);
-            }
+        // Clear any throttle-map entries for this user's sessions
+        for (const [sid] of sessionLastTouched) {
+            sessionLastTouched.delete(sid);
         }
 
         console.log(`[auth] All sessions revoked for user ${userId}`);
@@ -613,12 +451,7 @@ export async function revokeAllUserSessions(userId: number): Promise<void> {
 
 // ─── logSecurityEvent ─────────────────────────────────────────────────────────
 
-/**
- * FIX: Previously threw if Redis was not configured.
- * Now guarded behind isRedisConfigured() and all Redis calls are wrapped.
- */
 export async function logSecurityEvent(event: SecurityEvent): Promise<void> {
-    // Always log to console for immediate observability regardless of Redis
     console.log(`[SECURITY] ${event.type.toUpperCase()}:`, {
         userId: event.userId,
         ip: event.ip,
@@ -626,63 +459,13 @@ export async function logSecurityEvent(event: SecurityEvent): Promise<void> {
         timestamp: event.timestamp,
         reason: event.reason,
     });
-
-    if (!isRedisConfigured()) return;
-
-    try {
-        const logEntry = {
-            ...event,
-            id: randomBytes(16).toString('hex'),
-            timestamp: event.timestamp.toISOString(),
-        };
-
-        await safeRedisSetex(
-            `security_log:${logEntry.id}`,
-            30 * 24 * 60 * 60,
-            JSON.stringify(logEntry)
-        );
-
-        if (event.userId !== 'anonymous' && event.userId !== 'unknown') {
-            try {
-                await redisClient.lpush(`user:${event.userId}:security_log`, logEntry.id);
-                await redisClient.ltrim(`user:${event.userId}:security_log`, 0, 100);
-            } catch (err) {
-                console.warn('[auth] Failed to update security log index in Redis:', (err as any)?.message);
-            }
-        }
-    } catch (error) {
-        console.error('[auth] logSecurityEvent failed:', error);
-    }
 }
 
 // ─── cleanupExpiredSessions ───────────────────────────────────────────────────
 
 export async function cleanupExpiredSessions(): Promise<void> {
     try {
-        const now = new Date();
-        await db.delete(tbl_staff_session).where(lte(tbl_staff_session.expiresAt, now));
-
-        if (isRedisConfigured()) {
-            try {
-                const keys = await redisClient.keys('session:*');
-                for (const key of keys) {
-                    const sessionData = await safeRedisGet(key);
-                    if (!sessionData) continue;
-                    try {
-                        const session: any = JSON.parse(sessionData);
-                        if (session.expiresAt && new Date(session.expiresAt) <= now) {
-                            const sessionId = key.replace('session:', '');
-                            await safeRedisDel(key);
-                            if (session.userId && isRedisConfigured()) {
-                                try { await redisClient.srem(`user:${session.userId}:sessions`, sessionId); } catch { /* ignore */ }
-                            }
-                        }
-                    } catch { /* corrupt cache entry, skip */ }
-                }
-            } catch (cacheErr) {
-                console.warn('[auth] Failed to clean expired sessions from Redis:', (cacheErr as any)?.message);
-            }
-        }
+        await db.delete(tbl_staff_session).where(lte(tbl_staff_session.expiresAt, new Date()));
     } catch (error) {
         console.error('[auth] cleanupExpiredSessions failed:', error);
     }
@@ -737,27 +520,19 @@ export async function requireAuth(
 
 // ─── Internal: fetch helpers ──────────────────────────────────────────────────
 
-/**
- * Fetch a user record from whichever table owns them.
- * Returns { user, userType } or { user: null, userType: '' }.
- */
 async function fetchUser(userId: number, hintUserType?: string): Promise<{ user: any; userType: string }> {
-    // Check super_admin
     const [superAdmin] = await db.select({ id: tbl_super_admin.id, name: tbl_super_admin.name, username: tbl_super_admin.username, email: tbl_super_admin.email, isActive: tbl_super_admin.isActive, uniqueId: tbl_super_admin.uniqueId })
         .from(tbl_super_admin).where(eq(tbl_super_admin.id, userId)).limit(1);
     if (superAdmin) return { user: superAdmin, userType: 'super_admin' };
 
-    // Check admin
     const [admin] = await db.select({ id: tbl_admin.id, name: tbl_admin.name, username: tbl_admin.username, email: tbl_admin.email, isActive: tbl_admin.isActive, uniqueId: tbl_admin.uniqueId })
         .from(tbl_admin).where(eq(tbl_admin.id, userId)).limit(1);
     if (admin) return { user: admin, userType: 'admin' };
 
-    // Check staff
     const [staff] = await db.select({ id: tbl_staff.id, name: tbl_staff.name, username: tbl_staff.username, email: tbl_staff.email, isActive: tbl_staff.isActive, uniqueId: tbl_staff.uniqueId })
         .from(tbl_staff).where(eq(tbl_staff.id, userId)).limit(1);
     if (staff) return { user: staff, userType: 'staff' };
 
-    // Check regular user
     const [regularUser] = await db.select({ id: tbl_user.id, name: tbl_user.name, username: tbl_user.username, email: tbl_user.email, isActive: tbl_user.isActive, uniqueId: tbl_user.uniqueId, userType: tbl_user.userType })
         .from(tbl_user).where(eq(tbl_user.id, userId)).limit(1);
     if (regularUser) return { user: regularUser, userType: regularUser.userType || 'user' };
@@ -765,9 +540,6 @@ async function fetchUser(userId: number, hintUserType?: string): Promise<{ user:
     return { user: null, userType: '' };
 }
 
-/**
- * Fetch permission keys for admin/staff users.
- */
 async function fetchPermissions(userType: string, uniqueId?: string | null): Promise<string[]> {
     if (!['admin', 'super_admin', 'staff'].includes(userType) || !uniqueId) return [];
 
