@@ -2,6 +2,9 @@ import type { PageServerLoad } from './$types.js';
 import { redirect } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
 import { isSessionRevoked, refreshAccessToken } from '$lib/server/db/auth.js';
+import { db } from '$lib/server/db/index.js';
+import { tbl_library_settings } from '$lib/server/db/schema/schema.js';
+import { eq } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -33,7 +36,6 @@ async function resolveToken(
         return { token, decoded };
     } catch (err) {
         if (!(err instanceof jwt.TokenExpiredError)) {
-            // Structurally invalid — don't bother refreshing
             return null;
         }
     }
@@ -78,11 +80,8 @@ function detectDeviceType(userAgent: string) {
 // Browser capability check
 function checkBrowserCapabilities(userAgent: string) {
   const device = detectDeviceType(userAgent);
-  
-  // Most modern browsers support getUserMedia
-  const supportsCamera = device.isChrome || device.isFirefox || device.isEdge || 
+  const supportsCamera = device.isChrome || device.isFirefox || device.isEdge ||
                         device.isSafari || device.isAndroid;
-  
   return {
     supportsCamera,
     recommendedSettings: {
@@ -93,29 +92,23 @@ function checkBrowserCapabilities(userAgent: string) {
   };
 }
 
-// QR code processing logic
-function processQRCode(content: string) {
-  // Add your business logic here
-  try {
-    // Example: Validate format, extract data, log to database, etc.
-    console.log('Processing QR code:', content.substring(0, 50) + '...');
-    
-    // You can add database operations here
-    // Example: await db.insert(scanLogs).values({ content, userId, timestamp: new Date() });
-    
-    return {
-      success: true,
-      processed: true,
-      timestamp: new Date().toISOString()
-    };
-  } catch (error) {
-    console.error('QR processing error:', error);
-    return {
-      success: false,
-      error: 'Failed to process QR code',
-      timestamp: new Date().toISOString()
-    };
-  }
+/**
+ * Fetch the scan method configured in tbl_library_settings.
+ * Defaults to 'qrcode' if the setting is missing or the query fails.
+ */
+async function getVisitScanMethod(): Promise<'qrcode' | 'barcode' | 'both'> {
+    try {
+        const [row] = await db
+            .select({ settingValue: tbl_library_settings.settingValue })
+            .from(tbl_library_settings)
+            .where(eq(tbl_library_settings.settingKey, 'visitScanMethod'))
+            .limit(1);
+        const method = row?.settingValue;
+        if (method === 'barcode' || method === 'both') return method;
+    } catch (err) {
+        console.warn('[qr_scanner] Could not read visitScanMethod from DB (non-fatal):', (err as any)?.message);
+    }
+    return 'qrcode';
 }
 
 export const load: PageServerLoad = async ({ cookies, url, request }) => {
@@ -137,7 +130,6 @@ export const load: PageServerLoad = async ({ cookies, url, request }) => {
             throw redirect(302, '/');
         }
     } catch (err) {
-        // Re-throw redirects, swallow other errors (revocation check is best-effort)
         if (err instanceof Response || (err as any)?.status) throw err;
         console.warn('[qr_scanner] isSessionRevoked check failed (non-fatal):', (err as any)?.message);
     }
@@ -151,7 +143,7 @@ export const load: PageServerLoad = async ({ cookies, url, request }) => {
         throw redirect(302, '/');
     }
 
-    // Map/normalize role similar to members page
+    // Normalize role
     const userTypeRaw = decoded.userType || decoded.role || 'user';
     const roleMap: { [key: string]: string } = {
         'super_admin': 'admin',
@@ -173,14 +165,16 @@ export const load: PageServerLoad = async ({ cookies, url, request }) => {
         throw redirect(302, '/');
     }
 
+    // ── 4. Fetch scan method from DB settings ─────────────────────────────────
+    const visitScanMethod = await getVisitScanMethod();
+
     // Get device and browser info
     const userAgent = request.headers.get('user-agent') || '';
     const device = detectDeviceType(userAgent);
     const capabilities = checkBrowserCapabilities(userAgent);
-    
-    // Check if HTTPS (for camera access)
-    const isSecureContext = url.protocol === 'https:' || 
-                           url.hostname === 'localhost' || 
+
+    const isSecureContext = url.protocol === 'https:' ||
+                           url.hostname === 'localhost' ||
                            url.hostname === '127.0.0.1';
 
     const displayName = decoded.name || decoded.fullName || decoded.username || '';
@@ -198,9 +192,10 @@ export const load: PageServerLoad = async ({ cookies, url, request }) => {
             device,
             capabilities,
             isSecureContext,
+            visitScanMethod,           // ← 'qrcode' | 'barcode' | 'both'
             config: capabilities.recommendedSettings,
             errors: {
-                httpsRequired: null, // Removed HTTPS restriction
+                httpsRequired: null,
                 unsupportedBrowser: !capabilities.supportsCamera ? 'Browser does not support camera access' : null
             }
         }

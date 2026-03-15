@@ -1,5 +1,27 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import type { PageData } from './$types.js';
+
+  // ── Lucide-Svelte icons (per-file imports for broad version compatibility) ─
+  import FileText       from 'lucide-svelte/icons/file-text';
+  import BookOpen       from 'lucide-svelte/icons/book-open';
+  import CircleDollarSign from 'lucide-svelte/icons/circle-dollar-sign';
+  import Calendar       from 'lucide-svelte/icons/calendar';
+  import Bell           from 'lucide-svelte/icons/bell';
+  import ShieldCheck    from 'lucide-svelte/icons/shield-check';
+  import LockIcon       from 'lucide-svelte/icons/lock';
+  import SettingsIcon   from 'lucide-svelte/icons/settings';
+  import CheckCircle    from 'lucide-svelte/icons/check-circle';
+  import Info           from 'lucide-svelte/icons/info';
+  import QrCode         from 'lucide-svelte/icons/qr-code';
+  import Barcode        from 'lucide-svelte/icons/barcode';
+  import Trash2         from 'lucide-svelte/icons/trash-2';
+  import ChevronRight   from 'lucide-svelte/icons/chevron-right';
+  import RefreshCw      from 'lucide-svelte/icons/refresh-cw';
+  import AlertTriangle  from 'lucide-svelte/icons/alert-triangle';
+  import type { SvelteComponent } from 'svelte';
+
+  let { data } = $props<{ data: PageData }>();
 
   let activeTab = $state('general');
   let isSaving = $state(false);
@@ -18,14 +40,19 @@
   type PermKey = 'canManageBooks'|'canManageUsers'|'canManageBorrowing'|'canManageReservations'|'canViewReports'|'canManageFines';
 
   let settings = $state({
-    libraryName: 'Metro Dagupan Colleges Library',
-    libraryCode: 'MDC-LIB',
-    address: 'Dagupan City, Pangasinan',
-    phone: '+63 75 522 4567',
-    email: 'library@mdc.edu.ph',
-    website: 'https://mdc.edu.ph/library',
+    address: data.settings?.address ?? '',
+    phone: data.settings?.phone ?? '',
+    email: data.settings?.email ?? '',
+    website: data.settings?.website ?? '',
 
-    visitScanMethod: 'qrcode' as 'qrcode' | 'barcode' | 'both',
+    visitScanMethod: (data.settings?.visitScanMethod ?? 'qrcode') as 'qrcode' | 'barcode' | 'both',
+
+    notifDueReminder: data.settings?.notificationSettings?.notifDueReminder ?? false,
+    notifOverdue: data.settings?.notificationSettings?.notifOverdue ?? false,
+    notifReservationReady: data.settings?.notificationSettings?.notifReservationReady ?? false,
+    notifReturnConfirmation: data.settings?.notificationSettings?.notifReturnConfirmation ?? false,
+    notifDueReminderDaysBefore: data.settings?.notificationSettings?.notifDueReminderDaysBefore ?? 1,
+    notifChannelEmail: data.settings?.notificationSettings?.notifChannelEmail ?? false,
 
     defaultLoanPeriodStudent: 7,
     defaultLoanPeriodFaculty: 14,
@@ -47,14 +74,6 @@
     allowUserReturnRequests: true,
     returnRequestWindowDays: 30,
     autoMarkOverdueDays: 1,
-
-    notifDueReminder: true,
-    notifOverdue: true,
-    notifReservationReady: true,
-    notifReturnConfirmation: true,
-    notifDueReminderDaysBefore: 2,
-    notifChannelEmail: true,
-    notifChannelSMS: false,
 
     sessionTimeoutMinutes: 30,
     passwordExpiryDays: 90,
@@ -114,27 +133,38 @@
   async function handleSave() {
     isSaving = true;
     try {
-      const [r1, r2, r3] = await Promise.all([
+      const [r1, r2, r3, r4, r5, r6] = await Promise.all([
         fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(settings), credentials:'same-origin' }).catch(() => ({ok:false})),
         fetch('/api/settings/finecal', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(settings.fineCalculation), credentials:'same-origin' }).catch(() => ({ok:false})),
-        fetch('/api/settings/permissions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(defaultStaffPermissions), credentials:'same-origin' }).catch(() => ({ok:false}))
+        fetch('/api/settings/permissions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(defaultStaffPermissions), credentials:'same-origin' }).catch(() => ({ok:false})),
+        fetch('/api/settings/scan-method', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({visitScanMethod: settings.visitScanMethod}), credentials:'same-origin' }).catch(() => ({ok:false})),
+        fetch('/api/settings/notifications', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+          notifDueReminder: settings.notifDueReminder,
+          notifOverdue: settings.notifOverdue,
+          notifReservationReady: settings.notifReservationReady,
+          notifReturnConfirmation: settings.notifReturnConfirmation,
+          notifDueReminderDaysBefore: settings.notifDueReminderDaysBefore,
+          notifChannelEmail: settings.notifChannelEmail
+        }), credentials:'same-origin' }).catch(() => ({ok:false})),
+        fetch('/api/settings/security', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({twoFactorAuth: settings.twoFactorAuth}), credentials:'same-origin' }).catch(() => ({ok:false}))
       ]);
-      if ((r1 as any).ok || (r2 as any).ok || (r3 as any).ok) {
+      if ((r1 as any).ok || (r2 as any).ok || (r3 as any).ok || (r4 as any).ok || (r5 as any).ok || (r6 as any).ok) {
         saveSuccess = true;
         setTimeout(() => saveSuccess = false, 3000);
       }
     } finally { isSaving = false; }
   }
 
-  const tabs = [
-    { id:'general',       name:'General',       icon:'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-    { id:'borrowing',     name:'Borrowing',      icon:'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
-    { id:'fines',         name:'Fines',          icon:'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-    { id:'finecalc',      name:'Exemptions',     icon:'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-    { id:'notifications', name:'Notifications',  icon:'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
-    { id:'permissions',   name:'Permissions',    icon:'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
-    { id:'security',      name:'Security',       icon:'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
-    { id:'system',        name:'System',         icon:'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tabs: { id: string; name: string; icon: any }[] = [
+    { id: 'general',       name: 'General',       icon: FileText          },
+    { id: 'borrowing',     name: 'Borrowing',      icon: BookOpen          },
+    { id: 'fines',         name: 'Fines',          icon: CircleDollarSign  },
+    { id: 'finecalc',      name: 'Exemptions',     icon: Calendar          },
+    { id: 'notifications', name: 'Notifications',  icon: Bell              },
+    { id: 'permissions',   name: 'Permissions',    icon: ShieldCheck       },
+    { id: 'security',      name: 'Security',       icon: LockIcon          },
+    { id: 'system',        name: 'System',         icon: SettingsIcon      },
   ];
 
   const tabDescriptions: Record<string, string> = {
@@ -160,6 +190,16 @@
   onMount(async () => {
     try { const p = new URLSearchParams(location.search); const t = p.get('tab'); if (t) activeTab = t; } catch {}
     try { const res = await fetch('/api/settings/finecal', { credentials:'same-origin' }); if (res.ok) { const d = await res.json(); if (d?.fineCalculation) settings.fineCalculation = d.fineCalculation; } } catch {}
+    try { const res = await fetch('/api/settings/notifications', { credentials:'same-origin' }); if (res.ok) { const d = await res.json(); if (d?.notifications) {
+        settings.notifDueReminder = !!d.notifications.notifDueReminder;
+        settings.notifOverdue = !!d.notifications.notifOverdue;
+        settings.notifReservationReady = !!d.notifications.notifReservationReady;
+        settings.notifReturnConfirmation = !!d.notifications.notifReturnConfirmation;
+        settings.notifDueReminderDaysBefore = Number(d.notifications.notifDueReminderDaysBefore) || settings.notifDueReminderDaysBefore;
+        settings.notifChannelEmail = !!d.notifications.notifChannelEmail;
+      } }
+    } catch {}
+    try { const res = await fetch('/api/settings/security', { credentials:'same-origin' }); if (res.ok) { const d = await res.json(); if (d?.security && typeof d.security.twoFactorAuth === 'boolean') { settings.twoFactorAuth = d.security.twoFactorAuth; } } } catch {}
     try { const res = await fetch('/api/settings/storage', { credentials:'same-origin' }); if (res.ok) { const d = await res.json(); if (d?.storage) storageInfo = d.storage; } } catch {}
     try {
       const res = await fetch('/api/health', { credentials:'same-origin' });
@@ -179,7 +219,6 @@
   ];
   const channelRows = [
     { key:'notifChannelEmail', label:'Email', desc:'Send notifications to user/staff email' },
-    { key:'notifChannelSMS',   label:'SMS',   desc:'Send urgent alerts via phone number' },
   ];
   const permRows: { key: PermKey; label: string; desc: string }[] = [
     { key:'canManageBooks',        label:'Manage Books & Copies',    desc:'Add, edit, deactivate tbl_book and tbl_book_copy' },
@@ -239,9 +278,7 @@
     <div class="flex items-center gap-3">
       {#if saveSuccess}
         <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium animate-fadein">
-          <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-          </svg>
+          <CheckCircle size={16} class="shrink-0" />
           Saved successfully
         </div>
       {/if}
@@ -257,6 +294,7 @@
     <div class="flex gap-0.5 overflow-x-auto" role="tablist"
       style="-webkit-overflow-scrolling:touch;scrollbar-width:none;">
       {#each tabs as tab}
+        {@const TabIcon = tab.icon}
         <button
           role="tab"
           aria-selected={activeTab === tab.id}
@@ -265,9 +303,7 @@
             {activeTab === tab.id
               ? 'bg-[#0D5C29] text-white shadow-sm'
               : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}">
-          <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d={tab.icon}/>
-          </svg>
+          <TabIcon size={15} class="shrink-0" />
           <span>{tab.name}</span>
         </button>
       {/each}
@@ -275,16 +311,17 @@
   </div>
 
   <!-- Context strip -->
-  <div class="flex items-center gap-2 px-1 py-2.5 mb-3">
-    <div class="flex items-center justify-center w-6 h-6 rounded-md bg-[#0D5C29]/10 shrink-0">
-      <svg class="w-3.5 h-3.5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d={activeTabData?.icon}/>
-      </svg>
+  {#if activeTabData}
+    {@const StripIcon = activeTabData.icon}
+    <div class="flex items-center gap-2 px-1 py-2.5 mb-3">
+      <div class="flex items-center justify-center w-6 h-6 rounded-md bg-[#0D5C29]/10 shrink-0">
+        <StripIcon size={14} class="text-[#0D5C29]" />
+      </div>
+      <span class="text-sm font-semibold text-slate-700">{activeTabData.name}</span>
+      <span class="text-slate-300 select-none">·</span>
+      <span class="text-xs text-slate-400 truncate">{tabDescriptions[activeTab] ?? ''}</span>
     </div>
-    <span class="text-sm font-semibold text-slate-700">{activeTabData?.name}</span>
-    <span class="text-slate-300 select-none">·</span>
-    <span class="text-xs text-slate-400 truncate">{tabDescriptions[activeTab] ?? ''}</span>
-  </div>
+  {/if}
 
   <!-- Content panel -->
   <div class="bg-white rounded-xl shadow-sm border border-gray-200">
@@ -298,14 +335,6 @@
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl">
           <div class="space-y-1.5">
-            <label for="lName" class="block text-sm font-medium text-slate-700">Library Name</label>
-            <input id="lName" type="text" bind:value={settings.libraryName} class={inp}/>
-          </div>
-          <div class="space-y-1.5">
-            <label for="lCode" class="block text-sm font-medium text-slate-700">Library Code</label>
-            <input id="lCode" type="text" bind:value={settings.libraryCode} class={inp}/>
-          </div>
-          <div class="md:col-span-2 space-y-1.5">
             <label for="lAddr" class="block text-sm font-medium text-slate-700">Address</label>
             <textarea id="lAddr" bind:value={settings.address} rows="2" class="{inp} resize-none"></textarea>
           </div>
@@ -335,25 +364,19 @@
               <button type="button" onclick={() => settings.visitScanMethod = 'qrcode'}
                 class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all
                   {settings.visitScanMethod === 'qrcode' ? 'bg-white text-[#0D5C29] shadow-sm ring-1 ring-gray-200' : 'text-slate-500 hover:text-slate-700'}">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h6v6H3zm12 0h6v6h-6zM3 15h6v6H3zm2-10h2v2H5zm10 0h2v2h-2zM5 17h2v2H5zm5-14h2v2h-2zm0 4h2v2h-2zm4 4h2v2h-2zm0 4h2v2h-2zm-4 0h2v2h-2zm0 4h2v2h-2zm4-8h2v2h-2zm4 4h2v2h-2z"/>
-                </svg>
+                <QrCode size={16} />
                 QR Code
               </button>
               <button type="button" onclick={() => settings.visitScanMethod = 'barcode'}
                 class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all
                   {settings.visitScanMethod === 'barcode' ? 'bg-white text-[#0D5C29] shadow-sm ring-1 ring-gray-200' : 'text-slate-500 hover:text-slate-700'}">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h1v12H4zm3 0h1v12H7zm2 0h2v12H9zm3 0h1v12h-1zm2 0h1v12h-1zm2 0h2v12h-2z"/>
-                </svg>
+                <Barcode size={16} />
                 Barcode
               </button>
             </div>
           </div>
           <p class="text-xs text-slate-500 mt-4 flex items-start gap-2 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-4 py-3">
-            <svg class="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
+            <Info size={14} class="mt-0.5 shrink-0 text-slate-400" />
             {#if settings.visitScanMethod === 'qrcode'}
               The visit kiosk camera will read <span class="font-medium text-slate-700">QR codes</span> on student and faculty ID cards or generated visit passes.
             {:else}
@@ -614,31 +637,31 @@
           <h3 class="text-base font-semibold text-slate-900">Notifications</h3>
           <p class="text-xs text-slate-400 mt-1">Controls tbl_notification type values and delivery channels</p>
         </div>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-4xl">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 max-w-6xl mx-auto">
 
-          <div class="space-y-4">
+          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div>
               <h4 class="text-sm font-semibold text-slate-700">Notification Types</h4>
               <p class="text-xs text-slate-400 mt-0.5">Which tbl_notification.type events are sent</p>
             </div>
-            <div class="space-y-3">
+            <div class="space-y-3 mt-4">
               {#each notifRows as n}
                 {@render toggleRow(n.label, n.desc, settings[n.key as keyof typeof settings] as boolean, v => { (settings as any)[n.key] = v; })}
               {/each}
             </div>
-            <div class="space-y-1.5 pt-1">
+            <div class="space-y-1.5 pt-4">
               <label for="remDays" class="block text-sm font-medium text-slate-700">Due Reminder — Days Before</label>
               <input id="remDays" type="number" min="1" max="14" bind:value={settings.notifDueReminderDaysBefore} class={inp}/>
               <p class="text-xs text-slate-400">Days before dueDate the reminder fires</p>
             </div>
           </div>
 
-          <div class="space-y-4">
+          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div>
               <h4 class="text-sm font-semibold text-slate-700">Delivery Channels</h4>
               <p class="text-xs text-slate-400 mt-0.5">How notifications are dispatched</p>
             </div>
-            <div class="space-y-3">
+            <div class="space-y-3 mt-4">
               {#each channelRows as ch}
                 {@render toggleRow(ch.label, ch.desc, settings[ch.key as keyof typeof settings] as boolean, v => { (settings as any)[ch.key] = v; })}
               {/each}
@@ -783,13 +806,9 @@
               </div>
               <a href="/dashboard/settings/storage"
                 class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border border-[#0D5C29]/25 text-[#0D5C29] hover:bg-[#0D5C29] hover:text-white hover:border-[#0D5C29] transition-all">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7M4 7h16M9 3h6"/>
-                </svg>
+                <Trash2 size={14} />
                 Manage Storage
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-                </svg>
+                <ChevronRight size={12} strokeWidth={2.5} />
               </a>
             </div>
 
@@ -811,18 +830,14 @@
                 </div>
                 {#if storageInfo.percentage > 80}
                   <p class="text-xs text-amber-600 mt-2.5 flex items-center gap-1.5">
-                    <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"/>
-                    </svg>
+                    <AlertTriangle size={14} class="shrink-0" />
                     Storage is high — visit Manage Storage to clean up old files.
                   </p>
                 {/if}
               </div>
             {:else}
               <div class="p-5 rounded-xl border border-gray-200 bg-gray-50 flex items-center gap-3">
-                <svg class="w-4 h-4 text-slate-300 animate-spin shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
+                <RefreshCw size={16} class="text-slate-300 animate-spin shrink-0" />
                 <span class="text-sm text-slate-400">Loading storage information…</span>
               </div>
             {/if}

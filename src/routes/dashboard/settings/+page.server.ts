@@ -2,6 +2,9 @@ import type { PageServerLoad } from './$types.js';
 import { redirect } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
 import { isSessionRevoked, refreshAccessToken } from '$lib/server/db/auth.js';
+import { db } from '$lib/server/db/index.js';
+import { tbl_library_settings } from '$lib/server/db/schema/schema.js';
+import { eq } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -12,6 +15,45 @@ const ACCESS_TOKEN_MAX_AGE_S = 15 * 60;
 function clearAuthCookies(cookies: Parameters<PageServerLoad>[0]['cookies']) {
     cookies.delete('token', { path: '/' });
     cookies.delete('refresh_token', { path: '/' });
+}
+
+/**
+ * Fetch the scan method configured in tbl_library_settings.
+ * Defaults to 'qrcode' if the setting is missing or the query fails.
+ */
+async function getVisitScanMethod(): Promise<'qrcode' | 'barcode' | 'both'> {
+    try {
+        const [row] = await db
+            .select({ settingValue: tbl_library_settings.settingValue })
+            .from(tbl_library_settings)
+            .where(eq(tbl_library_settings.settingKey, 'visitScanMethod'))
+            .limit(1);
+        const method = row?.settingValue;
+        if (method === 'barcode' || method === 'both') return method;
+    } catch (err) {
+        console.warn('[settings] Could not read visitScanMethod from DB (non-fatal):', (err as any)?.message);
+    }
+    return 'qrcode';
+}
+
+async function getNotificationSettings() {
+    try {
+        const [row] = await db
+            .select({ settingValue: tbl_library_settings.settingValue })
+            .from(tbl_library_settings)
+            .where(eq(tbl_library_settings.settingKey, 'notificationSettings'))
+            .limit(1);
+        if (!row) return null;
+        if (!row.settingValue) return null;
+        try {
+            return JSON.parse(row.settingValue);
+        } catch {
+            return null;
+        }
+    } catch (err) {
+        console.warn('[settings] Could not read notification settings from DB (non-fatal):', (err as any)?.message);
+        return null;
+    }
 }
 
 /**
@@ -94,6 +136,10 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
         throw redirect(302, '/');
     }
 
+    // ── 4. Fetch scan method from DB settings ─────────────────────────────────
+    const visitScanMethod = await getVisitScanMethod();
+    const notificationSettings = await getNotificationSettings();
+
     return {
         user: {
             id: userId,
@@ -101,6 +147,10 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
             email: decoded.email,
             userType: decoded.userType,
             permissions: decoded.permissions
+        },
+        settings: {
+            visitScanMethod,
+            notificationSettings
         }
     };
 };

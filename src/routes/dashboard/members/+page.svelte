@@ -3,6 +3,7 @@
   import DeleteMember from "$lib/components/ui/member/delete_member.svelte";
   import EditMemberModal from "$lib/components/ui/member/edit_member_modal.svelte";
   import ViewMember from "$lib/components/ui/member/view_member.svelte";
+  import RestrictMember from "$lib/components/ui/member/restrict_member.svelte";
   import { onMount } from 'svelte';
 
   // Get user from SSR data
@@ -23,6 +24,7 @@
   let showEditModal = false;
   let showViewModal = false;
   let showDeleteModal = false;
+  let showRestrictModal = false;
   let selectedMember: any = null;
 
   // Form data for add/edit
@@ -229,6 +231,11 @@
     showDeleteModal = true;
   }
 
+  function openRestrictModal(member: any) {
+    selectedMember = member;
+    showRestrictModal = true;
+  }
+
   async function handleSubmit() {
     try {
       const isEdit = showEditModal;
@@ -311,6 +318,7 @@
     showEditModal = false;
     showViewModal = false;
     showDeleteModal = false;
+    showRestrictModal = false;
     selectedMember = null;
     errorMsg = "";
   }
@@ -648,6 +656,9 @@
                         <button on:click={() => openEditModal(member)} class="text-emerald-600 hover:text-emerald-700 transition-colors duration-200" title="Edit Member">
                           Edit
                         </button>
+                        <button on:click={() => openRestrictModal(member)} class="text-orange-600 hover:text-orange-700 transition-colors duration-200" title="Manage Restrictions">
+                          Restrict
+                        </button>
                         <button on:click={() => openDeleteModal(member)} class="text-red-600 hover:text-red-700 transition-colors duration-200" title="Remove Member">
                           Remove
                         </button>
@@ -697,6 +708,11 @@
                   <button on:click={() => openEditModal(member)} class="p-2 text-emerald-600 hover:text-yellow-700 hover:bg-yellow-50 rounded-lg transition-colors duration-200" title="Edit Member" aria-label="Edit member">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
+                    </svg>
+                  </button>
+                  <button on:click={() => openRestrictModal(member)} class="p-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50 rounded-lg transition-colors duration-200" title="Manage Restrictions" aria-label="Manage restrictions">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
                     </svg>
                   </button>
                   <button on:click={() => openDeleteModal(member)} class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" title="Remove Member" aria-label="Remove member">
@@ -839,6 +855,17 @@
         isLoading={loading}
         on:close={closeModals}
         on:delete={handleDeleteConfirm}
+      />
+    {/if}
+    {#if showRestrictModal && selectedMember}
+      <RestrictMember
+        isOpen={showRestrictModal}
+        member={selectedMember}
+        isLoading={loading}
+        on:close={closeModals}
+        on:restrictionAdded={() => {
+          // Optional: show success message or reload data
+        }}
       />
     {/if}
   </div>

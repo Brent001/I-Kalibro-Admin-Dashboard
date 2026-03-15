@@ -11,6 +11,7 @@
   let errorMsg = '';
   let isSubmitting = false;
   let rememberMe = false;
+
   const dispatch = createEventDispatcher();
 
   onMount(async () => {
@@ -45,28 +46,39 @@
   async function handleSubmit(e: Event) {
     e.preventDefault();
     errorMsg = '';
-    if (username && password) {
-      isSubmitting = true;
-      try {
-        const res = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, rememberMe })
-        });
-        const result = await res.json();
-        if (result.success) {
-          if (rememberMe && result.rememberMeToken) {
-            localStorage.setItem('rememberMe', result.rememberMeToken);
-          }
-          await goto('/dashboard', { replaceState: true, noScroll: true });
-        } else {
-          errorMsg = result.message || 'Login failed';
-        }
-      } catch (err) {
-        errorMsg = 'Network error. Please try again.';
-      } finally {
-        isSubmitting = false;
+
+    if (!username || !password) {
+      errorMsg = 'Please enter your username and password.';
+      return;
+    }
+
+    isSubmitting = true;
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, rememberMe })
+      });
+      const result = await res.json();
+
+      if (result.nextStep === '2fa' && result.userId) {
+        await goto('/2fa');
+        return;
       }
+
+      if (result.success) {
+        if (rememberMe && result.rememberMeToken) {
+          localStorage.setItem('rememberMe', result.rememberMeToken);
+        }
+        await goto('/dashboard', { replaceState: true, noScroll: true });
+        return;
+      }
+
+      errorMsg = result.message || 'Login failed';
+    } catch (err) {
+      errorMsg = 'Network error. Please try again.';
+    } finally {
+      isSubmitting = false;
     }
   }
 </script>
@@ -103,9 +115,7 @@
       <form class="mt-8 space-y-6" on:submit|preventDefault={handleSubmit}>
         <div class="space-y-4">
           <div>
-            <label for="username" class="block text-sm font-medium text-[#0D5C29]">
-              Username
-            </label>
+            <label for="username" class="block text-sm font-medium text-[#0D5C29]">Username</label>
             <input
               id="username"
               name="username"
@@ -116,10 +126,9 @@
               placeholder="Enter your username"
             />
           </div>
+
           <div>
-            <label for="password" class="block text-sm font-medium text-[#0D5C29]">
-              Password
-            </label>
+            <label for="password" class="block text-sm font-medium text-[#0D5C29]">Password</label>
             <div class="mt-1 relative">
               <input
                 id="password"
@@ -165,14 +174,10 @@
               bind:checked={rememberMe}
               class="h-4 w-4 text-[#0D5C29] focus:ring-[#0D5C29] border-gray-300 rounded"
             />
-            <label for="remember-me" class="ml-2 block text-sm text-gray-900">
-              Remember me for 7 days
-            </label>
+            <label for="remember-me" class="ml-2 block text-sm text-gray-900">Remember me for 7 days</label>
           </div>
           <div class="text-sm">
-            <a href="/forget_password" class="font-medium text-[#0D5C29] hover:text-[#E8B923]">
-              Forgot password?
-            </a>
+            <a href="/forget_password" class="font-medium text-[#0D5C29] hover:text-[#E8B923]">Forgot password?</a>
           </div>
         </div>
 

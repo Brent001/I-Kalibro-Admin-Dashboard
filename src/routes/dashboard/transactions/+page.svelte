@@ -9,18 +9,12 @@
   import { writable } from 'svelte/store';
   import { tweened } from 'svelte/motion';
 
-  const ROWS_PER_PAGE = 100;
+  const ROWS_PER_PAGE = 20;
+  const MAX_PAGE_BUTTONS = 5;
 
   // Must match FULFILLMENT_DELAY_MS in the API server
   const REVERSAL_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
-  // ─── Reservation status helpers ─────────────────────────────────────────────
-  // 'pending'   → awaiting staff review
-  // 'approved'  → staff approved, item held (shown as "Active" in UI)
-  // 'rejected'  → rejected by staff
-  // 'fulfilled' → converted to borrowing
-  // 'expired'   → passed expiry without pickup
-  // 'cancelled' → cancelled
   const RESERVATION_OPEN_STATUSES   = ['pending', 'approved'];
   const RESERVATION_CLOSED_STATUSES = ['fulfilled', 'cancelled', 'rejected', 'expired'];
 
@@ -67,7 +61,7 @@
     } catch { alert('Export failed.'); }
   }
 
-  async function fetchTransactions(page = 1, limit = 500, params: Record<string, any> = {}) {
+  async function fetchTransactions(page = 1, limit = ROWS_PER_PAGE, params: Record<string, any> = {}) {
     const url = new URL('/api/transactions', window.location.origin);
     url.searchParams.set('page', page.toString());
     url.searchParams.set('limit', limit.toString());
@@ -76,7 +70,7 @@
     if (params.period)     url.searchParams.set('period',     params.period);
     if (params.customDays) url.searchParams.set('customDays', params.customDays);
     if (params.itemType)   url.searchParams.set('itemType',   params.itemType);
-    const res = await fetch(url);
+    const res = await fetch(url.toString(), { credentials: 'include' });
     return res.json();
   }
 
@@ -101,26 +95,67 @@
 
   let returnVerification = { method: "password", password: "", qrData: "", fine: 0 };
 
-  let transactions: any[]      = [];
-  let fineSettings: any | null = data.fineSettings || null;
+  // ── Seed from server — eliminates the double-fetch on first load ─────────────
+  let transactions: any[]      = data.transactions     || [];
+  let statsTransactions: any[] = data.statsTransactions || data.transactions || [];
+  let fineSettings: any | null = data.fineSettings     || null;
+  let totalCount: number | null = data.totalCount      ?? null;
 
-  let serverPage  = data.page  || 1;
-  let serverLimit = data.limit || ROWS_PER_PAGE;
-  let totalCount: number | null = data.total ?? null;
+  let serverPage  = 1;
+  let serverLimit = ROWS_PER_PAGE;
 
-  async function loadMore() {
-    if (totalCount !== null && transactions.length >= totalCount) return;
+  async function loadPage(page = 1) {
     loading = true;
     try {
-      const nextPage = serverPage + 1;
-      const json = await fetchTransactions(nextPage, 500, {
+      const json = await fetchTransactions(page, serverLimit, {
         search: debouncedSearchTerm, tab: activeTab, period: selectedPeriod, customDays, itemType: selectedItemType
       });
-      transactions.push(...(json.transactions || []));
-      serverPage = nextPage;
-      if (json.total != null) totalCount = json.total;
-    } catch (err) { console.error('Load more error:', err); }
-    finally { loading = false; }
+
+      if (json.total != null) {
+        totalCount = json.total;
+      }
+
+      const computedTotalPages = Math.max(1, Math.ceil((totalCount ?? 0) / ROWS_PER_PAGE));
+      if (page > computedTotalPages) {
+        // requested page is out of range after filter change (e.g. switched from 2 pages to 1)
+        return loadPage(1);
+      }
+
+      transactions = json.transactions || [];
+      serverPage = page;
+      currentPage = page;
+
+      if (activeTab !== 'all') {
+        const statsJson = await fetchTransactions(1, serverLimit, {
+          search: debouncedSearchTerm, period: selectedPeriod, customDays, itemType: selectedItemType
+        });
+        statsTransactions = statsJson.transactions || [];
+      } else {
+        statsTransactions = transactions;
+      }
+    } catch (err) {
+      console.error('Load page error:', err);
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function loadMore() {
+    if (totalCount !== null && serverPage >= totalPages) return;
+    await loadPage(serverPage + 1);
+  }
+
+  function getPageNumbers(): number[] {
+    const half = Math.floor(MAX_PAGE_BUTTONS / 2);
+    let start = Math.max(1, currentPage - half);
+    let end = start + MAX_PAGE_BUTTONS - 1;
+    if (end > totalPages) {
+      end = totalPages;
+      start = Math.max(1, totalPages - MAX_PAGE_BUTTONS + 1);
+    }
+    const pages: number[] = [];
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
   }
 
   const tabs = [
@@ -175,12 +210,13 @@
   function updateUrlParams() {
     try {
       const params = new URLSearchParams();
+      params.set('page', currentPage?.toString() || '1');
       if (activeTab        && activeTab        !== 'all') params.set('tab',    activeTab);
       if (selectedItemType && selectedItemType !== 'all') params.set('type',   selectedItemType);
       if (selectedPeriod   && selectedPeriod   !== 'all') params.set('period', selectedPeriod);
       if (customDays)  params.set('days', customDays);
       if (searchTerm)  params.set('q',    searchTerm);
-      const newUrl = `${location.pathname}${params.toString() ? '?' + params.toString() : ''}${location.hash || ''}`;
+      const newUrl = `${location.pathname}?${params.toString()}${location.hash || ''}`;
       history.replaceState(null, '', newUrl);
     } catch { /* ignore */ }
   }
@@ -211,7 +247,6 @@
       case 'borrowed':  return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'returned':  return 'bg-emerald-100 text-emerald-800 border-emerald-200';
       case 'overdue':   return 'bg-red-100 text-red-800 border-red-200';
-      // reservation open statuses
       case 'pending':   return 'bg-amber-100 text-amber-800 border-amber-200';
       case 'approved':  return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'fulfilled': return 'bg-green-100 text-green-800 border-green-200';
@@ -246,18 +281,12 @@
     }
   }
 
-  /** Human-readable status label. Reservation 'approved' shows as 'Active' for clarity. */
   function statusLabel(t: Transaction): string {
     const s = t.status?.toLowerCase() || '';
     if (t.recordKind === 'reservation' && s === 'approved') return 'Active';
     return (t.status?.charAt(0).toUpperCase() ?? '') + (t.status?.slice(1) ?? '');
   }
 
-  /**
-   * True while the 1-hour revert window is still open.
-   * The server will have already promoted the record to 'fulfilled' once the
-   * hour elapses, so this is just a belt-and-suspenders UI guard.
-   */
   function canRevert(transaction: Transaction) {
     if (!transaction.returnDate) return false;
     if (transaction.status?.toLowerCase() !== 'returned') return false;
@@ -429,6 +458,7 @@
   }
 
   onMount(async () => {
+    // ── Read URL params to sync filter state ──────────────────────────────────
     try {
       const p = new URLSearchParams(window.location.search);
       activeTab        = p.get('tab')    || activeTab;
@@ -436,57 +466,46 @@
       selectedPeriod   = p.get('period') || selectedPeriod;
       customDays       = p.get('days')   || customDays;
       searchTerm       = p.get('q')      || searchTerm;
+      currentPage      = Number(p.get('page')) || 1;
+      serverPage       = currentPage;
       const hId = p.get('highlight');
       if (hId) highlightedTransactionId = Number(hId);
     } catch { /* ignore */ }
 
-    const initial = await fetchTransactions(1, 200, {
-      search: searchTerm, tab: activeTab, period: selectedPeriod, customDays, itemType: selectedItemType
-    });
-    transactions = initial.transactions || [];
-    totalCount   = initial.total || 0;
-    fineSettings = initial.fineSettings || fineSettings;
+    // ── Skip the initial fetch — server already sent data via SSR ────────────
+    // `transactions`, `statsTransactions`, `totalCount`, and `fineSettings`
+    // are all seeded from `data.*` at declaration time above, so there is
+    // nothing to fetch here on first load.  The reactive $: block below will
+    // fire whenever the user actually changes a filter.
 
     scrollToHighlighted();
     initializedFromUrl = true;
 
+    // Session check (non-blocking)
     const res = await fetch('/api/auth/session', { credentials: 'include' });
     if (!res.ok) { alert("Session expired. Please log in again."); window.location.href = '/'; }
   });
 
+  // ── Re-fetch whenever any filter changes (updated to page-based API pagination) ────────────
   $: if (initializedFromUrl) {
     activeTab; selectedItemType; selectedPeriod; customDays; debouncedSearchTerm;
     updateUrlParams();
-    (async () => {
-      loading      = true;
-      currentPage  = 1;
-      serverPage   = 1;
-      transactions = [];
-      totalCount   = null;
-      try {
-        const json = await fetchTransactions(1, 500, {
-          search: debouncedSearchTerm, tab: activeTab, period: selectedPeriod, customDays, itemType: selectedItemType
-        });
-        transactions = json.transactions || [];
-        totalCount   = json.total || 0;
-      } catch (err) { console.error('Error fetching transactions:', err); }
-      finally { loading = false; }
-    })();
+    currentPage = 1;
+    serverPage = 1;
+    void loadPage(1);
   }
 
   let currentPage = 1;
-  $: totalPages = Math.ceil(filteredTransactions.length / ROWS_PER_PAGE) || 1;
-  $: if (searchTerm !== undefined || activeTab !== undefined || selectedItemType !== undefined || selectedPeriod !== undefined || customDays !== undefined) currentPage = 1;
-  $: if (currentPage > totalPages) currentPage = totalPages;
-  $: pagedTransactions = filteredTransactions.slice((currentPage - 1) * ROWS_PER_PAGE, currentPage * ROWS_PER_PAGE);
+  $: totalPages = Math.max(1, Math.ceil((totalCount ?? 0) / ROWS_PER_PAGE));
+  $: pagedTransactions = transactions;
 
+  // ── Stats always from statsTransactions (tab-agnostic) ───────────────────────
   $: stats = {
-    total:    filteredTransactions.length,
-    borrowed: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'borrowed').length,
-    returned: transactions.filter((t: Transaction) => t.status?.toLowerCase() === 'returned').length,
-    overdue:  transactions.filter((t: Transaction) => Number((t as any).daysOverdue || 0) > 0 || Number((t as any).hoursOverdue || 0) > 0).length,
-    // Count open reservations: pending or approved
-    reserved: transactions.filter((t: Transaction) => t.recordKind === 'reservation' && RESERVATION_OPEN_STATUSES.includes(t.status?.toLowerCase() || '')).length,
+    total:    statsTransactions.length,
+    borrowed: statsTransactions.filter((t: Transaction) => t.status?.toLowerCase() === 'borrowed').length,
+    returned: statsTransactions.filter((t: Transaction) => t.status?.toLowerCase() === 'fulfilled').length,
+    overdue:  statsTransactions.filter((t: Transaction) => Number((t as any).daysOverdue || 0) > 0 || Number((t as any).hoursOverdue || 0) > 0).length,
+    reserved: statsTransactions.filter((t: Transaction) => t.recordKind === 'reservation' && RESERVATION_OPEN_STATUSES.includes(t.status?.toLowerCase() || '')).length,
   };
 
   $: totalAnimated.set(stats.total);
@@ -753,7 +772,7 @@
           </thead>
 
           <tbody class="divide-y divide-gray-50">
-            {#if loading}
+            {#if loading && pagedTransactions.length === 0}
               {#each Array(10) as _}
                 <tr class="animate-pulse">
                   <td class="pl-6 pr-3 py-4"><div class="h-4 bg-gray-200 rounded w-16 mb-1"></div><div class="h-3 bg-gray-200 rounded w-12"></div></td>
@@ -960,7 +979,7 @@
                 </tr>
               {/each}
 
-              {#if filteredTransactions.length === 0}
+              {#if !loading && filteredTransactions.length === 0}
                 <tr>
                   <td colspan="6" class="px-6 py-16 text-center">
                     <div class="flex flex-col items-center gap-3">
@@ -983,27 +1002,33 @@
       </div>
 
       {#if totalPages > 1}
-        <div class="px-6 py-2 flex justify-end items-center gap-2">
-          <button class="px-2 py-1 border rounded text-sm disabled:opacity-40" on:click={() => currentPage = Math.max(1, currentPage - 1)} disabled={currentPage === 1}>Prev</button>
-          <span class="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
-          <button class="px-2 py-1 border rounded text-sm disabled:opacity-40" on:click={() => currentPage = Math.min(totalPages, currentPage + 1)} disabled={currentPage === totalPages}>Next</button>
-        </div>
-      {/if}
+        <div class="px-6 py-2 flex justify-center items-center gap-1 flex-wrap">
+          <button class="px-2 py-1 border rounded text-sm disabled:opacity-40" on:click={() => loadPage(1)} disabled={currentPage === 1}>&laquo;</button>
+          <button class="px-2 py-1 border rounded text-sm disabled:opacity-40" on:click={() => loadPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1}>Prev</button>
 
-      {#if totalCount !== null && transactions.length < totalCount}
-        <div class="px-6 py-2 flex justify-center">
-          <button class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm" on:click={loadMore}>Load more</button>
+          {#each getPageNumbers() as pageNum}
+            <button
+              class="px-2 py-1 border rounded text-sm min-w-[2rem] {pageNum === currentPage ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-100'}"
+              on:click={() => loadPage(pageNum)}
+              aria-current={pageNum === currentPage ? 'page' : undefined}
+            >
+              {pageNum}
+            </button>
+          {/each}
+
+          <button class="px-2 py-1 border rounded text-sm disabled:opacity-40" on:click={() => loadPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages}>Next</button>
+          <button class="px-2 py-1 border rounded text-sm disabled:opacity-40" on:click={() => loadPage(totalPages)} disabled={currentPage === totalPages}>&raquo;</button>
         </div>
       {/if}
 
       {#if filteredTransactions.length > 0}
         <div class="px-6 py-3 border-t border-gray-100 bg-gray-50/40 flex items-center justify-between flex-wrap gap-2">
           <p class="text-xs text-gray-400">
-            Showing <span class="font-semibold text-gray-600">{pagedTransactions.length}</span> of <span class="font-semibold text-gray-600">{filteredTransactions.length}</span> loaded records
+            Showing <span class="font-semibold text-gray-600">{Math.min(totalCount ?? 0, (currentPage - 1) * ROWS_PER_PAGE + 1)}</span>
+            - <span class="font-semibold text-gray-600">{Math.min(totalCount ?? 0, currentPage * ROWS_PER_PAGE)}</span>
+            of <span class="font-semibold text-gray-600">{totalCount ?? 0}</span> total transactions
           </p>
-          {#if totalCount !== null}
-            <p class="text-xs text-gray-400">{transactions.length} of {totalCount} total transactions loaded</p>
-          {/if}
+          <p class="text-xs text-gray-400">Page <span class="font-semibold text-gray-600">{currentPage}</span> of <span class="font-semibold text-gray-600">{totalPages}</span></p>
         </div>
       {/if}
 
@@ -1013,7 +1038,7 @@
 
   <!-- ===================== MOBILE CARD VIEW ===================== -->
   <div class="lg:hidden space-y-2 mb-2">
-    {#if loading}
+    {#if loading && pagedTransactions.length === 0}
       {#each Array(5) as _}
         <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 animate-pulse">
           <div class="flex items-start justify-between mb-4">
@@ -1034,7 +1059,7 @@
           <div class="flex gap-2"><div class="h-8 bg-gray-200 rounded flex-1"></div></div>
         </div>
       {/each}
-    {:else}
+    {:else if pagedTransactions.length > 0}
       {#each pagedTransactions as transaction}
         {@const isReservation = transaction.recordKind === 'reservation'}
         <div
@@ -1137,6 +1162,13 @@
           </div>
         </div>
       {/each}
+    {/if}
+
+    {#if !loading && pagedTransactions.length === 0}
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 text-center text-sm text-gray-500">
+        <p class="font-semibold text-slate-600">No transactions found</p>
+        <p class="text-xs text-slate-400">Try adjusting your filters or search term.</p>
+      </div>
     {/if}
 
     <!-- Mobile pagination -->
