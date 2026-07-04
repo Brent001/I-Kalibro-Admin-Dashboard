@@ -116,69 +116,23 @@
     availability: 0
   };
 
+  // NOTE: This page is Research, not Journals. Intentionally NOT calling
+  // /api/inventory/journals* here — the list stays empty until a dedicated
+  // research API endpoint exists.
   async function fetchBooks(page = 1, search = "", category = "", language = "") {
     if (!browser) return;
     loading = true;
     error = "";
-    try {
-      const params = new URLSearchParams();
-      params.set('page', page.toString());
-      params.set('limit', '20');
-      if (search) params.set('q', search);
-      if (category && category !== 'all') {
-        params.set('category', category);
-      }
-      if (language) params.set('lang', language);
-      const response = await fetch(`/api/inventory/journals?${params.toString()}`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      if (!response.ok) {
-        if (response.status === 401) {
-          window.location.href = '/';
-          return;
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data: ApiResponse = await response.json();
-      if (data?.success && data?.data?.journals) {
-        books = (data.data.journals || []).map((book: ApiBook) => {
-          const available = parseInt((book.availableCopies ?? book.copiesAvailable)?.toString() || '0', 10);
-          const total = parseInt((book.totalCopies ?? book.copiesAvailable ?? available)?.toString() || '0', 10);
-          const status = total > 0 ? (available > 5 ? 'Available' : available > 0 ? 'Limited' : 'Unavailable') : 'Unavailable';
-          return {
-            ...book,
-            bookId: book.bookId,
-            isbn: book.isbn || '',
-            copiesAvailable: available,
-            availableCopies: available,
-            totalCopies: total,
-            copies: total,
-            available: available,
-            published: book.publishedYear?.toString() || 'Unknown',
-            status,
-            category: book.categoryId !== undefined ? categoryMap[book.categoryId] || book.category || 'General' : book.category || 'General'
-          } as unknown as Book;
-        });
-        pagination = data?.data?.pagination || {
-          currentPage: 1,
-          totalPages: 1,
-          totalCount: 0,
-          limit: 10,
-          hasNextPage: false,
-          hasPrevPage: false
-        };
-      } else {
-        throw new Error(data?.message || 'Failed to fetch research');
-      }
-    } catch (err) {
-      console.error('Error fetching research:', err);
-      error = err instanceof Error ? err.message : 'An error occurred while fetching research';
-      books = [];
-    } finally {
-      loading = false;
-    }
+    books = [];
+    pagination = {
+      currentPage: 1,
+      totalPages: 1,
+      totalCount: 0,
+      limit: 10,
+      hasNextPage: false,
+      hasPrevPage: false
+    };
+    loading = false;
   }
 
   function debouncedSearch(immediate = false) {
@@ -298,85 +252,34 @@
     }
   }
 
+  // Intentionally not calling /api/inventory/journals/categories — kept empty for Research.
   async function fetchCategories() {
     if (!browser) return;
-    try {
-      const response = await fetch('/api/inventory/journals/categories?itemType=journal', { credentials: 'include' });
-      if (response.ok) {
-        const data = await response.json();
-        if (data?.success && data?.data?.categories) {
-          categories = data.data.categories || [];
-          categoryMap = {};
-          for (const cat of categories) {
-            if (cat && cat.id && cat.name) categoryMap[cat.id] = cat.name;
-          }
-        }
-      }
-    } catch (err) { console.error('Error fetching categories:', err); }
+    categories = [];
+    categoryMap = {};
   }
 
+  // Intentionally not calling /api/inventory/journals/languages — kept empty for Research.
   async function fetchLanguages() {
     if (!browser) return;
-    try {
-      const response = await fetch('/api/inventory/journals/languages', { credentials: 'include' });
-      if (response.ok) {
-        const data = await response.json();
-        if (data?.success && data?.data?.languages) languages = data.data.languages || [];
-      }
-    } catch (err) { console.error('Error fetching languages:', err); }
+    languages = [];
   }
 
+  // Intentionally not calling /api/inventory/journals/stats — kept empty for Research.
   async function fetchStats() {
     if (!browser) return;
-    try {
-      const response = await fetch('/api/inventory/journals/stats', { credentials: 'include' });
-      if (response.ok) {
-        const data = await response.json();
-        if (data?.data) {
-          stats = data.data;
-        } else {
-          stats = {
-            totalBooks: 0,
-            totalJournals: 0,
-            availableCopies: 0,
-            borrowedBooks: 0,
-            borrowedJournals: 0,
-            categoriesCount: 0,
-            lowStock: 0,
-            outOfStock: 0,
-            utilization: 0,
-            availability: 0
-          };
-        }
-      } else {
-        stats = {
-          totalBooks: 0,
-          totalJournals: 0,
-          availableCopies: 0,
-          borrowedBooks: 0,
-          borrowedJournals: 0,
-          categoriesCount: 0,
-          lowStock: 0,
-          outOfStock: 0,
-          utilization: 0,
-          availability: 0
-        };
-      }
-    } catch (err) {
-      console.error('Error fetching stats:', err);
-      stats = {
-        totalBooks: 0,
-        totalJournals: 0,
-        availableCopies: 0,
-        borrowedBooks: 0,
-        borrowedJournals: 0,
-        categoriesCount: 0,
-        lowStock: 0,
-        outOfStock: 0,
-        utilization: 0,
-        availability: 0
-      };
-    }
+    stats = {
+      totalBooks: 0,
+      totalJournals: 0,
+      availableCopies: 0,
+      borrowedBooks: 0,
+      borrowedJournals: 0,
+      categoriesCount: 0,
+      lowStock: 0,
+      outOfStock: 0,
+      utilization: 0,
+      availability: 0
+    };
   }
 
   async function deleteBook(bookId: number, bookTitle: string) {
@@ -974,11 +877,6 @@
                 {/each}
               </tbody>
             </table>
-            {#if books.length === 0 && !loading}
-              <div class="text-center py-8">
-                <p class="text-slate-500">No research found matching your criteria.</p>
-              </div>
-            {/if}
           </div>
         </div>
       {/if}
@@ -1038,11 +936,6 @@
               </div>
             </div>
           {/each}
-          {#if books.length === 0 && !loading}
-            <div class="bg-white p-8 rounded-xl shadow-lg border border-slate-200 text-center">
-              <p class="text-slate-500">No research found matching your criteria.</p>
-            </div>
-          {/if}
         </div>
       {/if}
     {/key}
