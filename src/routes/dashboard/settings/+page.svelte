@@ -30,7 +30,7 @@
 
   type PermKey = 'canManageBooks'|'canManageUsers'|'canManageBorrowing'|'canManageReservations'|'canViewReports'|'canManageFines';
 
-  let settings = $state({
+  const defaultSettings = {
     libraryName: 'Metro Dagupan Colleges Library',
     libraryCode: 'MDC-LIB',
     address: 'National Highway, Barangay Salay, Mangaldan, 2432 Pangasinan',
@@ -80,15 +80,26 @@
       closedWeekdays: [0] as number[],
       holidays: [] as { date: string; description: string; type: 'holiday' | 'closed' }[]
     }
+  };
+
+  let settings = $state<typeof defaultSettings>({
+    ...defaultSettings,
+    ...(data.settings && typeof data.settings === 'object' ? data.settings : {}),
+    fineCalculation: defaultSettings.fineCalculation
   });
 
-  let defaultStaffPermissions = $state<Record<PermKey, boolean>>({
+  const defaultStaffPermissionValues: Record<PermKey, boolean> = {
     canManageBooks: false,
     canManageUsers: false,
     canManageBorrowing: true,
     canManageReservations: true,
     canViewReports: false,
     canManageFines: true
+  };
+
+  let defaultStaffPermissions = $state<Record<PermKey, boolean>>({
+    ...defaultStaffPermissionValues,
+    ...(data.defaultStaffPermissions && typeof data.defaultStaffPermissions === 'object' ? data.defaultStaffPermissions : {})
   });
 
   // Fine calc
@@ -153,6 +164,19 @@
     { id:'system',        name:'System',               icon:SettingsIcon },
   ];
 
+  const tabDescriptions: Record<string, string> = {
+    general: 'Library profile, contact details, and visitor scan method',
+    borrowing: 'Loan periods, copy limits, and reservation rules',
+    fines: 'Fine rates, penalties, and return requests',
+    finecalc: 'Calendar exemptions used when calculating fines',
+    notifications: 'Notification events and delivery channels',
+    permissions: 'Default permissions for new staff accounts',
+    security: 'Sessions, authentication, and backup policy',
+    system: 'Service health, storage, and maintenance tasks'
+  };
+
+  let activeTabData = $derived(tabs.find(tab => tab.id === activeTab) ?? tabs[0]);
+
   function selectTab(id: string) {
     activeTab = id;
     try { const p = new URLSearchParams(location.search); p.set('tab', id); history.replaceState(null, '', `${location.pathname}?${p}`); } catch {}
@@ -165,9 +189,6 @@
       if (res.ok) { const d = await res.json(); if (d?.fineCalculation) settings.fineCalculation = d.fineCalculation; }
     } catch {}
   });
-
-  if (data.settings && typeof data.settings === 'object') settings = { ...settings, ...data.settings, fineCalculation: settings.fineCalculation };
-  if (data.defaultStaffPermissions && typeof data.defaultStaffPermissions === 'object') defaultStaffPermissions = { ...defaultStaffPermissions, ...data.defaultStaffPermissions };
 
   const inp = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent outline-none transition-all bg-white";
   const inpSm = "px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent outline-none transition-all bg-white";
@@ -341,38 +362,41 @@
     </div>
   </div>
 
-  <!-- ✅ FIX: Mobile tab strip is NOW outside the flex row so it stacks above content -->
-  <div class="lg:hidden bg-white rounded-xl border border-gray-200 overflow-x-auto mb-3">
-    <div class="flex px-1">
+  <!-- Settings navigation -->
+  <div class="bg-white border border-gray-200 rounded-xl p-1 mb-1 overflow-hidden">
+    <div class="flex gap-0.5 overflow-x-auto" role="tablist" aria-label="Settings sections"
+      style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
       {#each tabs as tab}
-        <button onclick={() => selectTab(tab.id)}
-          class="px-3 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-all flex flex-col items-center gap-1
-            {activeTab === tab.id ? 'border-[#0D5C29] text-[#0D5C29]' : 'border-transparent text-gray-500'}">
-          <svelte:component this={tab.icon} class="h-4 w-4" />
-          {tab.name}
+        {@const TabIcon = tab.icon}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === tab.id}
+          onclick={() => selectTab(tab.id)}
+          class="flex items-center gap-1.5 px-3.5 py-[7px] rounded-lg text-[13px] font-medium whitespace-nowrap flex-shrink-0 transition-all duration-150
+            {activeTab === tab.id
+              ? 'bg-[#0D5C29] text-white shadow-sm'
+              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}">
+          <TabIcon size={15} class="shrink-0" />
+          <span>{tab.name}</span>
         </button>
       {/each}
     </div>
   </div>
 
-  <!-- Sidebar + Content row (desktop sidebar lives here, mobile tab strip does NOT) -->
-  <div class="flex gap-5">
+  {#if activeTabData}
+    {@const ActiveTabIcon = activeTabData.icon}
+    <div class="flex items-center gap-2 px-1 py-2.5 mb-3">
+      <div class="flex items-center justify-center w-6 h-6 rounded-md bg-[#0D5C29]/10 shrink-0">
+        <ActiveTabIcon size={14} class="text-[#0D5C29]" />
+      </div>
+      <span class="text-sm font-semibold text-slate-700">{activeTabData.name}</span>
+      <span class="text-slate-300 select-none">·</span>
+      <span class="text-xs text-slate-400 truncate">{tabDescriptions[activeTab]}</span>
+    </div>
+  {/if}
 
-    <!-- Desktop Sidebar -->
-    <aside class="hidden lg:flex flex-col w-52 shrink-0 gap-1">
-      {#each tabs as tab}
-        <button onclick={() => selectTab(tab.id)}
-          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-left transition-all w-full
-            {activeTab === tab.id ? 'bg-[#0D5C29] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}">
-          <svelte:component this={tab.icon} class="h-4 w-4 shrink-0" />
-          {tab.name}
-        </button>
-      {/each}
-    </aside>
-
-    <!-- Content Panel -->
-    <div class="flex-1 min-w-0">
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200">
 
         <!-- GENERAL -->
         {#if activeTab === 'general'}
@@ -488,8 +512,8 @@
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {#each borrowLimits as item}
                     <div class="space-y-1.5">
-                      <label class="block text-sm font-medium text-slate-700">{item.label}</label>
-                      <input type="number" min="0" bind:value={settings[item.key as keyof typeof settings] as number} class={inp}/>
+                      <label for="borrow-limit-{item.key}" class="block text-sm font-medium text-slate-700">{item.label}</label>
+                      <input id="borrow-limit-{item.key}" type="number" min="0" bind:value={settings[item.key as keyof typeof settings] as number} class={inp}/>
                     </div>
                   {/each}
                 </div>
@@ -901,8 +925,6 @@
           </div>
         {/if}
 
-      </div>
-    </div>
   </div>
 </div>
 
