@@ -13,6 +13,9 @@
   let categoriesLoading = false;
 
   const dispatch = createEventDispatcher();
+  $: categoriesEndpoint = itemType === 'magazine'
+    ? '/api/inventory/magazines/categories'
+    : '/api/inventory/books/categories';
 
   // Fetch category list from API (filtered by item type)
   $: capitalizedItemType = itemType && itemType.length ? itemType.charAt(0).toUpperCase() + itemType.slice(1) : 'Item';
@@ -20,7 +23,7 @@
   async function fetchCategories() {
     categoriesLoading = true;
     try {
-      const response = await fetch(`/api/inventory/books/categories?itemType=${encodeURIComponent(itemType)}`, {
+      const response = await fetch(`${categoriesEndpoint}?itemType=${encodeURIComponent(itemType)}`, {
         method: 'GET',
         credentials: 'include'
       });
@@ -59,7 +62,7 @@
     categoryLoading = true;
     categoryError = "";
     try {
-      const response = await fetch('/api/inventory/books/categories', {
+      const response = await fetch(categoriesEndpoint, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -129,7 +132,7 @@
     editLoading = true;
     editError = "";
     try {
-      const response = await fetch('/api/inventory/books/categories', {
+      const response = await fetch(categoriesEndpoint, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -159,7 +162,7 @@
     if (!confirm("Are you sure you want to delete this category?")) return;
     deleteLoadingId = id;
     try {
-      const response = await fetch('/api/inventory/books/categories', {
+      const response = await fetch(categoriesEndpoint, {
         method: 'DELETE',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

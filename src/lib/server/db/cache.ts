@@ -8,9 +8,29 @@ export const redis = new Redis({
     token: env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
+const REDIS_RETRY_DELAY_MS = 30_000;
+let redisUnavailableUntil = 0;
+let redisOutageLogged = false;
+
+function markRedisUnavailable(reason: unknown) {
+    redisUnavailableUntil = Date.now() + REDIS_RETRY_DELAY_MS;
+    if (!redisOutageLogged) {
+        redisOutageLogged = true;
+        console.warn('[Redis] Cache unavailable; using database-backed fallbacks for 30 seconds.', reason instanceof Error ? reason.message : reason);
+    }
+}
+
+function markRedisAvailable() {
+    if (redisOutageLogged) {
+        console.info('[Redis] Cache connection restored.');
+    }
+    redisOutageLogged = false;
+    redisUnavailableUntil = 0;
+}
+
 // Helper function to check if Redis is configured
 export function isRedisConfigured(): boolean {
-    return !!(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN);
+    return Boolean(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) && Date.now() >= redisUnavailableUntil;
 }
 
 /**
@@ -42,11 +62,12 @@ export const redisClient = {
                 return null;
             }
             const result = await redis.get(key);
+            markRedisAvailable();
             const normalised = normaliseRedisValue(result);
             console.log(`[Redis GET] key=${key} type=${typeof result} normalised=${normalised?.slice(0, 80)}`);
             return normalised;
         } catch (error) {
-            console.error('[Redis GET] error:', error);
+            markRedisUnavailable(error);
             return null;
         }
     },
@@ -63,10 +84,11 @@ export const redisClient = {
                 return false;
             }
             await redis.set(key, value);
+            markRedisAvailable();
             console.log(`[Redis SET] key=${key}`);
             return true;
         } catch (error) {
-            console.error('[Redis SET] error:', error);
+            markRedisUnavailable(error);
             return false;
         }
     },
@@ -91,10 +113,11 @@ export const redisClient = {
             }
             // Use set() with the ex option – works correctly in all Upstash SDK versions.
             await redis.set(key, value, { ex: Math.ceil(seconds) });
+            markRedisAvailable();
             console.log(`[Redis SETEX] key=${key} ttl=${Math.ceil(seconds)}s`);
             return true;
         } catch (error) {
-            console.error('[Redis SETEX] error:', error);
+            markRedisUnavailable(error);
             return false;
         }
     },
@@ -106,10 +129,11 @@ export const redisClient = {
                 return false;
             }
             await redis.del(key);
+            markRedisAvailable();
             console.log(`[Redis DEL] key=${key}`);
             return true;
         } catch (error) {
-            console.error('[Redis DEL] error:', error);
+            markRedisUnavailable(error);
             return false;
         }
     },
@@ -123,9 +147,10 @@ export const redisClient = {
             if (!isRedisConfigured()) return false;
             if (!Number.isFinite(seconds) || seconds <= 0) return false;
             await redis.expire(key, Math.ceil(seconds));
+            markRedisAvailable();
             return true;
         } catch (error) {
-            console.error('[Redis EXPIRE] error:', error);
+            markRedisUnavailable(error);
             return false;
         }
     },
@@ -134,9 +159,10 @@ export const redisClient = {
         try {
             if (!isRedisConfigured()) return false;
             await redis.sadd(key, member);
+            markRedisAvailable();
             return true;
         } catch (error) {
-            console.error('[Redis SADD] error:', error);
+            markRedisUnavailable(error);
             return false;
         }
     },
@@ -145,9 +171,10 @@ export const redisClient = {
         try {
             if (!isRedisConfigured()) return false;
             await redis.srem(key, member);
+            markRedisAvailable();
             return true;
         } catch (error) {
-            console.error('[Redis SREM] error:', error);
+            markRedisUnavailable(error);
             return false;
         }
     },
@@ -156,11 +183,12 @@ export const redisClient = {
         try {
             if (!isRedisConfigured()) return [];
             const members = await redis.smembers(key);
+            markRedisAvailable();
             if (!Array.isArray(members)) return [];
             // Upstash may return member values as non-strings in some SDK versions.
             return members.map((m) => (typeof m === 'string' ? m : String(m)));
         } catch (error) {
-            console.error('[Redis SMEMBERS] error:', error);
+            markRedisUnavailable(error);
             return [];
         }
     },
@@ -169,9 +197,10 @@ export const redisClient = {
         try {
             if (!isRedisConfigured()) return false;
             await redis.lpush(key, element);
+            markRedisAvailable();
             return true;
         } catch (error) {
-            console.error('[Redis LPUSH] error:', error);
+            markRedisUnavailable(error);
             return false;
         }
     },
@@ -180,9 +209,10 @@ export const redisClient = {
         try {
             if (!isRedisConfigured()) return false;
             await redis.ltrim(key, start, stop);
+            markRedisAvailable();
             return true;
         } catch (error) {
-            console.error('[Redis LTRIM] error:', error);
+            markRedisUnavailable(error);
             return false;
         }
     },
@@ -191,9 +221,10 @@ export const redisClient = {
         try {
             if (!isRedisConfigured()) return [];
             const keys = await redis.keys(pattern);
+            markRedisAvailable();
             return Array.isArray(keys) ? keys : [];
         } catch (error) {
-            console.error('[Redis KEYS] error:', error);
+            markRedisUnavailable(error);
             return [];
         }
     },

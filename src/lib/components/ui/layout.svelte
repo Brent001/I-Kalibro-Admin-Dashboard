@@ -31,8 +31,6 @@
     isActive?: boolean;
   } | null>(null);
   
-  const scanMethodStore = writable<'qrcode' | 'barcode' | 'both'>('qrcode');
-  
   const isLoadingStore = writable(true);
   const sessionErrorStore = writable(false);
   
@@ -47,12 +45,12 @@
   } | null;
 
   let user: UserType = null;
-  let scanMethod: 'qrcode' | 'barcode' | 'both' = 'qrcode';
   let isLoadingUser = true;
   let sessionError = false;
+  let sessionTimeoutMinutes = 30;
+  let lastActivityAt = Date.now();
   
   $: user = $userStore;
-  $: scanMethod = $scanMethodStore;
   $: isLoadingUser = $isLoadingStore;
   $: sessionError = $sessionErrorStore;
 
@@ -62,27 +60,6 @@
   let notifPollInterval: any = null;
   let prevUnreadCount = 0;
   let notifAudio: HTMLAudioElement | null = null;
-  // track which notification IDs were unread when the panel was opened (for "New" badge)
-  let newNotifIds = new Set<string>();
-
-  function groupNotificationsByDate(notifs: Array<any>) {
-    const today = new Date(); today.setHours(0,0,0,0);
-    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate()-1);
-    const groups: { label: string; items: any[] }[] = [
-      { label: 'Today', items: [] },
-      { label: 'Yesterday', items: [] },
-      { label: 'Older', items: [] }
-    ];
-    for (const n of notifs) {
-      const d = n.timestamp ? new Date(n.timestamp) : null;
-      if (!d) { groups[2].items.push(n); continue; }
-      const day = new Date(d); day.setHours(0,0,0,0);
-      if (day.getTime() === today.getTime()) groups[0].items.push(n);
-      else if (day.getTime() === yesterday.getTime()) groups[1].items.push(n);
-      else groups[2].items.push(n);
-    }
-    return groups.filter(g => g.items.length > 0);
-  }
 
   async function fetchUnreadCount() {
     try {
@@ -93,7 +70,7 @@
           // session might be invalid — try refreshing session then retry once
           unreadCount = 0;
           try {
-            await fetchUserSession();
+            await fetchUserSession(true);
             // retry once
             const retry = await fetch('/api/fetch_nof?unread=true', { credentials: 'include' });
             console.debug('fetchUnreadCount: retry status', retry.status);
@@ -135,27 +112,16 @@
       const j = await res.json();
       console.debug('fetchAllNotifications: body', j);
       if (j?.success && Array.isArray(j.data)) {
-        const newList = j.data.map((r: any) => {
-          // compute action properties locally as fallback
-          let actionUrl: string | null = r.actionUrl || null;
-          let actionText: string | null = r.actionText || null;
-          if (!actionUrl && r.type === 'reservation') {
-            actionUrl = '/dashboard/transactions?tab=reserve';
-            actionText = 'View reservation';
-          }
-          return {
-            id: String(r.id),
-            title: r.title,
-            message: r.message,
-            type: r.type || 'info',
-            isRead: Boolean(r.isRead),
-            timestamp: r.sentAt ? new Date(r.sentAt) : (r.createdAt ? new Date(r.createdAt) : undefined),
-            actionUrl,
-            actionText,
-            relatedItemId: r.relatedItemId ?? null,
-            relatedItemType: r.relatedItemType ?? null
-          };
-        });
+        const newList = j.data.map((r: any) => ({
+          id: String(r.id),
+          title: r.title,
+          message: r.message,
+          type: r.type || 'info',
+          isRead: Boolean(r.isRead),
+          timestamp: r.sentAt ? new Date(r.sentAt) : (r.createdAt ? new Date(r.createdAt) : undefined),
+          actionUrl: r.actionUrl || null,
+          actionText: r.actionText || null
+        }));
 
         // compute unread counts and play sound when new unread notifications arrive
         const newUnread = newList.filter((n: any) => !n.isRead).length;
@@ -260,14 +226,14 @@
       ]
     },
     {
-      name: "User",
+      name: "Members",
       href: "/dashboard/members",
       icon: Icons.Users,
       userTypes: ["admin", "super_admin", "staff"]
     },
     {
       name: "QR Scanner",
-      href: "/dashboard/scanner",
+      href: "/dashboard/qr_scanner",
       icon: Icons.QrCode,
       userTypes: ["admin", "super_admin", "staff"]
     },
@@ -293,7 +259,7 @@
       name: "Logs",
       href: "/dashboard/security_logs",
       icon: Icons.Clipboard,
-      userTypes: ["admin", "super_admin"]
+      userTypes: ["admin", "super_admin", "staff"]
     },
     {
       name: "Settings",
@@ -303,28 +269,15 @@
     },
   ];
 
-  const navigation = derived([userStore, scanMethodStore], ([$user, $scanMethod]) => {
+  const navigation = derived(userStore, ($user) => {
     if (!$user || !$user.userType) return allNavigation;
-    let nav = allNavigation
+    return allNavigation
       .filter(item => item.userTypes.includes($user.userType!))
       .map(item => ({
         ...item,
+        ...(item.href === '/dashboard/staff' ? { name: $user.userType === 'super_admin' ? 'Staff & Admins' : 'Staff' } : {}),
         submenu: item.submenu?.filter(sub => sub.userTypes.includes($user.userType!))
       }));
-    
-    // Update scanner name and icon based on scan method
-    nav = nav.map(item => {
-      if (item.href === '/dashboard/scanner') {
-        return {
-          ...item,
-          name: $scanMethod === 'barcode' ? 'Barcode Scanner' : $scanMethod === 'both' ? 'QR/Barcode Scanner' : 'QR Scanner',
-          icon: $scanMethod === 'barcode' ? Icons.Barcode : Icons.QrCode
-        };
-      }
-      return item;
-    });
-    
-    return nav;
   });
 
   let currentPath = "";
@@ -354,28 +307,9 @@
     expandedMenus[activeSubmenuParent] = true;
   }
 
-  async function fetchScanMethod() {
+  async function fetchUserSession(force = false) {
     if (!browser) return;
-    try {
-      const response = await fetch('/api/settings/scan-method', {
-        method: 'GET',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.visitScanMethod) {
-          scanMethodStore.set(result.visitScanMethod);
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to fetch scan method:', error);
-    }
-  }
-
-  async function fetchUserSession() {
-    if (!browser) return;
-    if (get(userStore) !== null) {
+    if (!force && get(userStore) !== null) {
       isLoadingStore.set(false);
       return;
     }
@@ -391,6 +325,8 @@
         const result = await response.json();
         if (result.success && result.data?.user) {
           userStore.set(result.data.user);
+          sessionTimeoutMinutes = Number(result.data.sessionInfo?.sessionTimeoutMinutes) || 30;
+          lastActivityAt = Date.now();
         } else {
           sessionErrorStore.set(true);
         }
@@ -490,20 +426,13 @@
   function handleNotificationAction(notification: any) {
     if (notification.actionUrl) {
       showNotificationPanel = false;
-      let url = notification.actionUrl;
-      // append highlight param so the target page can scroll to & highlight the item
-      if (notification.relatedItemId) {
-        const sep = url.includes('?') ? '&' : '?';
-        url += `${sep}highlight=${notification.relatedItemId}`;
-      }
-      goto(url);
+      window.location.href = notification.actionUrl;
     }
   }
 
   onMount(() => {
     if (browser) {
       fetchUserSession();
-      fetchScanMethod();
       // initialize notification audio (use base path in case app is not hosted at root)
       try {
         const src = `${base}/assets/sound/new_nof.ogg`;
@@ -534,8 +463,17 @@
       };
       document.addEventListener('click', unlockAudio, { once: true });
       let isCheckPending = false;
+      const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'touchstart', 'touchmove', 'mousemove', 'scroll'];
+      const recordActivity = () => { lastActivityAt = Date.now(); };
+      activityEvents.forEach(eventName => window.addEventListener(eventName, recordActivity, { passive: true }));
       const sessionCheckInterval = setInterval(async () => {
         if (isCheckPending || !$userStore) return;
+        if (Date.now() - lastActivityAt >= sessionTimeoutMinutes * 60 * 1000) {
+          userStore.set(null);
+          notifications.show('Your session expired after inactivity.', 'warning');
+          await goto('/', { replaceState: true, noScroll: true });
+          return;
+        }
         try {
           isCheckPending = true;
           const response = await fetch('/api/auth/session', {
@@ -547,9 +485,12 @@
             userStore.set(null);
             notifications.show('Your session has been revoked. Please log in again.', 'error');
             if (browser) await goto('/', { replaceState: true, noScroll: true });
-          } else if (!response.ok) {
-            userStore.set(null);
-            if (browser) await goto('/', { replaceState: true, noScroll: true });
+          } else if (response.ok) {
+            const result = await response.json();
+            sessionTimeoutMinutes = Number(result.data?.sessionInfo?.sessionTimeoutMinutes) || sessionTimeoutMinutes;
+          } else {
+            // A transient API failure must not be treated as an expired session.
+            sessionErrorStore.set(true);
           }
         } catch (error) {
           console.error('Session check failed:', error);
@@ -563,6 +504,7 @@
       document.addEventListener('click', handleClickOutside);
       return () => {
         document.removeEventListener('click', handleClickOutside);
+        activityEvents.forEach(eventName => window.removeEventListener(eventName, recordActivity));
         clearInterval(sessionCheckInterval);
         if (notifPollInterval) clearInterval(notifPollInterval);
       };
@@ -574,8 +516,6 @@
     (async () => {
       await fetchAllNotifications();
       const unreadIds = serverNotifications.filter(n => !n.isRead).map(n => Number(n.id));
-      // capture which were unread for "New" badge display
-      newNotifIds = new Set(serverNotifications.filter(n => !n.isRead).map(n => n.id));
       if (unreadIds.length) {
         await markNotifications(unreadIds, true);
         serverNotifications = serverNotifications.map(n => ({ ...n, isRead: true }));
@@ -823,14 +763,9 @@
             {#if showNotificationPanel}
               <div class="fixed sm:absolute right-2 sm:right-0 left-2 sm:left-auto top-16 sm:top-auto sm:mt-2 w-auto sm:w-96 max-h-[calc(100vh-5rem)] bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden notification-panel">
                 <div class="bg-gradient-to-r from-[#0D5C29] to-[#4A7C59] text-white px-4 py-3 flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <h3 class="font-semibold text-base sm:text-lg">Notifications</h3>
-                    {#if serverNotifications.length > 0}
-                      <span class="text-xs bg-white/20 px-2 py-0.5 rounded-full">{serverNotifications.length}</span>
-                    {/if}
-                  </div>
+                  <h3 class="font-semibold text-base sm:text-lg">Notifications</h3>
                   <div class="flex items-center space-x-2">
-                    {#if serverNotifications.some(n => newNotifIds.has(n.id))}
+                    {#if serverNotifications.length > 0}
                       <button on:click={markAllRead} class="text-xs text-white/80 hover:text-white underline hidden sm:block">
                         Mark all read
                       </button>
@@ -843,7 +778,7 @@
                   </div>
                 </div>
 
-                <div class="max-h-[28rem] overflow-y-auto">
+                <div class="max-h-80 overflow-y-auto">
                   {#if serverNotifications.length === 0}
                     <div class="p-4 sm:p-6 text-center text-gray-500">
                       <svg class="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -852,88 +787,51 @@
                       <p class="text-sm">No notifications yet</p>
                     </div>
                   {:else}
-                    {@const groups = groupNotificationsByDate(serverNotifications)}
-                    {#each groups as group}
-                      <div class="sticky top-0 z-10 px-4 py-1.5 bg-gray-50/95 backdrop-blur-sm border-b border-gray-100">
-                        <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">{group.label}</span>
-                      </div>
-                      <div class="divide-y divide-gray-50">
-                        {#each group.items as notification (notification.id)}
-                          {@const isNew = newNotifIds.has(notification.id)}
-                          <div
-                            class="p-3 sm:p-4 transition-colors group relative
-                              {notification.actionUrl ? 'cursor-pointer hover:bg-[#0D5C29]/5 active:bg-[#0D5C29]/10' : 'hover:bg-gray-50'}
-                              {isNew ? 'bg-blue-50/50' : ''}"
-                            on:click={() => { if (notification.actionUrl) handleNotificationAction(notification); }}
-                            role={notification.actionUrl ? 'button' : undefined}
-                            tabindex={notification.actionUrl ? 0 : undefined}
-                            on:keydown={(e) => { if (e.key === 'Enter' && notification.actionUrl) handleNotificationAction(notification); }}
-                          >
-                            {#if isNew}
-                              <span class="absolute top-3.5 right-10 flex h-2 w-2">
-                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                <span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-                              </span>
-                            {/if}
-                            <div class="flex items-start space-x-2 sm:space-x-3">
-                              <div class="flex-shrink-0 mt-0.5">
-                                <div class="w-7 h-7 sm:w-8 sm:h-8 {getNotificationIconColor(notification.type)} bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-100">
-                                  {@html getNotificationIcon(notification.type)}
-                                </div>
+                    <div class="divide-y divide-gray-100">
+                      {#each serverNotifications as notification (notification.id)}
+                        <div class="p-3 sm:p-4 hover:bg-gray-50 transition-colors cursor-pointer group">
+                          <div class="flex items-start space-x-2 sm:space-x-3">
+                            <div class="flex-shrink-0 mt-0.5">
+                              <div class="w-7 h-7 sm:w-8 sm:h-8 {getNotificationIconColor(notification.type)} bg-white bg-opacity-50 rounded-full flex items-center justify-center shadow-sm">
+                                {@html getNotificationIcon(notification.type)}
                               </div>
-                              <div class="flex-1 min-w-0">
-                                {#if notification.title}
-                                  <div class="flex items-center gap-2 mb-0.5 flex-wrap">
-                                    <h4 class="text-sm font-semibold text-gray-900">{notification.title}</h4>
-                                    {#if isNew}
-                                      <span class="text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full leading-none">New</span>
-                                    {/if}
-                                  </div>
-                                {/if}
-                                <p class="text-sm text-gray-700 leading-relaxed">{notification.message}</p>
-                                <div class="flex items-center justify-between mt-1.5">
-                                  {#if notification.timestamp}
-                                    <span class="text-xs text-gray-400">{formatTimestamp(notification.timestamp)}</span>
-                                  {:else}
-                                    <span></span>
-                                  {/if}
-                                  {#if notification.actionText && notification.actionUrl}
-                                    <span class="text-xs font-semibold text-[#0D5C29] flex items-center gap-0.5 group-hover:underline pointer-events-none">
-                                      {notification.actionText}
-                                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-                                      </svg>
-                                    </span>
-                                  {/if}
-                                </div>
-                              </div>
-                              <button
-                                on:click|stopPropagation={() => dismissNotification(notification.id)}
-                                class="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0 mt-0.5 p-0.5 rounded"
-                                aria-label="Dismiss"
-                              >
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                </svg>
-                              </button>
                             </div>
+                            <div class="flex-1 min-w-0">
+                              {#if notification.title}
+                                <h4 class="text-sm font-semibold text-gray-900 mb-1">{notification.title}</h4>
+                              {/if}
+                              <p class="text-sm text-gray-700 leading-relaxed">{notification.message}</p>
+                              <div class="flex items-center justify-between mt-2">
+                                {#if notification.timestamp}
+                                  <span class="text-xs text-gray-500">{formatTimestamp(notification.timestamp)}</span>
+                                {:else}
+                                  <span></span>
+                                {/if}
+                                {#if notification.actionText && notification.actionUrl}
+                                  <button
+                                    on:click={() => handleNotificationAction(notification)}
+                                    class="text-xs font-medium text-[#0D5C29] hover:underline focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#0D5C29] rounded px-2 py-1"
+                                  >
+                                    {notification.actionText}
+                                  </button>
+                                {/if}
+                              </div>
+                            </div>
+                            <button
+                              on:click={() => dismissNotification(notification.id)}
+                              class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 transition-opacity"
+                              aria-label="Dismiss"
+                            >
+                              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                              </svg>
+                            </button>
                           </div>
-                        {/each}
-                      </div>
-                    {/each}
+                        </div>
+                      {/each}
+                    </div>
                   {/if}
                 </div>
-
-                {#if serverNotifications.length > 0}
-                  <div class="border-t border-gray-100 px-4 py-2 bg-gray-50 flex items-center justify-between">
-                    <span class="text-xs text-gray-400">
-                      {#if newNotifIds.size > 0}{newNotifIds.size} new · {/if}{serverNotifications.length} total
-                    </span>
-                    <button on:click={markAllRead} class="text-xs font-medium text-[#0D5C29] hover:underline">
-                      Clear all
-                    </button>
-                  </div>
-                {/if}
               </div>
             {/if}
           </div>

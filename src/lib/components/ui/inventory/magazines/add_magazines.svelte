@@ -1,44 +1,34 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
 
-  export let isOpen: boolean = false;
-  export let itemType: string = 'journal';
-
-  $: capitalizedItemType = itemType && itemType.length ? itemType.charAt(0).toUpperCase() + itemType.slice(1) : 'Item';
+  export let isOpen = false;
 
   const dispatch = createEventDispatcher();
+  const languages = ['English', 'Filipino', 'Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Other'];
 
-  // Form data for journals (serial-only)
+  let categories: { id: number; name: string }[] = [];
+  let categoriesLoading = false;
+  let isSubmitting = false;
+  let errors: { [key: string]: string } = {};
+  let coverImageFile: File | null = null;
+  let coverImagePreview = '';
+  let uploadingCoverImage = false;
+
   let formData = {
+    journalId: '',
     title: '',
-    author: '',
-    bookId: '',
-    isbn: '',
     publisher: '',
-    publishedYear: '',
-    edition: '',
+    issn: '',
+    volume: '',
+    issueNumber: '',
+    publishedDate: '',
     language: 'English',
-    pages: '',
     categoryId: '',
     location: '',
     totalCopies: 1,
     description: '',
     coverImage: '',
-    // Serial/Journal fields
-    volume: '',
-    issue: '',
   };
-
-  let errors: {[key: string]: string} = {};
-  let isSubmitting = false;
-  let coverImageFile: File | null = null;
-  let coverImagePreview: string = '';
-  let uploadingCoverImage = false;
-  let generatingCallNumber = false;
-
-  // Fetch categories from API
-  let categories: { id: number, name: string, ddc?: string }[] = [];
-  let categoriesLoading = false;
 
   $: if (isOpen) {
     fetchCategories();
@@ -47,15 +37,9 @@
   async function fetchCategories() {
     categoriesLoading = true;
     try {
-      const response = await fetch(`/api/inventory/journals/categories?itemType=${encodeURIComponent(itemType)}`, {
-        credentials: 'include'
-      });
-      const data = await response.json();
-      if (response.ok && data.success) {
-        categories = data.data.categories;
-      } else {
-        categories = [];
-      }
+      const response = await fetch('/api/inventory/journals/categories?itemType=journal', { credentials: 'include' });
+      const result = await response.json();
+      categories = response.ok && result.success ? result.data.categories : [];
     } catch (err) {
       categories = [];
     } finally {
@@ -70,86 +54,32 @@
     };
   });
 
-  const languages = [
-    'English','Filipino','Spanish','French','German','Japanese','Chinese','Other'
-  ];
-
-  function handleInputChange(field: string, value: string | number | boolean) {
+  function handleInputChange(field: string, value: string | number) {
     formData = { ...formData, [field]: value };
     if (errors[field]) {
       errors = { ...errors, [field]: '' };
     }
   }
 
-  // Auto-generate bookId and location when relevant fields change
-  $: if (formData.author.trim() && formData.categoryId) {
-    generateCallNumberDebounced();
-  }
-
-  // Debounce call number generation
-  let callNumberTimeout: ReturnType<typeof setTimeout>;
-  async function generateCallNumberDebounced() {
-    clearTimeout(callNumberTimeout);
-    callNumberTimeout = setTimeout(() => {
-      generateCallNumberFromAPI();
-    }, 500);
-  }
-
-  async function generateCallNumberFromAPI() {
-    if (!formData.author.trim() || !formData.categoryId) return;
-
-    const categoryName = categories.find(c => c.id.toString() === formData.categoryId.toString())?.name || '';
-    if (!categoryName) return;
-
-    generatingCallNumber = true;
-    try {
-      const response = await fetch('/api/inventory/books/generate-call-number', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          authorLastName: formData.author.trim(),
-          category: categoryName.toLowerCase().replace(/\s+/g, '_'),
-          year: formData.publishedYear ? parseInt(formData.publishedYear) : undefined,
-          isSerial: true,
-          volume: formData.volume ? parseInt(formData.volume) : undefined,
-          issue: formData.issue ? parseInt(formData.issue) : undefined,
-          copy: formData.totalCopies,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success && data.data) {
-        // Update bookId with the generated unique ID
-        if (!formData.bookId || formData.bookId.trim().length === 0) {
-          formData.bookId = data.data.bookId;
-        }
-
-        // Update location with the full call number
-        if (!formData.location || formData.location.trim().length === 0) {
-          formData.location = data.data.display.full;
-        }
-      }
-    } catch (error) {
-      console.error('Error generating call number:', error);
-    } finally {
-      generatingCallNumber = false;
-    }
+  function validateForm() {
+    const newErrors: { [key: string]: string } = {};
+    if (!formData.title.trim()) newErrors.title = 'Title is required';
+    if (!formData.categoryId) newErrors.category = 'Category is required';
+    if (formData.totalCopies < 1 || formData.totalCopies > 999) newErrors.totalCopies = 'Copies must be between 1 and 999';
+    errors = newErrors;
+    return Object.keys(newErrors).length === 0;
   }
 
   function handleCoverImageChange(event: Event) {
-    const target = event.target as HTMLInputElement;
-    const file = target.files?.[0];
-    if (file) {
-      if (!file.type.startsWith('image/')) { errors.coverImage = 'Please select an image file'; return; }
-      if (file.size > 5 * 1024 * 1024) { errors.coverImage = 'Image size must be less than 5MB'; return; }
-      coverImageFile = file;
-      const reader = new FileReader();
-      reader.onload = (e) => { coverImagePreview = e.target?.result as string; };
-      reader.readAsDataURL(file);
-      errors.coverImage = '';
-    }
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { errors.coverImage = 'Please select an image file'; return; }
+    if (file.size > 5 * 1024 * 1024) { errors.coverImage = 'Image size must be less than 5MB'; return; }
+    coverImageFile = file;
+    const reader = new FileReader();
+    reader.onload = () => { coverImagePreview = String(reader.result || ''); };
+    reader.readAsDataURL(file);
+    errors.coverImage = '';
   }
 
   function removeCoverImage() {
@@ -159,56 +89,24 @@
     errors.coverImage = '';
   }
 
-  async function uploadCoverImageToBackblaze(): Promise<string | null> {
+  async function uploadCoverImage(): Promise<string | null> {
     if (!coverImageFile) return null;
     uploadingCoverImage = true;
     try {
-      const formDataUpload = new FormData();
-      formDataUpload.append('file', coverImageFile);
-      formDataUpload.append('itemId', '0');
-      formDataUpload.append('itemType', itemType || 'journal');
-      const uploadResponse = await fetch('/api/images/upload/', {
-        method: 'POST', credentials: 'include', body: formDataUpload
-      });
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json();
-        errors.coverImage = errorData.message || 'Upload failed';
-        return null;
-      }
-      const result = await uploadResponse.json();
-      return result.photoUrl;
-    } catch (error) {
-      errors.coverImage = 'Network error while uploading image';
+      const upload = new FormData();
+      upload.append('file', coverImageFile);
+      upload.append('itemId', '0');
+      upload.append('itemType', 'journal');
+      const response = await fetch('/api/images/upload/', { method: 'POST', credentials: 'include', body: upload });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Cover upload failed');
+      return result.photoUrl || null;
+    } catch (cause) {
+      errors.coverImage = cause instanceof Error ? cause.message : 'Cover upload failed';
       return null;
     } finally {
       uploadingCoverImage = false;
     }
-  }
-
-  function validateForm() {
-    const newErrors: {[key: string]: string} = {};
-    if (!formData.title.trim()) newErrors.title = 'Title is required';
-    if (!formData.author.trim()) newErrors.author = 'Author is required';
-    if (!formData.categoryId) newErrors.category = 'Category is required';
-    if (!formData.publisher.trim()) newErrors.publisher = 'Publisher is required';
-    if (!formData.publishedYear) {
-      newErrors.publishedYear = 'Published year is required';
-    } else {
-      const year = parseInt(formData.publishedYear);
-      const currentYear = new Date().getFullYear();
-      if (year < 1000 || year > currentYear) newErrors.publishedYear = `Year must be between 1000 and ${currentYear}`;
-    }
-    if (formData.volume) {
-      const vol = parseInt(formData.volume);
-      if (vol < 1 || vol > 9999) newErrors.volume = 'Volume must be between 1 and 9999';
-    }
-    if (formData.issue) {
-      const iss = parseInt(formData.issue);
-      if (iss < 1 || iss > 999) newErrors.issue = 'Issue must be between 1 and 999';
-    }
-    if (formData.totalCopies < 1 || formData.totalCopies > 999) newErrors.totalCopies = 'Copies must be between 1 and 999';
-    errors = newErrors;
-    return Object.keys(newErrors).length === 0;
   }
 
   async function handleSubmit(event: Event) {
@@ -218,41 +116,36 @@
     try {
       let coverImageUrl = formData.coverImage;
       if (coverImageFile) {
-        const uploadedUrl = await uploadCoverImageToBackblaze();
-        if (uploadedUrl) { coverImageUrl = uploadedUrl; }
-        else { isSubmitting = false; return; }
+        const uploadedCoverImage = await uploadCoverImage();
+        if (!uploadedCoverImage) { isSubmitting = false; return; }
+        coverImageUrl = uploadedCoverImage;
       }
       const submitData = {
+        journalId: formData.journalId.trim() || undefined,
         title: formData.title.trim(),
-        author: formData.author.trim(),
-        bookId: formData.bookId.trim() || undefined,
-        isbn: formData.isbn.trim() || undefined,
-        publisher: formData.publisher.trim(),
-        publishedYear: parseInt(formData.publishedYear),
-        edition: formData.edition.trim() || undefined,
+        publisher: formData.publisher.trim() || undefined,
+        issn: formData.issn.trim() || undefined,
+        volume: formData.volume.trim() || undefined,
+        issueNumber: formData.issueNumber.trim() || undefined,
+        publishedDate: formData.publishedDate || undefined,
         language: formData.language,
-        pages: formData.pages ? parseInt(formData.pages) : undefined,
-        categoryId: parseInt(formData.categoryId),
-        location: formData.location.trim(),
-        totalCopies: formData.totalCopies,
+        categoryId: Number(formData.categoryId),
+        location: formData.location.trim() || undefined,
+        totalCopies: Number(formData.totalCopies),
         description: formData.description.trim() || undefined,
         coverImage: coverImageUrl || undefined,
-        isSerial: true,
-        volume: formData.volume ? parseInt(formData.volume) : undefined,
-        issue: formData.issue ? parseInt(formData.issue) : undefined,
+        itemType: 'journal',
       };
 
-      // post to journals endpoint instead of books
       const response = await fetch('/api/inventory/journals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ ...submitData, itemType }),
+        body: JSON.stringify(submitData),
       });
 
       const result = await response.json();
       if (response.ok && result.success) {
-        dispatch('bookAdded', result.data);
         dispatch('success', result.data);
         handleClose();
         resetForm();
@@ -260,8 +153,8 @@
         errors.submit = result.message || 'Failed to add journal';
       }
     } catch (error) {
-      console.error('Error submitting form:', error);
       errors.submit = 'Network error. Please try again.';
+      dispatch('error', { message: errors.submit });
     } finally {
       isSubmitting = false;
     }
@@ -269,10 +162,8 @@
 
   function resetForm() {
     formData = {
-      title: '', author: '', bookId: '', isbn: '', publisher: '',
-      publishedYear: '', edition: '', language: 'English', pages: '',
-      categoryId: '', location: '', totalCopies: 1, description: '', coverImage: '',
-      volume: '', issue: '',
+      journalId: '', title: '', publisher: '', issn: '', volume: '', issueNumber: '',
+      publishedDate: '', language: 'English', categoryId: '', location: '', totalCopies: 1, description: '', coverImage: '',
     };
     errors = {};
     coverImageFile = null;
@@ -316,8 +207,8 @@
                   </svg>
                 </div>
                 <div class="min-w-0">
-                  <h3 class="text-lg sm:text-xl font-bold text-[#0D5C29] truncate">Add New {capitalizedItemType}</h3>
-                  <p class="text-xs sm:text-sm text-[#4A7C59] hidden sm:block">Complete the form to add a new {itemType} to the library</p>
+                  <h3 class="text-lg sm:text-xl font-bold text-[#0D5C29] truncate">Add New Journal</h3>
+                  <p class="text-xs sm:text-sm text-[#4A7C59] hidden sm:block">Complete the form to add a journal to the library</p>
                 </div>
               </div>
               <button
@@ -343,13 +234,13 @@
                     <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
                   </svg>
                   <div class="flex-1">
-                    <h4 class="text-sm font-semibold text-red-800">Error Adding {capitalizedItemType}</h4>
+                    <h4 class="text-sm font-semibold text-red-800">Error Adding Journal</h4>
                     <p class="text-sm text-red-700 mt-1">{errors.submit}</p>
                   </div>
                 </div>
               {/if}
 
-              <!-- ══ SECTION 1: Basic Information ══ -->
+              <!-- ══ SECTION 1: Cover + Basic Info ══ -->
               <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
                 <div class="flex items-center gap-2 mb-4">
                   <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -378,13 +269,13 @@
 
                     <div class="flex flex-col gap-1.5 w-32 sm:w-40">
                       <label
-                        for="cover-file"
+                        for="journal-cover-file"
                         class="cursor-pointer text-center px-3 py-1.5 rounded-lg border border-[#4A7C59]/40 bg-white text-xs font-medium text-[#0D5C29] hover:bg-[#0D5C29]/5 transition-colors duration-200"
                       >
                         {coverImagePreview ? 'Change photo' : 'Upload photo'}
                       </label>
                       <input
-                        id="cover-file" type="file" accept="image/*" class="sr-only"
+                        id="journal-cover-file" type="file" accept="image/*" class="sr-only"
                         on:change={handleCoverImageChange}
                         disabled={uploadingCoverImage || isSubmitting}
                       />
@@ -409,27 +300,27 @@
 
                     <!-- Title (full width) -->
                     <div class="sm:col-span-2">
-                      <span class="block text-xs font-medium text-gray-500 mb-1">Journal/Periodical Title <span class="text-red-400">*</span></span>
+                      <span class="block text-xs font-medium text-gray-500 mb-1">Journal Title <span class="text-red-400">*</span></span>
                       <input
-                        type="text" bind:value={formData.title} disabled={isSubmitting || uploadingCoverImage}
-                        placeholder="e.g., Business & Society Review"
+                        type="text" bind:value={formData.title}
+                        on:input={() => handleInputChange('title', formData.title)}
+                        disabled={isSubmitting || uploadingCoverImage}
+                        maxlength="200"
+                        placeholder="e.g., Journal of Applied Sciences"
                         class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.title ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
                       />
                       {#if errors.title}<p class="text-red-600 text-xs mt-1">{errors.title}</p>{/if}
                     </div>
 
-                    <!-- Author -->
+                    <!-- Publisher -->
                     <div>
-                      <span class="block text-xs font-medium text-gray-500 mb-1">Main Author/Editor <span class="text-red-400">*</span></span>
+                      <span class="block text-xs font-medium text-gray-500 mb-1">Publisher</span>
                       <input
-                        type="text" bind:value={formData.author}
-                        on:input={() => handleInputChange('author', formData.author)}
-                        disabled={isSubmitting || uploadingCoverImage}
-                        placeholder="e.g., Business or BSR"
-                        class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.author ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                        type="text" bind:value={formData.publisher} disabled={isSubmitting || uploadingCoverImage}
+                        maxlength="100"
+                        placeholder="e.g., Elsevier"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
                       />
-                      <p class="text-xs text-gray-400 mt-1">First word of journal title or abbreviation — used for call number generation</p>
-                      {#if errors.author}<p class="text-red-600 text-xs mt-1">{errors.author}</p>{/if}
                     </div>
 
                     <!-- Category -->
@@ -453,25 +344,28 @@
                       {#if errors.category}<p class="text-red-600 text-xs mt-1">{errors.category}</p>{/if}
                     </div>
 
-                    <!-- Publisher -->
-                    <div>
-                      <span class="block text-xs font-medium text-gray-500 mb-1">Publisher <span class="text-red-400">*</span></span>
-                      <input
-                        type="text" bind:value={formData.publisher} disabled={isSubmitting || uploadingCoverImage}
-                        placeholder="e.g., Elsevier"
-                        class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.publisher ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
-                      />
-                      {#if errors.publisher}<p class="text-red-600 text-xs mt-1">{errors.publisher}</p>{/if}
-                    </div>
-
                     <!-- ISSN -->
                     <div>
                       <span class="block text-xs font-medium text-gray-500 mb-1">ISSN</span>
                       <input
-                        type="text" bind:value={formData.isbn} disabled={isSubmitting || uploadingCoverImage}
-                        placeholder="e.g., 1234-5678"
+                        type="text" bind:value={formData.issn} disabled={isSubmitting || uploadingCoverImage}
+                        maxlength="20"
+                        placeholder="e.g., 2049-3630"
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
                       />
+                    </div>
+
+                    <!-- Language -->
+                    <div>
+                      <span class="block text-xs font-medium text-gray-500 mb-1">Language</span>
+                      <select
+                        bind:value={formData.language} disabled={isSubmitting || uploadingCoverImage}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                      >
+                        {#each languages as lang}
+                          <option value={lang}>{lang}</option>
+                        {/each}
+                      </select>
                     </div>
 
                   </div>
@@ -489,68 +383,35 @@
 
                 <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
 
-                  <!-- Published Year -->
-                  <div>
-                    <span class="block text-xs font-medium text-gray-500 mb-1">Published Year <span class="text-red-400">*</span></span>
-                    <input
-                      type="number" bind:value={formData.publishedYear}
-                      on:input={() => handleInputChange('publishedYear', formData.publishedYear)}
-                      disabled={isSubmitting || uploadingCoverImage}
-                      min="1000" max={new Date().getFullYear()}
-                      placeholder={new Date().getFullYear().toString()}
-                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.publishedYear ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
-                    />
-                    {#if errors.publishedYear}<p class="text-red-600 text-xs mt-1">{errors.publishedYear}</p>{/if}
-                  </div>
-
                   <!-- Volume -->
                   <div>
                     <span class="block text-xs font-medium text-gray-500 mb-1">Volume</span>
                     <input
-                      type="number" bind:value={formData.volume}
-                      on:input={() => handleInputChange('volume', formData.volume)}
-                      disabled={isSubmitting || uploadingCoverImage}
-                      min="1" max="9999" placeholder="e.g., 64"
-                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.volume ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
-                    />
-                    {#if errors.volume}<p class="text-red-600 text-xs mt-1">{errors.volume}</p>{/if}
-                  </div>
-
-                  <!-- Issue -->
-                  <div>
-                    <span class="block text-xs font-medium text-gray-500 mb-1">Issue</span>
-                    <input
-                      type="number" bind:value={formData.issue}
-                      on:input={() => handleInputChange('issue', formData.issue)}
-                      disabled={isSubmitting || uploadingCoverImage}
-                      min="1" max="999" placeholder="e.g., 8"
-                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.issue ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
-                    />
-                    {#if errors.issue}<p class="text-red-600 text-xs mt-1">{errors.issue}</p>{/if}
-                  </div>
-
-                  <!-- Language -->
-                  <div>
-                    <span class="block text-xs font-medium text-gray-500 mb-1">Language</span>
-                    <select
-                      bind:value={formData.language} disabled={isSubmitting || uploadingCoverImage}
+                      type="text" bind:value={formData.volume} disabled={isSubmitting || uploadingCoverImage}
+                      maxlength="50"
+                      placeholder="e.g., 12"
                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
-                    >
-                      {#each languages as lang}
-                        <option value={lang}>{lang}</option>
-                      {/each}
-                    </select>
+                    />
                   </div>
 
-                  <!-- Total Copies -->
+                  <!-- Issue Number -->
                   <div>
-                    <span class="block text-xs font-medium text-gray-500 mb-1">Total Copies</span>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Issue Number</span>
                     <input
-                      type="number" bind:value={formData.totalCopies} disabled={isSubmitting || uploadingCoverImage}
-                      min="1" placeholder="1"
-                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.totalCopies ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                      type="text" bind:value={formData.issueNumber} disabled={isSubmitting || uploadingCoverImage}
+                      maxlength="50"
+                      placeholder="e.g., 3"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
                     />
-                    {#if errors.totalCopies}<p class="text-red-600 text-xs mt-1">{errors.totalCopies}</p>{/if}
+                  </div>
+
+                  <!-- Publication Date -->
+                  <div>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Publication Date</span>
+                    <input
+                      type="date" bind:value={formData.publishedDate} disabled={isSubmitting || uploadingCoverImage}
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                    />
                   </div>
 
                 </div>
@@ -565,39 +426,40 @@
                   <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Library Management</h4>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
-                  <!-- Book ID -->
+                  <!-- Journal ID -->
                   <div>
                     <span class="block text-xs font-medium text-gray-500 mb-1">Journal ID</span>
-                    <div class="relative">
-                      <input
-                        type="text" bind:value={formData.bookId} disabled={isSubmitting || uploadingCoverImage}
-                        placeholder="Auto-generated"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white pr-10"
-                      />
-                      {#if generatingCallNumber}
-                        <div class="absolute right-3 top-1/2 -translate-y-1/2">
-                          <svg class="animate-spin h-4 w-4 text-[#4A7C59]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                          </svg>
-                        </div>
-                      {/if}
-                    </div>
-                    <p class="text-xs text-gray-400 mt-1">Auto-generated, editable</p>
+                    <input
+                      type="text" bind:value={formData.journalId} disabled={isSubmitting || uploadingCoverImage}
+                      maxlength="30"
+                      placeholder="Auto-generated if blank"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                    />
+                    <p class="text-xs text-gray-400 mt-1">Leave blank to auto-generate</p>
                   </div>
 
-                  <!-- Call Number -->
+                  <!-- Total Copies -->
                   <div>
-                    <span class="block text-xs font-medium text-gray-500 mb-1">Call Number (Shelf Location)</span>
-                    <textarea
-                      bind:value={formData.location} disabled={isSubmitting}
-                      rows="3"
-                      placeholder={"650 B22\nVol.64/8\n2025"}
-                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white resize-none"
-                    ></textarea>
-                    <p class="text-xs text-gray-400 mt-1">DDC + Cutter, Volume/Issue, Year — auto-generated</p>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Total Copies <span class="text-red-400">*</span></span>
+                    <input
+                      type="number" bind:value={formData.totalCopies} disabled={isSubmitting || uploadingCoverImage}
+                      min="1" max="999" placeholder="1"
+                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.totalCopies ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                    />
+                    {#if errors.totalCopies}<p class="text-red-600 text-xs mt-1">{errors.totalCopies}</p>{/if}
+                  </div>
+
+                  <!-- Shelf Location -->
+                  <div>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Shelf Location</span>
+                    <input
+                      type="text" bind:value={formData.location} disabled={isSubmitting || uploadingCoverImage}
+                      maxlength="100"
+                      placeholder="e.g., Periodicals Rack A"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                    />
                   </div>
 
                 </div>
@@ -614,7 +476,7 @@
                 <textarea
                   bind:value={formData.description} rows="4"
                   disabled={isSubmitting || uploadingCoverImage} maxlength="500"
-                  placeholder="Brief description of the journal's focus, topics covered, target audience…"
+                  placeholder="Brief description of the journal's scope, subject areas, target audience…"
                   class="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white resize-none leading-relaxed"
                 ></textarea>
                 <p class="text-xs text-gray-400 mt-1 text-right">{formData.description.length}/500 characters</p>
@@ -635,7 +497,7 @@
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
                 </svg>
-                Adding {capitalizedItemType}…
+                Adding Journal…
               {:else if uploadingCoverImage}
                 <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -646,7 +508,7 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
-                Add {capitalizedItemType}
+                Add Journal
               {/if}
             </button>
             <button
