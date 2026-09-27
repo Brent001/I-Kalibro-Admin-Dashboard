@@ -28,6 +28,7 @@ import { eq, sql } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
+import { assertUserCanBorrow } from '$lib/server/utils/userRestrictions.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -150,6 +151,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   }
 
   if (bookReq && (bookReq.status === 'active' || bookReq.status === 'borrow_request')) {
+    await assertUserCanBorrow(bookReq.userId);
     const copyId = await allocateCopy(tbl_book_copy);
     if (!copyId) throw error(400, { message: 'No available book copies to allocate' });
 
@@ -194,6 +196,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   }
 
   if (magReq && (magReq.status === 'active' || magReq.status === 'borrow_request')) {
+    await assertUserCanBorrow(magReq.userId);
     const copyId = await allocateCopy(tbl_magazine_copy);
     if (!copyId) throw error(400, { message: 'No available magazine copies to allocate' });
 
@@ -234,6 +237,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   }
 
   if (thesisReq && (thesisReq.status === 'active' || thesisReq.status === 'borrow_request')) {
+    await assertUserCanBorrow(thesisReq.userId);
     const copyId = await allocateCopy(tbl_thesis_copy);
     if (!copyId) throw error(400, { message: 'No available thesis copies to allocate' });
 
@@ -275,6 +279,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
   // Handle journal reservations the same way
   if (journalReq && (journalReq.status === 'active' || journalReq.status === 'borrow_request')) {
+    await assertUserCanBorrow(journalReq.userId);
     const copyId = await allocateCopy(tbl_journal_copy);
     if (!copyId) throw error(400, { message: 'No available journal copies to allocate' });
 
@@ -350,6 +355,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   }
 
   if (pending) {
+    await assertUserCanBorrow(pending.userId);
     const dueDateStr = dueDate.toISOString();
     await db.update(
       pendingType === 'book' ? tbl_book_borrowing :

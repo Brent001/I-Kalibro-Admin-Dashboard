@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte, or } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import { verifyToken } from '$lib/server/db/auth.js';
 import { tbl_user, tbl_user_restriction } from '$lib/server/db/schema/schema.js';
@@ -26,10 +26,16 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
   if (!userId) return json({ success: false, message: 'Invalid user ID' }, { status: 400 });
 
   try {
+    const now = new Date();
     const restrictions = await db
       .select()
       .from(tbl_user_restriction)
-      .where(and(eq(tbl_user_restriction.userId, userId), eq(tbl_user_restriction.isActive, true)))
+      .where(and(
+        eq(tbl_user_restriction.userId, userId),
+        eq(tbl_user_restriction.isActive, true),
+        lte(tbl_user_restriction.startDate, now),
+        or(isNull(tbl_user_restriction.endDate), gte(tbl_user_restriction.endDate, now))
+      ))
       .orderBy(desc(tbl_user_restriction.createdAt));
 
     return json({ success: true, restrictions });
