@@ -39,8 +39,11 @@ async function authenticateAdmin(request: Request) {
 }
 
 // GET - return fineCalculation setting (parsed)
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ request }) => {
     try {
+        const admin = await authenticateAdmin(request);
+        if (!admin) throw error(403, 'Unauthorized');
+
         const rows = await db.select().from(tbl_library_settings).where(eq(tbl_library_settings.settingKey, 'fineCalculation')).limit(1);
         if (!rows || rows.length === 0) return json({ success: true, fineCalculation: null });
         const r = rows[0];

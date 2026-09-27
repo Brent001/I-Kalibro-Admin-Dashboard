@@ -9,7 +9,8 @@ import {
     tbl_staff,
     tbl_staff_permission,
     tbl_admin,
-    tbl_super_admin
+    tbl_super_admin,
+    tbl_library_settings
 } from '$lib/server/db/schema/schema.js';
 import bcrypt from 'bcrypt';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
@@ -98,9 +99,10 @@ export const GET: RequestHandler = async ({ request }) => {
         // Fetch permissions for each staff member
         const staffWithPermissions = await Promise.all(
             staffMembers.map(async (staff) => {
+                const { password: _staffPassword, ...safeStaff } = staff;
                 // staff.uniqueId should always be defined, but guard against null
                 if (!staff.uniqueId) {
-                    return { ...staff, permissions: null };
+                    return { ...safeStaff, role: 'staff' as const, permissions: null };
                 }
 
                 const [permissions] = await db
@@ -110,15 +112,24 @@ export const GET: RequestHandler = async ({ request }) => {
                     .limit(1);
 
                 return {
-                    ...staff,
+                    ...safeStaff,
+                    role: 'staff' as const,
                     permissions: permissions || null
                 };
             })
         );
 
+        const admins = user.userType === 'super_admin'
+            ? (await db.select().from(tbl_admin).where(eq(tbl_admin.isActive, true)))
+                .map(admin => {
+                    const { password: _adminPassword, ...safeAdmin } = admin;
+                    return { ...safeAdmin, role: 'admin' as const, permissions: null };
+                })
+            : [];
+
         return json({
             success: true,
-            data: staffWithPermissions
+            data: [...admins, ...staffWithPermissions]
         });
     } catch (err: any) {
         console.error('GET /api/staff error:', err);
@@ -145,11 +156,34 @@ export const POST: RequestHandler = async ({ request }) => {
             password,
             department,
             position,
+            role = 'staff',
             permissions
         } = body;
 
         if (!name || !email || !username || !password) {
             throw error(400, { message: 'name, email, username, and password are required' });
+        }
+
+        if (role !== 'staff' && role !== 'admin') {
+            throw error(400, { message: 'Invalid account role' });
+        }
+
+        if (role === 'admin') {
+            if (user.userType !== 'super_admin') throw error(403, { message: 'Only the super admin can create administrators' });
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const [admin] = await db.insert(tbl_admin).values({
+                uniqueId: randomBytes(18).toString('hex'),
+                name,
+                email,
+                username,
+                password: hashedPassword,
+                isActive: true
+            }).returning();
+            return json({
+                success: true,
+                message: 'Administrator created successfully',
+                data: { ...admin, role: 'admin', permissions: null }
+            });
         }
 
         // Hash password
@@ -170,7 +204,24 @@ export const POST: RequestHandler = async ({ request }) => {
             })
             .returning();
 
-        // Create default permissions if not provided
+        // Use the library policy for new staff, while allowing an explicit per-staff override.
+        let savedDefaults: Record<string, unknown> = {};
+        if (!permissions) {
+            const [defaultPermissionSetting] = await db
+                .select({ settingValue: tbl_library_settings.settingValue })
+                .from(tbl_library_settings)
+                .where(eq(tbl_library_settings.settingKey, 'defaultStaffPermissions'))
+                .limit(1);
+            if (defaultPermissionSetting) {
+                try {
+                    const parsed = JSON.parse(defaultPermissionSetting.settingValue);
+                    if (parsed && typeof parsed === 'object') savedDefaults = parsed;
+                } catch {
+                    savedDefaults = {};
+                }
+            }
+        }
+
         const staffPermissions = permissions || {
             canManageBooks: false,
             canManageUsers: false,
@@ -178,7 +229,8 @@ export const POST: RequestHandler = async ({ request }) => {
             canManageReservations: true,
             canViewReports: false,
             canManageFines: true,
-            customPermissions: []
+            customPermissions: [],
+            ...savedDefaults
         };
 
         const [perm] = await db
@@ -212,11 +264,26 @@ export const PUT: RequestHandler = async ({ request }) => {
         }
 
         const body = await request.json();
-        const { id, uniqueId, password, permissions, ...updateData } = body;
+        const { id, uniqueId, password, permissions, role = 'staff', ...updateData } = body;
 
         if (!id) {
             throw error(400, { message: 'id is required' });
         }
+
+        if (role === 'admin') {
+            if (user.userType !== 'super_admin') throw error(403, { message: 'Only the super admin can edit administrators' });
+            const adminPayload: Record<string, unknown> = {};
+            for (const key of ['name', 'email', 'username', 'isActive']) {
+                if (key in updateData) adminPayload[key] = updateData[key];
+            }
+            if (password) adminPayload.password = await bcrypt.hash(password, 10);
+            const [admin] = await db.update(tbl_admin).set(adminPayload).where(eq(tbl_admin.id, id)).returning();
+            if (!admin) throw error(404, { message: 'Administrator not found' });
+            return json({ success: true, message: 'Administrator updated successfully', data: { ...admin, role: 'admin', permissions: null } });
+        }
+
+        const [existingStaff] = await db.select({ id: tbl_staff.id }).from(tbl_staff).where(eq(tbl_staff.id, id)).limit(1);
+        if (!existingStaff) throw error(404, { message: 'Staff member not found' });
 
         let updatePayload: any = updateData;
 
@@ -262,11 +329,21 @@ export const DELETE: RequestHandler = async ({ request }) => {
         }
 
         const body = await request.json();
-        const { id } = body;
+        const { id, role = 'staff' } = body;
 
         if (!id) {
             throw error(400, { message: 'id is required' });
         }
+
+        if (role === 'admin') {
+            if (user.userType !== 'super_admin') throw error(403, { message: 'Only the super admin can deactivate administrators' });
+            const [admin] = await db.update(tbl_admin).set({ isActive: false }).where(eq(tbl_admin.id, id)).returning();
+            if (!admin) throw error(404, { message: 'Administrator not found' });
+            return json({ success: true, message: 'Administrator deactivated successfully', data: { ...admin, role: 'admin' } });
+        }
+
+        const [existingStaff] = await db.select({ id: tbl_staff.id }).from(tbl_staff).where(eq(tbl_staff.id, id)).limit(1);
+        if (!existingStaff) throw error(404, { message: 'Staff member not found' });
 
         const [staff] = await db
             .update(tbl_staff)
