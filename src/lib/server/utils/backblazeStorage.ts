@@ -26,6 +26,48 @@ function initializeS3Client(): S3Client {
     return s3Client;
 }
 
+export async function listB2Files(prefix = ''): Promise<{
+    files: { name: string; type: 'file'; size: number; modified: Date | null; key: string }[];
+    folders: { name: string; type: 'folder' }[];
+}> {
+    const bucketName = (process.env.BACKBLAZE_BUCKET_NAME || import.meta.env.VITE_BACKBLAZE_BUCKET_NAME as string) || 'E-kalibro';
+    const client = initializeS3Client();
+    const files: { name: string; type: 'file'; size: number; modified: Date | null; key: string }[] = [];
+    const folders: { name: string; type: 'folder' }[] = [];
+    let continuationToken: string | undefined;
+
+    do {
+        const response = await client.send(new ListObjectsV2Command({
+            Bucket: bucketName,
+            Prefix: prefix,
+            Delimiter: '/',
+            ContinuationToken: continuationToken,
+            MaxKeys: 1000
+        }));
+
+        for (const object of response.Contents ?? []) {
+            if (!object.Key || object.Key === prefix) continue;
+            files.push({
+                name: object.Key.slice(prefix.length),
+                type: 'file',
+                size: object.Size ?? 0,
+                modified: object.LastModified ?? null,
+                key: object.Key
+            });
+        }
+
+        for (const folder of response.CommonPrefixes ?? []) {
+            if (!folder.Prefix) continue;
+            const name = folder.Prefix.slice(prefix.length).replace(/\/$/, '');
+            if (name) folders.push({ name, type: 'folder' });
+        }
+
+        continuationToken = response.NextContinuationToken;
+    } while (continuationToken);
+
+    return { files, folders };
+}
+
 export async function getB2StorageUsage(): Promise<{
     used: number;
     total: number;
