@@ -10,6 +10,7 @@
   $: userRole = data?.user?.role || '';
 
   let members: any[] = [];
+  let restrictionCounts: Record<number, number> = {};
   let loading = true;
   let errorMsg = "";
   let successMsg = "";
@@ -75,9 +76,9 @@
           // Faculty fields
           facultyNumber: user.facultyData?.facultyNumber || '',
           designation: user.facultyData?.position || '',
-          // Default empty booksCount
-          booksCount: 0
+          booksCount: user.booksCount || 0
         }));
+        await loadRestrictionCounts();
       } else {
         errorMsg = data.message || "Failed to load members.";
       }
@@ -86,6 +87,24 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function loadRestrictionCounts() {
+    restrictionCounts = {};
+    if (!['staff', 'admin'].includes(userRole) || members.length === 0) return;
+
+    const results = await Promise.all(members.map(async member => {
+      try {
+        const response = await fetch(`/api/user/${member.id}/restriction`);
+        if (!response.ok) return [member.id, 0] as const;
+        const result = await response.json();
+        return [member.id, Array.isArray(result.restrictions) ? result.restrictions.length : 0] as const;
+      } catch {
+        return [member.id, 0] as const;
+      }
+    }));
+
+    restrictionCounts = Object.fromEntries(results);
   }
 
   $: filteredMembers = members.filter(member => {
@@ -484,33 +503,6 @@
       </div>
     </div>
 
-    <!-- Loading State -->
-    {#if loading && members.length === 0}
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-        <div class="flex items-center justify-center">
-          <div class="animate-spin rounded-full h-8 w-8 border-2 border-slate-300 border-t-slate-600"></div>
-          <span class="ml-3 text-slate-600">Loading members...</span>
-        </div>
-      </div>
-    {/if}
-
-    <!-- Stats Skeleton -->
-    {#if loading && members.length === 0}
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-6">
-        {#each Array(4) as _, i}
-          <div class="bg-white p-4 lg:p-6 rounded-xl shadow-sm border border-slate-200 animate-pulse">
-            <div class="flex items-center">
-              <div class="p-3 bg-slate-200 rounded-xl w-12 h-12"></div>
-              <div class="ml-4 flex-1">
-                <div class="h-3 bg-slate-200 rounded w-20 mb-2"></div>
-                <div class="h-6 bg-slate-200 rounded w-12"></div>
-              </div>
-            </div>
-          </div>
-        {/each}
-      </div>
-    {/if}
-
     <!-- Table Skeleton -->
     {#if loading && members.length === 0}
       <div class="bg-white shadow-sm border border-slate-200 rounded-xl overflow-hidden hidden lg:block mb-6">
@@ -587,11 +579,16 @@
                   Academic Info
                 </th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Books
+                  Active Loans
                 </th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Status
                 </th>
+                {#if userRole === 'staff' || userRole === 'admin'}
+                  <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Restrictions
+                  </th>
+                {/if}
                 <th class="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Actions
                 </th>
@@ -630,7 +627,7 @@
                   <td class="px-6 py-4 whitespace-nowrap">
                     <div class="flex items-center">
                       <div class="text-sm font-medium text-slate-900">
-                        {member.booksCount} books
+                        {member.booksCount} items
                       </div>
                     </div>
                   </td>
@@ -639,12 +636,23 @@
                       {member.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </td>
+                  {#if userRole === 'staff' || userRole === 'admin'}
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      {#if restrictionCounts[member.id]}
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                          {restrictionCounts[member.id]} active
+                        </span>
+                      {:else}
+                        <span class="text-xs text-slate-400">None</span>
+                      {/if}
+                    </td>
+                  {/if}
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div class="flex space-x-3">
                       <button on:click={() => openViewModal(member.id)} class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
                         View
                       </button>
-                      {#if userRole === 'staff'}
+                      {#if userRole === 'staff' || userRole === 'admin'}
                         <button on:click={() => openViewModal(member.id)} class="text-amber-700 hover:text-amber-900 transition-colors duration-200" title="Manage Restrictions">
                           Restrict
                         </button>
@@ -689,6 +697,11 @@
                   <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(member.isActive)}`}>
                     {member.isActive ? 'Active' : 'Inactive'}
                   </span>
+                  {#if (userRole === 'staff' || userRole === 'admin') && restrictionCounts[member.id]}
+                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                      {restrictionCounts[member.id]} restricted
+                    </span>
+                  {/if}
                 </div>
               </div>
               <div class="flex items-center space-x-1 ml-2">
@@ -698,7 +711,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                   </svg>
                 </button>
-                {#if userRole === 'staff'}
+                {#if userRole === 'staff' || userRole === 'admin'}
                   <button on:click={() => openViewModal(member.id)} class="p-2 text-amber-700 hover:text-amber-900 hover:bg-amber-50 rounded-lg transition-colors duration-200" title="Manage Restrictions" aria-label="Manage member restrictions">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7l8-4z" />
@@ -756,7 +769,7 @@
                 <svg class="h-3 w-3 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
                 </svg>
-                <span class="font-medium">{member.booksCount} books</span>
+                <span class="font-medium">{member.booksCount} items</span>
               </div>
             </div>
           </div>
@@ -842,7 +855,7 @@
       <ViewMember
         isOpen={showViewModal}
         member={selectedMember}
-        canManageRestrictions={userRole === 'staff'}
+        canManageRestrictions={userRole === 'staff' || userRole === 'admin'}
         on:close={closeModals}
       />
     {/if}

@@ -42,6 +42,28 @@
     gender: ''
   };
 
+  const departments = [
+    'College of Business Administration, Tourism, and Computer Science (CBAT.COM)',
+    'College of Teacher Education (COTE)',
+    'College of Criminology (CoCrim)'
+  ];
+  const courses = [
+    { value: 'BSCS', label: 'Bachelor of Science in Computer Science (BSCS)' },
+    { value: 'BSBA-MM', label: 'BSBA - Marketing Management' },
+    { value: 'BSBA-FM', label: 'BSBA - Financial Management' },
+    { value: 'BSTM', label: 'Bachelor of Science in Tourism Management (BSTM)' },
+    { value: 'BEEd', label: 'Bachelor of Elementary Education (BEEd)' },
+    { value: 'BSEd-English', label: 'BSEd - English' },
+    { value: 'BSEd-Filipino', label: 'BSEd - Filipino' },
+    { value: 'BSEd-Math', label: 'BSEd - Mathematics' },
+    { value: 'BSEd-Science', label: 'BSEd - Science' },
+    { value: 'BSEd-TLE-IA', label: 'BSEd-TLE - Industrial Arts' },
+    { value: 'BSEd-TLE-HE', label: 'BSEd-TLE - Home Economics' },
+    { value: 'BPEd', label: 'Bachelor of Physical Education (BPEd)' },
+    { value: 'BSCrim', label: 'Bachelor of Science in Criminology (BSCrim)' }
+  ];
+  const years = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+
   function loadFromMember() {
     if (member) {
       formData = {
@@ -168,7 +190,7 @@
                   <div>
                     <label for="phone-edit" class="block text-xs font-medium text-gray-500 mb-1">Phone <span class="text-red-400">*</span></label>
                     <input
-                      id="phone-edit" type="text" bind:value={formData.phone}
+                      id="phone-edit" type="tel" bind:value={formData.phone}
                       disabled={isLoading}
                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
                       required
@@ -181,18 +203,24 @@
                       id="age-edit" type="number" bind:value={formData.age}
                       disabled={isLoading}
                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                      min="16" max="100"
                       required
                     />
                   </div>
 
                   <div>
                     <label for="gender-edit" class="block text-xs font-medium text-gray-500 mb-1">Gender <span class="text-red-400">*</span></label>
-                    <input
-                      id="gender-edit" type="text" bind:value={formData.gender}
+                    <select
+                      id="gender-edit" bind:value={formData.gender}
                       disabled={isLoading}
                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
-                      required
-                    />
+                      required>
+                      <option value="">Select gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                      <option value="Prefer not to say">Prefer not to say</option>
+                    </select>
                   </div>
 
                 </div>
@@ -271,28 +299,54 @@
                     <div>
                       <label for="enroll-edit" class="block text-xs font-medium text-gray-500 mb-1">Enrollment No <span class="text-red-400">*</span></label>
                       <input id="enroll-edit" type="text" bind:value={formData.enrollmentNo} disabled={isLoading}
+                        oninput={(event) => {
+                          let value = (event.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 10);
+                          if (value.length > 4) value = `${value.slice(0, 4)}-${value.slice(4)}`;
+                          formData.enrollmentNo = value;
+                        }}
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required />
                     </div>
                     <div>
                       <label for="course-edit" class="block text-xs font-medium text-gray-500 mb-1">Course <span class="text-red-400">*</span></label>
-                      <input id="course-edit" type="text" bind:value={formData.course} disabled={isLoading}
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required />
+                      <select id="course-edit" bind:value={formData.course} disabled={isLoading}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required>
+                        <option value="">Select course</option>
+                        {#if formData.course && !courses.some(course => course.value === formData.course)}
+                          <option value={formData.course}>{formData.course} (legacy)</option>
+                        {/if}
+                        {#each courses as course}<option value={course.value}>{course.label}</option>{/each}
+                      </select>
                     </div>
                     <div>
                       <label for="year-edit" class="block text-xs font-medium text-gray-500 mb-1">Year <span class="text-red-400">*</span></label>
-                      <input id="year-edit" type="text" bind:value={formData.year} disabled={isLoading}
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required />
+                      <select id="year-edit" bind:value={formData.year} disabled={isLoading}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required>
+                        <option value="">Select year level</option>
+                        {#each years as year}<option value={year}>{year}</option>{/each}
+                      </select>
                     </div>
                     <div>
                       <label for="dept-edit" class="block text-xs font-medium text-gray-500 mb-1">Department <span class="text-red-400">*</span></label>
-                      <input id="dept-edit" type="text" bind:value={formData.department} disabled={isLoading}
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required />
+                      <select id="dept-edit" bind:value={formData.department} disabled={isLoading}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required>
+                        <option value="">Select your department</option>
+                        {#if formData.department && !departments.includes(formData.department)}
+                          <option value={formData.department}>{formData.department} (legacy)</option>
+                        {/if}
+                        {#each departments as department}<option value={department}>{department}</option>{/each}
+                      </select>
                     </div>
                   {:else}
                     <div>
                       <label for="dept-fac-edit" class="block text-xs font-medium text-gray-500 mb-1">Department <span class="text-red-400">*</span></label>
-                      <input id="dept-fac-edit" type="text" bind:value={formData.department} disabled={isLoading}
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required />
+                      <select id="dept-fac-edit" bind:value={formData.department} disabled={isLoading}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required>
+                        <option value="">Select your department</option>
+                        {#if formData.department && !departments.includes(formData.department)}
+                          <option value={formData.department}>{formData.department} (legacy)</option>
+                        {/if}
+                        {#each departments as department}<option value={department}>{department}</option>{/each}
+                      </select>
                     </div>
                     <div>
                       <label for="designation-edit" class="block text-xs font-medium text-gray-500 mb-1">Designation <span class="text-red-400">*</span></label>

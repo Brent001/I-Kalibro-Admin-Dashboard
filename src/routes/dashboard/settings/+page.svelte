@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { goto, replaceState } from "$app/navigation";
   import FileText from 'lucide-svelte/icons/file-text';
   import BookOpen from 'lucide-svelte/icons/book-open';
   import CircleDollarSign from 'lucide-svelte/icons/circle-dollar-sign';
@@ -7,16 +8,29 @@
   import Bell from 'lucide-svelte/icons/bell';
   import ShieldCheck from 'lucide-svelte/icons/shield-check';
   import LockKeyhole from 'lucide-svelte/icons/lock-keyhole';
+  import Eye from 'lucide-svelte/icons/eye';
+  import EyeOff from 'lucide-svelte/icons/eye-off';
   import SettingsIcon from 'lucide-svelte/icons/settings';
   import QrCode from 'lucide-svelte/icons/qr-code';
   import Barcode from 'lucide-svelte/icons/barcode';
 
   let { data } = $props();
+  const isAdmin = data.user?.userType === 'admin' || data.user?.userType === 'super_admin';
+  const isStaff = data.user?.userType === 'staff';
 
-  let activeTab = $state('general');
+  let activeTab = $state(isStaff ? 'account' : 'general');
   let isSaving = $state(false);
   let saveSuccess = $state(false);
   let saveError = $state('');
+  let currentPassword = $state('');
+  let newPassword = $state('');
+  let confirmPassword = $state('');
+  let showCurrentPassword = $state(false);
+  let showNewPassword = $state(false);
+  let showConfirmPassword = $state(false);
+  let isSubmittingPassword = $state(false);
+  let passwordMessage = $state('');
+  let passwordMessageType = $state<'success' | 'error' | ''>('');
 
   let storageInfo = $state<{
     used: number;
@@ -135,6 +149,7 @@
   });
 
   async function handleSave() {
+    if (!isAdmin) return;
     isSaving = true;
     saveSuccess = false;
     saveError = '';
@@ -154,6 +169,7 @@
   }
 
   const tabs = [
+    { id:'account',       name:'Account',              icon:LockKeyhole },
     { id:'general',       name:'General',             icon:FileText },
     { id:'borrowing',     name:'Borrowing',            icon:BookOpen },
     { id:'fines',         name:'Fines & Returns',      icon:CircleDollarSign },
@@ -172,23 +188,52 @@
     notifications: 'Notification events and delivery channels',
     permissions: 'Default permissions for new staff accounts',
     security: 'Sessions, authentication, and backup policy',
-    system: 'Service health, storage, and maintenance tasks'
+    system: 'Service health, storage, and maintenance tasks',
+    account: 'Manage your own sign-in password'
   };
 
-  let activeTabData = $derived(tabs.find(tab => tab.id === activeTab) ?? tabs[0]);
+  const visibleTabs = $derived(isStaff ? tabs.filter(tab => tab.id === 'account') : tabs);
+  let activeTabData = $derived(visibleTabs.find(tab => tab.id === activeTab) ?? visibleTabs[0]);
 
   function selectTab(id: string) {
+    if (!isAdmin && id !== 'account') return;
     activeTab = id;
-    try { const p = new URLSearchParams(location.search); p.set('tab', id); history.replaceState(null, '', `${location.pathname}?${p}`); } catch {}
+    try { const p = new URLSearchParams(location.search); p.set('tab', id); replaceState(`${location.pathname}?${p}`, {}); } catch {}
   }
 
-  onMount(async () => {
-    try { const p = new URLSearchParams(location.search); const t = p.get('tab'); if (t) activeTab = t; } catch {}
+  async function submitPasswordChange() {
+    passwordMessage = '';
+    passwordMessageType = '';
+    isSubmittingPassword = true;
+
     try {
-      const res = await fetch('/api/settings/finecal', { credentials:'same-origin' });
-      if (res.ok) { const d = await res.json(); if (d?.fineCalculation) settings.fineCalculation = d.fineCalculation; }
-    } catch {}
-  });
+      const response = await fetch('/api/settings/change_pass', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword })
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        passwordMessageType = 'error';
+        passwordMessage = result.message || 'Password could not be changed.';
+        return;
+      }
+
+      passwordMessageType = 'success';
+      passwordMessage = result.message || 'Password changed successfully. Please sign in again.';
+      currentPassword = '';
+      newPassword = '';
+      confirmPassword = '';
+      window.setTimeout(() => goto('/', { replaceState: true }), 1800);
+    } catch {
+      passwordMessageType = 'error';
+      passwordMessage = 'Network error. Please try again.';
+    } finally {
+      isSubmittingPassword = false;
+    }
+  }
 
   const inp = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent outline-none transition-all bg-white";
   const inpSm = "px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent outline-none transition-all bg-white";
@@ -283,7 +328,12 @@
   ];
 
   onMount(async () => {
-    try { const p = new URLSearchParams(location.search); const t = p.get('tab'); if (t) activeTab = t; } catch {}
+    try {
+      const p = new URLSearchParams(location.search);
+      const t = p.get('tab');
+      if (t && (isAdmin || t === 'account')) activeTab = t;
+    } catch {}
+    if (!isAdmin) return;
     try {
       const res = await fetch('/api/settings/finecal', { credentials:'same-origin' });
       if (res.ok) { const d = await res.json(); if (d?.fineCalculation) settings.fineCalculation = d.fineCalculation; }
@@ -354,10 +404,12 @@
             Saved
           </div>
         {/if}
-        <button onclick={handleSave} disabled={isSaving}
-          class="px-5 py-2 bg-[#0D5C29] text-white rounded-lg font-semibold text-sm hover:bg-[#0a4820] disabled:opacity-50 transition-colors shadow-sm">
-          {isSaving ? 'Saving…' : 'Save Changes'}
-        </button>
+        {#if isAdmin}
+          <button onclick={handleSave} disabled={isSaving}
+            class="px-5 py-2 bg-[#0D5C29] text-white rounded-lg font-semibold text-sm hover:bg-[#0a4820] disabled:opacity-50 transition-colors shadow-sm">
+            {isSaving ? 'Saving…' : 'Save Changes'}
+          </button>
+        {/if}
       </div>
     </div>
   </div>
@@ -366,7 +418,7 @@
   <div class="bg-white border border-gray-200 rounded-xl p-1 mb-1 overflow-hidden">
     <div class="flex gap-0.5 overflow-x-auto" role="tablist" aria-label="Settings sections"
       style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
-      {#each tabs as tab}
+      {#each visibleTabs as tab}
         {@const TabIcon = tab.icon}
         <button
           type="button"
@@ -396,16 +448,51 @@
     </div>
   {/if}
 
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+
+        <!-- ACCOUNT -->
+        {#if activeTab === 'account'}
+          <div class="p-5 sm:p-8 lg:p-10 animate-in">
+            <div class="mb-7">
+              <h3 class="text-base font-semibold text-slate-900">Change password</h3>
+              <p class="text-xs text-slate-400 mt-1">Confirm your current password before choosing a new one.</p>
+            </div>
+            <form class="max-w-xl space-y-4" onsubmit={(event) => { event.preventDefault(); submitPasswordChange(); }}>
+              {#each [
+                { label: 'Current password', name: 'currentPassword', value: currentPassword, shown: showCurrentPassword, set: (value: string) => currentPassword = value, toggle: () => showCurrentPassword = !showCurrentPassword },
+                { label: 'New password', name: 'newPassword', value: newPassword, shown: showNewPassword, set: (value: string) => newPassword = value, toggle: () => showNewPassword = !showNewPassword },
+                { label: 'Confirm new password', name: 'confirmPassword', value: confirmPassword, shown: showConfirmPassword, set: (value: string) => confirmPassword = value, toggle: () => showConfirmPassword = !showConfirmPassword }
+              ] as field}
+                <div>
+                  <label class="mb-1.5 block text-sm font-medium text-gray-700" for={field.name}>{field.label}</label>
+                  <div class="relative">
+                    <input id={field.name} name={field.name} type={field.shown ? 'text' : 'password'} value={field.value}
+                      oninput={(event) => field.set(event.currentTarget.value)} autocomplete={field.name === 'currentPassword' ? 'current-password' : 'new-password'} required class="{inp} pr-11" />
+                    <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-[#0D5C29]" aria-label={field.shown ? `Hide ${field.label.toLowerCase()}` : `Show ${field.label.toLowerCase()}`} onclick={field.toggle}>
+                      {#if field.shown}<EyeOff class="h-4 w-4" />{:else}<Eye class="h-4 w-4" />{/if}
+                    </button>
+                  </div>
+                </div>
+              {/each}
+              <p class="text-xs leading-5 text-gray-500">Use at least 8 characters with uppercase, lowercase, a number, and a special character.</p>
+              {#if passwordMessage}
+                <div class="rounded-lg border px-3 py-2.5 text-sm {passwordMessageType === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}" role="status">{passwordMessage}</div>
+              {/if}
+              <button type="submit" disabled={isSubmittingPassword} class="flex items-center justify-center gap-2 rounded-lg bg-[#0D5C29] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#08401c] disabled:cursor-not-allowed disabled:opacity-60">
+                <LockKeyhole class="h-4 w-4" />
+                {isSubmittingPassword ? 'Updating password...' : 'Update password'}
+              </button>
+            </form>
+          </div>
 
         <!-- GENERAL -->
-        {#if activeTab === 'general'}
-          <div class="p-6 sm:p-8 animate-in">
+        {:else if activeTab === 'general'}
+          <div class="p-5 sm:p-8 lg:p-10 animate-in">
             <div class="mb-7">
               <h3 class="text-base font-semibold text-slate-900">Library Information</h3>
               <p class="text-xs text-slate-400 mt-1">Contact details and identifying codes stored in tbl_library_settings</p>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-5xl">
               <div class="space-y-1.5">
                 <label for="lName" class="block text-sm font-medium text-slate-700">Library Name</label>
                 <input id="lName" type="text" bind:value={settings.libraryName} class={inp}/>
@@ -432,9 +519,9 @@
               </div>
             </div>
 
-            <hr class="border-gray-100 max-w-3xl mt-8 mb-7"/>
+            <hr class="border-gray-100 max-w-5xl mt-8 mb-7"/>
 
-            <div class="max-w-3xl">
+            <div class="max-w-5xl">
               <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                   <h3 class="text-base font-semibold text-slate-900">Visit Scan Method</h3>
@@ -478,12 +565,12 @@
 
         <!-- BORROWING -->
         {:else if activeTab === 'borrowing'}
-          <div class="p-6 sm:p-8 animate-in">
+          <div class="p-5 sm:p-8 lg:p-10 animate-in">
             <div class="mb-7">
               <h3 class="text-base font-semibold text-slate-900">Borrowing Policies</h3>
               <p class="text-xs text-slate-400 mt-1">Controls loan periods, copy limits, and reservation windows (tbl_*_borrowing, tbl_*_reservation)</p>
             </div>
-            <div class="space-y-8 max-w-3xl">
+            <div class="space-y-8 max-w-5xl">
 
               <div>
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Loan Periods</h4>
@@ -509,7 +596,7 @@
 
               <div>
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Borrow Limits per User</h4>
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {#each borrowLimits as item}
                     <div class="space-y-1.5">
                       <label for="borrow-limit-{item.key}" class="block text-sm font-medium text-slate-700">{item.label}</label>
@@ -545,12 +632,12 @@
 
         <!-- FINES & RETURNS -->
         {:else if activeTab === 'fines'}
-          <div class="p-6 sm:p-8 animate-in">
+          <div class="p-5 sm:p-8 lg:p-10 animate-in">
             <div class="mb-7">
               <h3 class="text-base font-semibold text-slate-900">Fines & Return Policies</h3>
               <p class="text-xs text-slate-400 mt-1">Configure overdue fine rates, damage/loss penalties, and return request rules (tbl_fine, tbl_*_return_request)</p>
             </div>
-            <div class="space-y-8 max-w-3xl">
+            <div class="space-y-8 max-w-5xl">
 
               <div>
                 <div class="flex items-baseline gap-2 mb-4">
@@ -629,12 +716,12 @@
 
         <!-- FINE EXEMPTIONS -->
         {:else if activeTab === 'finecalc'}
-          <div class="p-6 sm:p-8 animate-in">
+          <div class="p-5 sm:p-8 lg:p-10 animate-in">
             <div class="mb-7">
               <h3 class="text-base font-semibold text-slate-900">Fine Calculation Exemptions</h3>
               <p class="text-xs text-slate-400 mt-1">Days excluded when computing daysOverdue in tbl_fine</p>
             </div>
-            <div class="max-w-3xl space-y-7">
+            <div class="max-w-5xl space-y-7">
 
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <label class="flex items-center gap-3 cursor-pointer">
@@ -709,7 +796,7 @@
 
         <!-- NOTIFICATIONS -->
         {:else if activeTab === 'notifications'}
-          <div class="p-6 sm:p-8 animate-in">
+          <div class="p-5 sm:p-8 lg:p-10 animate-in">
             <div class="mb-7">
               <h3 class="text-base font-semibold text-slate-900">Notifications</h3>
               <p class="text-xs text-slate-400 mt-1">Controls tbl_notification type values and delivery channels</p>
@@ -764,7 +851,7 @@
 
         <!-- DEFAULT PERMISSIONS -->
         {:else if activeTab === 'permissions'}
-          <div class="p-6 sm:p-8 animate-in">
+          <div class="p-5 sm:p-8 lg:p-10 animate-in">
             <div class="mb-7">
               <h3 class="text-base font-semibold text-slate-900">Default Staff Permissions</h3>
               <p class="text-xs text-slate-400 mt-1">Applied when a new staff account is created (tbl_staff_permission). Individual records can be overridden per-staff.</p>
@@ -785,12 +872,12 @@
 
         <!-- SECURITY -->
         {:else if activeTab === 'security'}
-          <div class="p-6 sm:p-8 animate-in">
+          <div class="p-5 sm:p-8 lg:p-10 animate-in">
             <div class="mb-7">
               <h3 class="text-base font-semibold text-slate-900">Security Settings</h3>
               <p class="text-xs text-slate-400 mt-1">Session management (tbl_user_session, tbl_staff_session) and access control</p>
             </div>
-            <div class="max-w-3xl space-y-8">
+            <div class="max-w-5xl space-y-8">
 
               <div>
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Session & Authentication</h4>
@@ -839,12 +926,12 @@
 
         <!-- SYSTEM -->
         {:else if activeTab === 'system'}
-          <div class="p-6 sm:p-8 animate-in">
+          <div class="p-5 sm:p-8 lg:p-10 animate-in">
             <div class="mb-7">
               <h3 class="text-base font-semibold text-slate-900">System Status & Maintenance</h3>
               <p class="text-xs text-slate-400 mt-1">Monitor health and run maintenance tasks</p>
             </div>
-            <div class="max-w-3xl space-y-7">
+            <div class="max-w-5xl space-y-7">
 
               <div>
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Current Status</h4>

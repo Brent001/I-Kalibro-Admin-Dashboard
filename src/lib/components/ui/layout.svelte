@@ -5,7 +5,6 @@
   import { writable, get, derived } from "svelte/store";
   import { browser } from "$app/environment";
   import { slide } from "svelte/transition";
-  import { base } from '$app/paths';
   import NotificationContainer from "./notificationContainer.svelte";
   import { notifications } from "$lib/stores/notificationStore.js";
   import * as Lucide from "lucide-svelte";
@@ -49,6 +48,8 @@
   let sessionError = false;
   let sessionTimeoutMinutes = 30;
   let lastActivityAt = Date.now();
+  let inactivityWarningShown = false;
+  let inactivityLogoutTriggered = false;
   
   $: user = $userStore;
   $: isLoadingUser = $isLoadingStore;
@@ -265,7 +266,7 @@
       name: "Settings",
       href: "/dashboard/settings",
       icon: Icons.Settings,
-      userTypes: ["admin", "super_admin"]
+      userTypes: ["admin", "super_admin", "staff"]
     },
   ];
 
@@ -326,7 +327,6 @@
         if (result.success && result.data?.user) {
           userStore.set(result.data.user);
           sessionTimeoutMinutes = Number(result.data.sessionInfo?.sessionTimeoutMinutes) || 30;
-          lastActivityAt = Date.now();
         } else {
           sessionErrorStore.set(true);
         }
@@ -389,6 +389,10 @@
     }
   }
 
+  function handleLogoutModalClick(event: MouseEvent) {
+    if (event.target === event.currentTarget) showLogoutConfirm = false;
+  }
+
   function getNotificationIconColor(type: string) {
     switch (type) {
       case 'success': return 'text-emerald-600';
@@ -433,46 +437,38 @@
   onMount(() => {
     if (browser) {
       fetchUserSession();
-      // initialize notification audio (use base path in case app is not hosted at root)
-      try {
-        const src = `${base}/assets/sound/new_nof.ogg`;
-        console.debug('loading notif audio from', src);
-        notifAudio = new Audio(src);
-        notifAudio.preload = 'auto';
-        notifAudio.addEventListener('error', (e) => console.warn('notifAudio load error', e));
-      } catch (e) {
-        console.debug('notifAudio init failed', e);
-        notifAudio = null;
-      }
-
-      // Unlock audio on first user interaction (works around autoplay policies)
-      const unlockAudio = async () => {
-        try {
-          if (notifAudio) {
-            notifAudio.muted = true;
-            await notifAudio.play();
-            notifAudio.pause();
-            notifAudio.currentTime = 0;
-            notifAudio.muted = false;
-          }
-        } catch (e) {
-          // ignore play errors
-        } finally {
-          document.removeEventListener('click', unlockAudio);
-        }
-      };
-      document.addEventListener('click', unlockAudio, { once: true });
       let isCheckPending = false;
-      const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'touchstart', 'touchmove', 'mousemove', 'scroll'];
-      const recordActivity = () => { lastActivityAt = Date.now(); };
+      const recordActivity = () => {
+        lastActivityAt = Date.now();
+        inactivityWarningShown = false;
+      };
+      const activityEvents = ['pointerdown', 'keydown', 'touchstart'];
+      const movementEvents = ['pointermove', 'mousemove', 'scroll'];
+      let movementActivityPending = false;
+      const recordMovementActivity = () => {
+        if (movementActivityPending) return;
+        movementActivityPending = true;
+        window.setTimeout(() => {
+          movementActivityPending = false;
+          recordActivity();
+        }, 250);
+      };
       activityEvents.forEach(eventName => window.addEventListener(eventName, recordActivity, { passive: true }));
+      movementEvents.forEach(eventName => window.addEventListener(eventName, recordMovementActivity, { passive: true }));
       const sessionCheckInterval = setInterval(async () => {
-        if (isCheckPending || !$userStore) return;
-        if (Date.now() - lastActivityAt >= sessionTimeoutMinutes * 60 * 1000) {
+        if (isCheckPending || !$userStore || inactivityLogoutTriggered) return;
+        const inactivityMs = Date.now() - lastActivityAt;
+        const timeoutMs = sessionTimeoutMinutes * 60 * 1000;
+        if (inactivityMs >= timeoutMs) {
+          inactivityLogoutTriggered = true;
           userStore.set(null);
           notifications.show('Your session expired after inactivity.', 'warning');
           await goto('/', { replaceState: true, noScroll: true });
           return;
+        }
+        if (!inactivityWarningShown && inactivityMs >= Math.max(0, timeoutMs - 2 * 60 * 1000)) {
+          inactivityWarningShown = true;
+          notifications.show('Your session will expire after two more minutes of inactivity.', 'warning');
         }
         try {
           isCheckPending = true;
@@ -505,6 +501,7 @@
       return () => {
         document.removeEventListener('click', handleClickOutside);
         activityEvents.forEach(eventName => window.removeEventListener(eventName, recordActivity));
+        movementEvents.forEach(eventName => window.removeEventListener(eventName, recordMovementActivity));
         clearInterval(sessionCheckInterval);
         if (notifPollInterval) clearInterval(notifPollInterval);
       };
@@ -533,16 +530,17 @@
 <style>
   ::-webkit-scrollbar { display: none; }
   * { scrollbar-width: none; }
-  div, main, nav, aside { -ms-overflow-style: none; }
+  div, main, nav { -ms-overflow-style: none; }
 </style>
 
 <div class="flex h-screen bg-[#4A7C59]/5">
   {#if $sidebarOpen}
-    <div 
+    <button 
+      type="button"
       class="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden transition-opacity duration-300"
       on:click={() => sidebarOpen.set(false)}
       aria-label="Close sidebar"
-    ></div>
+    ></button>
   {/if}
 
   <!-- Sidebar -->
@@ -848,8 +846,16 @@
 
 <!-- Logout confirm modal -->
 {#if showLogoutConfirm}
-  <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" on:click={() => showLogoutConfirm = false}>
-    <div class="bg-white rounded-xl shadow-2xl p-5 sm:p-6 max-w-md w-full" on:click|stopPropagation>
+  <div
+    class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Confirm Logout"
+    tabindex="-1"
+    on:click={handleLogoutModalClick}
+    on:keydown={(event) => event.key === 'Escape' && (showLogoutConfirm = false)}
+  >
+    <div class="bg-white rounded-xl shadow-2xl p-5 sm:p-6 max-w-md w-full">
       <h3 class="text-lg sm:text-xl font-bold text-[#0D5C29] mb-3 sm:mb-4">Confirm Logout</h3>
       <p class="text-sm sm:text-base text-gray-600 mb-5 sm:mb-6">
         {#if logoutAllDevices}

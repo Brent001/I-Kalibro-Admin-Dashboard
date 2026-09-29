@@ -14,6 +14,8 @@
     year?: string;
     department?: string;
     designation?: string;
+    facultyNumber?: string;
+    gender?: string;
     username?: string;
     isActive?: boolean;
   } | null = null;
@@ -27,7 +29,7 @@
     startDate: string;
     endDate: string | null;
   }> = [];
-  let restrictionType = 'ban_borrowing';
+  let restrictionTypes: string[] = [];
   let restrictionReason = '';
   let restrictionEndDate = '';
   let restrictionsLoading = false;
@@ -55,21 +57,35 @@
   async function addRestriction(event: SubmitEvent) {
     event.preventDefault();
     if (!member?.id || restrictionSaving) return;
+    const activeRestrictionTypes = new Set(restrictions.map(restriction => restriction.restrictionType));
+    const typesToAdd = restrictionTypes.filter(type => !activeRestrictionTypes.has(type));
+    if (typesToAdd.length === 0) {
+      restrictionError = restrictionTypes.length
+        ? 'The selected restrictions are already active.'
+        : 'Select at least one restriction.';
+      return;
+    }
+
     restrictionSaving = true;
     restrictionError = '';
     try {
-      const response = await fetch(`/api/user/${member.id}/restriction`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restrictionType,
-          reason: restrictionReason,
-          endDate: restrictionEndDate || null
-        })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || 'Could not add restriction.');
-      restrictions = [result.restriction, ...restrictions];
+      const addedRestrictions = [];
+      for (const restrictionType of typesToAdd) {
+        const response = await fetch(`/api/user/${member.id}/restriction`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            restrictionType,
+            reason: restrictionReason,
+            endDate: restrictionEndDate || null
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || 'Could not add restriction.');
+        addedRestrictions.push(result.restriction);
+      }
+      restrictions = [...addedRestrictions, ...restrictions];
+      restrictionTypes = [];
       restrictionReason = '';
       restrictionEndDate = '';
     } catch (error) {
@@ -190,7 +206,11 @@
                 </div>
                 <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
                   <span class="block text-xs font-medium text-gray-500">Age</span>
-                  <span class="block text-sm font-semibold text-gray-900">{member.age}</span>
+                  <span class="block text-sm font-semibold text-gray-900">{member.age || 'Not provided'}</span>
+                </div>
+                <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
+                  <span class="block text-xs font-medium text-gray-500">Gender</span>
+                  <span class="block text-sm font-semibold text-gray-900">{member.gender || 'Not provided'}</span>
                 </div>
                 <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
                   <span class="block text-xs font-medium text-gray-500">Username</span>
@@ -226,11 +246,15 @@
                   {:else}
                     <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
                       <span class="block text-xs font-medium text-gray-500">Department</span>
-                      <span class="block text-sm font-semibold text-gray-900">{member.department}</span>
+                      <span class="block text-sm font-semibold text-gray-900">{member.department || 'Not provided'}</span>
                     </div>
-                    <div class="bg-white border border-gray-200 rounded-lg px-3 py-2 sm:col-span-2">
+                    <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
+                      <span class="block text-xs font-medium text-gray-500">Faculty Number</span>
+                      <span class="block text-sm font-semibold text-gray-900">{member.facultyNumber || 'Not provided'}</span>
+                    </div>
+                    <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
                       <span class="block text-xs font-medium text-gray-500">Designation</span>
-                      <span class="block text-sm font-semibold text-gray-900">{member.designation}</span>
+                      <span class="block text-sm font-semibold text-gray-900">{member.designation || 'Not provided'}</span>
                     </div>
                   {/if}
                 </div>
@@ -238,70 +262,118 @@
             {/if}
 
             {#if canManageRestrictions}
-              <section class="bg-white border border-amber-200 rounded-xl p-4 sm:p-5" aria-labelledby="member-restrictions-heading">
-                <div class="flex items-center justify-between gap-3 mb-4">
-                  <h4 id="member-restrictions-heading" class="text-base font-semibold text-slate-900">Member Restrictions</h4>
-                  <span class="text-xs text-slate-500">{restrictions.length} active</span>
+              <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="member-restrictions-heading">
+                <div class="border-b border-slate-200 bg-slate-50 px-4 py-4 sm:px-5">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="flex items-start gap-3">
+                      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7l8-4z" />
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h4 id="member-restrictions-heading" class="text-base font-semibold text-slate-900">Restriction controls</h4>
+                        <p class="mt-0.5 text-xs text-slate-500">Manage borrowing and reservation access for this member.</p>
+                      </div>
+                    </div>
+                    <span class="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                      {restrictions.length} active
+                    </span>
+                  </div>
                 </div>
 
-                {#if restrictionError}
-                  <p class="mb-3 text-sm text-red-700" role="alert">{restrictionError}</p>
-                {/if}
+                <div class="space-y-4 p-4 sm:p-5">
+                  {#if restrictionError}
+                    <p class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{restrictionError}</p>
+                  {/if}
 
-                {#if restrictionsLoading}
-                  <p class="mb-4 text-sm text-slate-500">Loading restrictions…</p>
-                {:else if restrictions.length}
-                  <ul class="mb-4 divide-y divide-slate-100">
+                  {#if restrictionsLoading}
+                    <div class="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
+                      <span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-[#0D5C29]"></span>
+                      Loading active restrictions…
+                    </div>
+                  {:else if restrictions.length}
+                    <ul class="space-y-2">
                     {#each restrictions as restriction (restriction.id)}
-                      <li class="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                        <div class="min-w-0">
-                          <p class="text-sm font-medium text-slate-800">{restrictionLabel(restriction.restrictionType)}</p>
+                      <li class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
+                        <div class="flex min-w-0 items-start gap-3">
+                          <span class="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500"></span>
+                          <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-2">
+                              <p class="text-sm font-semibold text-slate-800">{restrictionLabel(restriction.restrictionType)}</p>
+                              <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Active</span>
+                            </div>
                           {#if restriction.reason}
-                            <p class="mt-0.5 text-sm text-slate-600">{restriction.reason}</p>
+                              <p class="mt-1 text-sm text-slate-600">{restriction.reason}</p>
                           {/if}
-                          <p class="mt-1 text-xs text-slate-500">
-                            Started {new Date(restriction.startDate).toLocaleDateString()}
-                            {restriction.endDate ? ` · Ends ${new Date(restriction.endDate).toLocaleDateString()}` : ' · No end date'}
-                          </p>
+                            <p class="mt-1 text-xs text-slate-500">
+                              Started {new Date(restriction.startDate).toLocaleDateString()}
+                              {restriction.endDate ? ` · Ends ${new Date(restriction.endDate).toLocaleDateString()}` : ' · No end date'}
+                            </p>
+                          </div>
                         </div>
                         <button type="button" onclick={() => removeRestriction(restriction.id)} disabled={restrictionSaving}
-                          class="shrink-0 text-sm font-medium text-red-700 hover:text-red-900 disabled:opacity-50">
-                          Remove
+                          class="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 hover:text-red-900 disabled:opacity-50">
+                          Remove restriction
                         </button>
                       </li>
                     {/each}
-                  </ul>
-                {:else}
-                  <p class="mb-4 text-sm text-slate-500">No active restrictions.</p>
-                {/if}
+                    </ul>
+                  {:else}
+                    <div class="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center">
+                      <p class="text-sm font-medium text-slate-700">No active restrictions</p>
+                      <p class="mt-1 text-xs text-slate-500">Select a control below to limit this member’s circulation access.</p>
+                    </div>
+                  {/if}
 
-                <form onsubmit={addRestriction} class="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-slate-100 pt-4">
-                  <div class="space-y-1">
-                    <label for="restriction-type" class="block text-xs font-medium text-slate-600">Restriction</label>
-                    <select id="restriction-type" bind:value={restrictionType} disabled={restrictionSaving}
-                      class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
-                      <option value="ban_borrowing">Block borrowing</option>
-                      <option value="ban_reservation">Block reservations</option>
-                      <option value="temporary_suspension">Suspend all activity</option>
-                    </select>
-                  </div>
-                  <div class="space-y-1">
-                    <label for="restriction-end-date" class="block text-xs font-medium text-slate-600">End date (optional)</label>
-                    <input id="restriction-end-date" type="date" bind:value={restrictionEndDate} disabled={restrictionSaving}
-                      min={new Date().toISOString().slice(0, 10)} class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
-                  </div>
-                  <div class="space-y-1 sm:col-span-2">
-                    <label for="restriction-reason" class="block text-xs font-medium text-slate-600">Reason (optional)</label>
-                    <input id="restriction-reason" type="text" bind:value={restrictionReason} maxlength="500" disabled={restrictionSaving}
-                      class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" placeholder="Add a short reason" />
-                  </div>
-                  <div class="sm:col-span-2 flex justify-end">
-                    <button type="submit" disabled={restrictionSaving}
-                      class="rounded-lg bg-[#0D5C29] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0A4520] disabled:opacity-50">
-                      {restrictionSaving ? 'Saving…' : 'Add Restriction'}
-                    </button>
-                  </div>
-                </form>
+                  <form onsubmit={addRestriction} class="space-y-4 border-t border-slate-200 pt-4">
+                    <div>
+                      <div class="mb-2 flex items-center justify-between gap-2">
+                        <fieldset>
+                          <legend class="text-sm font-semibold text-slate-800">Add restriction</legend>
+                        </fieldset>
+                        <span class="text-xs text-slate-500">Select one or more</span>
+                      </div>
+                      <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <label class="group flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 transition hover:border-amber-300 hover:bg-amber-50 has-[:checked]:border-amber-400 has-[:checked]:bg-amber-50">
+                          <input type="checkbox" value="ban_borrowing" bind:group={restrictionTypes} disabled={restrictionSaving}
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#0D5C29] focus:ring-[#0D5C29]" />
+                          <span><span class="block text-sm font-semibold text-slate-800">Borrowing</span><span class="mt-0.5 block text-xs text-slate-500">Block new loans</span></span>
+                        </label>
+                        <label class="group flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 transition hover:border-amber-300 hover:bg-amber-50 has-[:checked]:border-amber-400 has-[:checked]:bg-amber-50">
+                          <input type="checkbox" value="ban_reservation" bind:group={restrictionTypes} disabled={restrictionSaving}
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#0D5C29] focus:ring-[#0D5C29]" />
+                          <span><span class="block text-sm font-semibold text-slate-800">Reservations</span><span class="mt-0.5 block text-xs text-slate-500">Block new requests</span></span>
+                        </label>
+                        <label class="group flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 transition hover:border-amber-300 hover:bg-amber-50 has-[:checked]:border-amber-400 has-[:checked]:bg-amber-50">
+                          <input type="checkbox" value="temporary_suspension" bind:group={restrictionTypes} disabled={restrictionSaving}
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#0D5C29] focus:ring-[#0D5C29]" />
+                          <span><span class="block text-sm font-semibold text-slate-800">Suspension</span><span class="mt-0.5 block text-xs text-slate-500">Pause circulation</span></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div class="space-y-1">
+                        <label for="restriction-end-date" class="block text-xs font-medium text-slate-600">End date <span class="font-normal text-slate-400">(optional)</span></label>
+                        <input id="restriction-end-date" type="date" bind:value={restrictionEndDate} disabled={restrictionSaving}
+                          min={new Date().toISOString().slice(0, 10)} class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-[#0D5C29] focus:outline-none focus:ring-2 focus:ring-[#0D5C29]/20" />
+                      </div>
+                      <div class="space-y-1">
+                        <label for="restriction-reason" class="block text-xs font-medium text-slate-600">Reason <span class="font-normal text-slate-400">(optional)</span></label>
+                        <input id="restriction-reason" type="text" bind:value={restrictionReason} maxlength="500" disabled={restrictionSaving}
+                          class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-[#0D5C29] focus:outline-none focus:ring-2 focus:ring-[#0D5C29]/20" placeholder="Add a short reason" />
+                      </div>
+                    </div>
+                    <div class="flex flex-col gap-3 rounded-lg bg-amber-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p class="text-xs leading-5 text-amber-800">Suspension blocks new borrowing and reservations. Login, returns, and cancellations remain available.</p>
+                      <button type="submit" disabled={restrictionSaving || restrictionTypes.length === 0}
+                        class="shrink-0 rounded-lg bg-[#0D5C29] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0A4520] disabled:cursor-not-allowed disabled:opacity-50">
+                        {restrictionSaving ? 'Saving…' : 'Apply restriction'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </section>
             {/if}
 

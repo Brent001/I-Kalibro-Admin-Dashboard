@@ -23,19 +23,21 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
         throw redirect(302, '/');
     }
 
-    const rows = await db.select().from(tbl_library_settings);
+    const isAdmin = user.userType === 'admin' || user.userType === 'super_admin';
+    const rows = isAdmin ? await db.select().from(tbl_library_settings) : [];
     const settingsRow = rows.find(row => row.settingKey === 'systemSettings');
     const permissionsRow = rows.find(row => row.settingKey === 'defaultStaffPermissions');
 
     return {
         user: {
             id: user.id,
+            name: user.name,
             username: user.username,
             email: user.email,
             userType: user.userType,
             permissions: user.permissions
         },
-        settings: settingsRow ? parseSetting(settingsRow.settingValue, settingsRow.dataType) : null,
-        defaultStaffPermissions: permissionsRow ? parseSetting(permissionsRow.settingValue, permissionsRow.dataType) : null
+        settings: isAdmin && settingsRow ? parseSetting(settingsRow.settingValue, settingsRow.dataType) : null,
+        defaultStaffPermissions: isAdmin && permissionsRow ? parseSetting(permissionsRow.settingValue, permissionsRow.dataType) : null
     };
 };

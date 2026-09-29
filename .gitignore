@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+.svelte-kit/
+node_modules/
+dist/
+
+# Generated and runtime assets
+static/assets/sound/
+static/pIctures/

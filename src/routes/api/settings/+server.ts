@@ -1,35 +1,25 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
-import { and, eq } from 'drizzle-orm';
-import jwt from 'jsonwebtoken';
-import { env } from '$env/dynamic/private';
+import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
-import { isSessionRevoked } from '$lib/server/db/auth.js';
-import { tbl_admin, tbl_library_settings, tbl_security_log, tbl_super_admin } from '$lib/server/db/schema/schema.js';
+import { verifyToken } from '$lib/server/db/auth.js';
+import { tbl_library_settings, tbl_security_log } from '$lib/server/db/schema/schema.js';
 
 const SETTINGS_KEY = 'systemSettings';
 const DEFAULT_PERMISSIONS_KEY = 'defaultStaffPermissions';
 
-async function authenticateAdmin(request: Request) {
+async function authenticateAdmin(request: Request, cookies: { get(name: string): string | undefined }) {
     const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
-        || request.headers.get('cookie')?.split(';').map(value => value.trim()).find(value => value.startsWith('token='))?.slice(6);
-    if (!token || await isSessionRevoked(token)) return null;
+        || cookies.get('token');
+    if (!token) return null;
 
-    try {
-        const decoded = jwt.verify(token, env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production') as { userId?: number; id?: number };
-        const userId = decoded.userId || decoded.id;
-        if (!userId) return null;
+    const user = await verifyToken(token);
+    if (!user || (user.userType !== 'admin' && user.userType !== 'super_admin')) return null;
 
-        const [admin] = await db.select({ id: tbl_admin.id }).from(tbl_admin)
-            .where(and(eq(tbl_admin.id, userId), eq(tbl_admin.isActive, true))).limit(1);
-        if (admin) return { id: admin.id, role: 'admin' } as const;
-
-        const [superAdmin] = await db.select({ id: tbl_super_admin.id }).from(tbl_super_admin)
-            .where(and(eq(tbl_super_admin.id, userId), eq(tbl_super_admin.isActive, true))).limit(1);
-        return superAdmin ? { id: superAdmin.id, role: 'super_admin' } as const : null;
-    } catch {
-        return null;
-    }
+    return {
+        id: user.id,
+        role: user.userType === 'admin' ? 'admin' : 'super_admin'
+    } as const;
 }
 
 function parseSetting(row: { settingValue: string; dataType: string | null } | undefined) {
@@ -53,8 +43,8 @@ async function saveSetting(key: string, value: unknown, adminId: number, descrip
     }
 }
 
-export const GET: RequestHandler = async ({ request }) => {
-    const admin = await authenticateAdmin(request);
+export const GET: RequestHandler = async ({ request, cookies }) => {
+    const admin = await authenticateAdmin(request, cookies);
     if (!admin) throw error(403, 'Unauthorized');
 
     const rows = await db.select().from(tbl_library_settings);
@@ -65,8 +55,8 @@ export const GET: RequestHandler = async ({ request }) => {
     });
 };
 
-export const POST: RequestHandler = async ({ request }) => {
-    const admin = await authenticateAdmin(request);
+export const POST: RequestHandler = async ({ request, cookies }) => {
+    const admin = await authenticateAdmin(request, cookies);
     if (!admin) throw error(403, 'Unauthorized');
 
     const body = await request.json();

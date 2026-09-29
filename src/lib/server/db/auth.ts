@@ -11,15 +11,8 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-super-secret-
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** How long a session lives (ms). Override with SESSION_TTL_MS env var. Default: 30 days. */
-const SESSION_TTL_MS: number = (() => {
-    const env = process.env.SESSION_TTL_MS;
-    if (env) {
-        const parsed = parseInt(env, 10);
-        if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-    }
-    return 30 * 24 * 60 * 60 * 1000; // 30 days
-})();
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const REMEMBERED_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * How often (ms) we bother writing lastUsedAt back to the DB.
@@ -288,7 +281,7 @@ export async function isSessionRevoked(token: string): Promise<boolean> {
 
 export async function generateTokens(
     user: AuthUser,
-    sessionInfo: { userAgent: string; ipAddress: string }
+    sessionInfo: { userAgent: string; ipAddress: string; rememberMe: boolean }
 ): Promise<{ accessToken: string; refreshToken: string; sessionId: string }> {
     const sessionId = generateSessionId();
     const jti = randomBytes(16).toString('hex');
@@ -311,14 +304,15 @@ export async function generateTokens(
         { expiresIn: '15m', issuer: 'kalibro-library', subject: user.id.toString() }
     );
 
+    const sessionTtlMs = sessionInfo.rememberMe ? REMEMBERED_SESSION_TTL_MS : SESSION_TTL_MS;
     const refreshToken = jwt.sign(
         { ...basePayload, tokenType: 'refresh', jti: refreshJti },
         JWT_REFRESH_SECRET,
-        { expiresIn: '30d', issuer: 'kalibro-library', subject: user.id.toString() }
+        { expiresIn: sessionInfo.rememberMe ? '7d' : '1d', issuer: 'kalibro-library', subject: user.id.toString() }
     );
 
     const now = new Date();
-    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+    const expiresAt = new Date(Date.now() + sessionTtlMs);
 
     // ── Persist to DB ─────────────────────────────────────────────────────────
     try {
@@ -343,7 +337,7 @@ export async function generateTokens(
     }
 
     // ── Optional Redis cache ──────────────────────────────────────────────────
-    const ttlSeconds = Math.ceil(SESSION_TTL_MS / 1000);
+    const ttlSeconds = Math.ceil(sessionTtlMs / 1000);
     const sessionCache = JSON.stringify({
         id: sessionId,
         userId: user.id,
@@ -428,12 +422,10 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
         );
 
         // ── Update session row ────────────────────────────────────────────────
-        const newExpiry = new Date(Date.now() + SESSION_TTL_MS);
         try {
             await db.update(tbl_staff_session).set({
                 tokenHash: hashToken(accessToken),
                 lastUsedAt: new Date(),
-                expiresAt: newExpiry,
             }).where(eq(tbl_staff_session.sessionId, decoded.sessionId));
         } catch (dbErr) {
             console.warn('[auth] Failed to update session during token refresh (non-fatal):', (dbErr as any)?.message);
@@ -446,8 +438,10 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
                 const s = JSON.parse(cached);
                 s.token = hashToken(accessToken);
                 s.lastUsedAt = new Date();
-                s.expiresAt = newExpiry;
-                await safeRedisSetex(`session:${decoded.sessionId}`, Math.ceil(SESSION_TTL_MS / 1000), JSON.stringify(s));
+                const remainingTtl = s.expiresAt ? Math.ceil((new Date(s.expiresAt).getTime() - Date.now()) / 1000) : 0;
+                if (remainingTtl > 0) {
+                    await safeRedisSetex(`session:${decoded.sessionId}`, remainingTtl, JSON.stringify(s));
+                }
             } catch { /* stale cache, ignore */ }
         }
 
@@ -481,11 +475,9 @@ async function touchSessionThrottled(sessionId: string): Promise<void> {
 }
 
 export async function updateSessionLastUsed(sessionId: string): Promise<void> {
-    const newExpiry = new Date(Date.now() + SESSION_TTL_MS);
     try {
         await db.update(tbl_staff_session).set({
             lastUsedAt: new Date(),
-            expiresAt: newExpiry,
         }).where(eq(tbl_staff_session.sessionId, sessionId));
     } catch (error) {
         console.error('[auth] Failed to update session lastUsedAt:', error);
@@ -497,8 +489,10 @@ export async function updateSessionLastUsed(sessionId: string): Promise<void> {
         try {
             const session: any = JSON.parse(cached);
             session.lastUsedAt = new Date();
-            session.expiresAt = newExpiry;
-            await safeRedisSetex(`session:${sessionId}`, Math.ceil(SESSION_TTL_MS / 1000), JSON.stringify(session));
+            const remainingTtl = session.expiresAt ? Math.ceil((new Date(session.expiresAt).getTime() - Date.now()) / 1000) : 0;
+            if (remainingTtl > 0) {
+                await safeRedisSetex(`session:${sessionId}`, remainingTtl, JSON.stringify(session));
+            }
         } catch { /* stale / corrupt cache, ignore */ }
     }
 }

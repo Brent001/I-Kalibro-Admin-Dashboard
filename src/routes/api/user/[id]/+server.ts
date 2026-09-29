@@ -2,8 +2,12 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { tbl_user, tbl_student, tbl_faculty, tbl_book_borrowing, tbl_book, tbl_return } from '$lib/server/db/schema/schema.js';
-import { eq, count, and } from 'drizzle-orm';
+import {
+  tbl_user, tbl_student, tbl_faculty,
+  tbl_book_borrowing, tbl_magazine_borrowing, tbl_thesis_borrowing, tbl_journal_borrowing,
+  tbl_book, tbl_return
+} from '$lib/server/db/schema/schema.js';
+import { eq, count, and, or, isNull } from 'drizzle-orm';
 
 // GET: Return specific user details with issued and returned books, using new schema
 export const GET: RequestHandler = async ({ params }) => {
@@ -43,6 +47,8 @@ export const GET: RequestHandler = async ({ params }) => {
       memberDetails.course = studentInfo.course;
       memberDetails.year = studentInfo.year;
       memberDetails.department = studentInfo.department;
+      memberDetails.gender = studentInfo.gender;
+      memberDetails.age = studentInfo.age;
     } else {
       const [facultyInfo] = await db
         .select()
@@ -52,17 +58,23 @@ export const GET: RequestHandler = async ({ params }) => {
       if (facultyInfo) {
         memberDetails.userType = 'faculty';
         memberDetails.facultyNumber = facultyInfo.facultyNumber;
-        memberDetails.position = facultyInfo.position;
+        memberDetails.designation = facultyInfo.position;
         memberDetails.department = facultyInfo.department;
+        memberDetails.gender = facultyInfo.gender;
+        memberDetails.age = facultyInfo.age;
       }
     }
 
-    // Get issued books count (only book borrowing for now, can extend to other types)
-    const issuedBooksCountResult = await db
-      .select({ count: count() })
-      .from(tbl_book_borrowing)
-      .where(and(eq(tbl_book_borrowing.userId, userId), eq(tbl_book_borrowing.status, 'borrowed')));
-    const issuedBooksCount = issuedBooksCountResult[0]?.count ?? 0;
+    const [bookCount, magazineCount, thesisCount, journalCount] = await Promise.all([
+      db.select({ count: count() }).from(tbl_book_borrowing).where(and(eq(tbl_book_borrowing.userId, userId), or(eq(tbl_book_borrowing.status, 'borrowed'), eq(tbl_book_borrowing.status, 'overdue')), isNull(tbl_book_borrowing.returnDate))),
+      db.select({ count: count() }).from(tbl_magazine_borrowing).where(and(eq(tbl_magazine_borrowing.userId, userId), or(eq(tbl_magazine_borrowing.status, 'borrowed'), eq(tbl_magazine_borrowing.status, 'overdue')), isNull(tbl_magazine_borrowing.returnDate))),
+      db.select({ count: count() }).from(tbl_thesis_borrowing).where(and(eq(tbl_thesis_borrowing.userId, userId), or(eq(tbl_thesis_borrowing.status, 'borrowed'), eq(tbl_thesis_borrowing.status, 'overdue')), isNull(tbl_thesis_borrowing.returnDate))),
+      db.select({ count: count() }).from(tbl_journal_borrowing).where(and(eq(tbl_journal_borrowing.userId, userId), or(eq(tbl_journal_borrowing.status, 'borrowed'), eq(tbl_journal_borrowing.status, 'overdue')), isNull(tbl_journal_borrowing.returnDate)))
+    ]);
+    const activeBorrowingsCount = Number(bookCount[0]?.count || 0)
+      + Number(magazineCount[0]?.count || 0)
+      + Number(thesisCount[0]?.count || 0)
+      + Number(journalCount[0]?.count || 0);
 
     // Get active borrowings
     const issuedBooksRaw = await db
@@ -105,7 +117,7 @@ export const GET: RequestHandler = async ({ params }) => {
       .leftJoin(tbl_book, eq(tbl_book_borrowing.bookId, tbl_book.id))
       .where(eq(tbl_book_borrowing.userId, userId));
 
-    memberDetails.booksCount = issuedBooks.length;
+    memberDetails.booksCount = activeBorrowingsCount;
     memberDetails.issuedBooks = issuedBooks;
     memberDetails.returnedBooks = returnedBooksRaw;
 

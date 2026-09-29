@@ -22,6 +22,28 @@
     position: ''
   };
 
+  const departments = [
+    'College of Business Administration, Tourism, and Computer Science (CBAT.COM)',
+    'College of Teacher Education (COTE)',
+    'College of Criminology (CoCrim)'
+  ];
+  const courses = [
+    { value: 'BSCS', label: 'Bachelor of Science in Computer Science (BSCS)' },
+    { value: 'BSBA-MM', label: 'BSBA - Marketing Management' },
+    { value: 'BSBA-FM', label: 'BSBA - Financial Management' },
+    { value: 'BSTM', label: 'Bachelor of Science in Tourism Management (BSTM)' },
+    { value: 'BEEd', label: 'Bachelor of Elementary Education (BEEd)' },
+    { value: 'BSEd-English', label: 'BSEd - English' },
+    { value: 'BSEd-Filipino', label: 'BSEd - Filipino' },
+    { value: 'BSEd-Math', label: 'BSEd - Mathematics' },
+    { value: 'BSEd-Science', label: 'BSEd - Science' },
+    { value: 'BSEd-TLE-IA', label: 'BSEd-TLE - Industrial Arts' },
+    { value: 'BSEd-TLE-HE', label: 'BSEd-TLE - Home Economics' },
+    { value: 'BPEd', label: 'Bachelor of Physical Education (BPEd)' },
+    { value: 'BSCrim', label: 'Bachelor of Science in Criminology (BSCrim)' }
+  ];
+  const years = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+
   function closeModal() {
     if (!isLoading) {
       dispatch('close');
@@ -150,8 +172,9 @@
                     <input
                       id="phone" type="tel" bind:value={formData.phone}
                       disabled={isLoading}
-                      placeholder="+63 900 000 0000"
+                      placeholder="+63 9XX XXX XXXX"
                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                      required
                     />
                   </div>
 
@@ -160,7 +183,7 @@
                     <input
                       id="age" type="number" bind:value={formData.age}
                       disabled={isLoading}
-                      placeholder="18" min="1" max="120"
+                      placeholder="25" min="16" max="100"
                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
                     />
                   </div>
@@ -175,6 +198,7 @@
                       <option value="Male">Male</option>
                       <option value="Female">Female</option>
                       <option value="Other">Other</option>
+                      <option value="Prefer not to say">Prefer not to say</option>
                     </select>
                   </div>
 
@@ -234,7 +258,7 @@
                   <div class="flex p-1 rounded-lg bg-[#0D5C29]/10 flex-shrink-0">
                     <button
                       type="button"
-                      onclick={() => formData.type = 'Student'}
+                      onclick={() => { formData.type = 'Student'; formData.department = ''; }}
                       disabled={isLoading}
                       class="px-4 py-1.5 text-xs font-bold rounded-md transition-all {formData.type === 'Student' ? 'bg-white text-[#0D5C29] shadow-sm' : 'text-gray-500'}"
                     >
@@ -242,7 +266,7 @@
                     </button>
                     <button
                       type="button"
-                      onclick={() => formData.type = 'Faculty'}
+                      onclick={() => { formData.type = 'Faculty'; formData.course = ''; formData.year = ''; }}
                       disabled={isLoading}
                       class="px-4 py-1.5 text-xs font-bold rounded-md transition-all {formData.type === 'Faculty' ? 'bg-white text-[#0D5C29] shadow-sm' : 'text-gray-500'}"
                     >
@@ -255,28 +279,28 @@
                   {#if formData.type === 'Student'}
                     <div>
                       <label for="enroll-no" class="block text-xs font-medium text-gray-500 mb-1">Enrollment # <span class="text-red-400">*</span></label>
-                      <input id="enroll-no" bind:value={formData.enrollmentNo} disabled={isLoading} placeholder="2024-0001"
+                      <input id="enroll-no" bind:value={formData.enrollmentNo} disabled={isLoading} placeholder="2024-123456"
+                        oninput={(event) => {
+                          let value = (event.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 10);
+                          if (value.length > 4) value = `${value.slice(0, 4)}-${value.slice(4)}`;
+                          formData.enrollmentNo = value;
+                        }}
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required />
                     </div>
                     <div>
                       <label for="course" class="block text-xs font-medium text-gray-500 mb-1">Course</label>
-                      <input id="course" bind:value={formData.course} disabled={isLoading} placeholder="BS Information Technology"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" />
-                    </div>
-                    <div>
-                      <label for="dept" class="block text-xs font-medium text-gray-500 mb-1">Department</label>
-                      <input id="dept" bind:value={formData.department} disabled={isLoading} placeholder="IT Department"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" />
+                      <select id="course" bind:value={formData.course} disabled={isLoading} required
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white">
+                        <option value="">Select course</option>
+                        {#each courses as course}<option value={course.value}>{course.label}</option>{/each}
+                      </select>
                     </div>
                     <div>
                       <label for="year" class="block text-xs font-medium text-gray-500 mb-1">Year Level</label>
-                      <select id="year" bind:value={formData.year} disabled={isLoading}
+                      <select id="year" bind:value={formData.year} disabled={isLoading} required
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white">
-                        <option value="">Select Year</option>
-                        <option value="1st Year">1st Year</option>
-                        <option value="2nd Year">2nd Year</option>
-                        <option value="3rd Year">3rd Year</option>
-                        <option value="4th Year">4th Year</option>
+                        <option value="">Select year level</option>
+                        {#each years as year}<option value={year}>{year}</option>{/each}
                       </select>
                     </div>
                   {:else}
@@ -286,9 +310,12 @@
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required />
                     </div>
                     <div class="sm:col-span-2">
-                      <label for="fac-dept" class="block text-xs font-medium text-gray-500 mb-1">Department</label>
-                      <input id="fac-dept" bind:value={formData.department} disabled={isLoading} placeholder="IT Department"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" />
+                      <label for="fac-dept" class="block text-xs font-medium text-gray-500 mb-1">Department <span class="text-red-400">*</span></label>
+                      <select id="fac-dept" bind:value={formData.department} disabled={isLoading} required
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white">
+                        <option value="">Select your department</option>
+                        {#each departments as department}<option value={department}>{department}</option>{/each}
+                      </select>
                     </div>
                     <div class="sm:col-span-2">
                       <label for="position" class="block text-xs font-medium text-gray-500 mb-1">Position</label>

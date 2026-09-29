@@ -7,10 +7,10 @@ import { tbl_user, tbl_user_restriction } from '$lib/server/db/schema/schema.js'
 
 const restrictionTypes = ['ban_borrowing', 'ban_reservation', 'temporary_suspension'] as const;
 
-async function getStaffSession(cookies: { get: (name: string) => string | undefined }) {
+async function getAuthorizedSession(cookies: { get: (name: string) => string | undefined }) {
   const token = cookies.get('token');
   const user = token ? await verifyToken(token) : null;
-  return user?.userType === 'staff' ? user : null;
+  return user && ['staff', 'admin', 'super_admin'].includes(user.userType) ? user : null;
 }
 
 function parseUserId(value: string) {
@@ -19,8 +19,8 @@ function parseUserId(value: string) {
 }
 
 export const GET: RequestHandler = async ({ params, cookies }) => {
-  const staff = await getStaffSession(cookies);
-  if (!staff) return json({ success: false, message: 'Staff authentication required' }, { status: 403 });
+  const actor = await getAuthorizedSession(cookies);
+  if (!actor) return json({ success: false, message: 'Administrator authentication required' }, { status: 403 });
 
   const userId = parseUserId(params.id);
   if (!userId) return json({ success: false, message: 'Invalid user ID' }, { status: 400 });
@@ -46,8 +46,8 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 };
 
 export const POST: RequestHandler = async ({ params, request, cookies }) => {
-  const staff = await getStaffSession(cookies);
-  if (!staff) return json({ success: false, message: 'Staff authentication required' }, { status: 403 });
+  const actor = await getAuthorizedSession(cookies);
+  if (!actor) return json({ success: false, message: 'Administrator authentication required' }, { status: 403 });
 
   const userId = parseUserId(params.id);
   if (!userId) return json({ success: false, message: 'Invalid user ID' }, { status: 400 });
@@ -68,6 +68,9 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     let parsedEndDate: Date | null = null;
     if (endDate) {
       parsedEndDate = new Date(endDate);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        parsedEndDate.setHours(23, 59, 59, 999);
+      }
       if (Number.isNaN(parsedEndDate.getTime()) || parsedEndDate <= new Date()) {
         return json({ success: false, message: 'End date must be in the future' }, { status: 400 });
       }
@@ -79,7 +82,8 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
       reason: typeof reason === 'string' && reason.trim() ? reason.trim() : null,
       startDate: new Date(),
       endDate: parsedEndDate,
-      appliedBy: staff.id,
+      appliedBy: actor.userType === 'staff' ? actor.id : null,
+      appliedByType: actor.userType,
       isActive: true
     }).returning();
 
@@ -91,8 +95,8 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, request, cookies }) => {
-  const staff = await getStaffSession(cookies);
-  if (!staff) return json({ success: false, message: 'Staff authentication required' }, { status: 403 });
+  const actor = await getAuthorizedSession(cookies);
+  if (!actor) return json({ success: false, message: 'Administrator authentication required' }, { status: 403 });
 
   const userId = parseUserId(params.id);
   if (!userId) return json({ success: false, message: 'Invalid user ID' }, { status: 400 });

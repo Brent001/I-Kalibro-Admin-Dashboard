@@ -140,7 +140,8 @@ export const tbl_user_restriction = pgTable('tbl_user_restriction', {
     reason: text('reason'),
     startDate: timestamp('start_date').defaultNow().notNull(),
     endDate: timestamp('end_date'),
-    appliedBy: integer('applied_by').references(() => tbl_staff.id).notNull(),
+    appliedBy: integer('applied_by').references(() => tbl_staff.id),
+    appliedByType: varchar('applied_by_type', { length: 20 }).default('staff').notNull(),
     isActive: boolean('is_active').default(true).notNull(),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow()

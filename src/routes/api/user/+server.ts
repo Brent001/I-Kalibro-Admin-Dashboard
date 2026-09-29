@@ -3,12 +3,16 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, count, or, isNull } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import {
     tbl_user,
     tbl_student,
     tbl_faculty,
+    tbl_book_borrowing,
+    tbl_magazine_borrowing,
+    tbl_thesis_borrowing,
+    tbl_journal_borrowing,
     tbl_super_admin,
     tbl_admin,
     tbl_staff
@@ -92,6 +96,43 @@ export const GET: RequestHandler = async ({ request, url }) => {
             .from(tbl_user)
             .where(eq(tbl_user.isActive, true));
 
+        const borrowingCounts = await Promise.all([
+            db.select({ userId: tbl_book_borrowing.userId, count: count() })
+                .from(tbl_book_borrowing)
+                .where(and(
+                    or(eq(tbl_book_borrowing.status, 'borrowed'), eq(tbl_book_borrowing.status, 'overdue')),
+                    isNull(tbl_book_borrowing.returnDate)
+                ))
+                .groupBy(tbl_book_borrowing.userId),
+            db.select({ userId: tbl_magazine_borrowing.userId, count: count() })
+                .from(tbl_magazine_borrowing)
+                .where(and(
+                    or(eq(tbl_magazine_borrowing.status, 'borrowed'), eq(tbl_magazine_borrowing.status, 'overdue')),
+                    isNull(tbl_magazine_borrowing.returnDate)
+                ))
+                .groupBy(tbl_magazine_borrowing.userId),
+            db.select({ userId: tbl_thesis_borrowing.userId, count: count() })
+                .from(tbl_thesis_borrowing)
+                .where(and(
+                    or(eq(tbl_thesis_borrowing.status, 'borrowed'), eq(tbl_thesis_borrowing.status, 'overdue')),
+                    isNull(tbl_thesis_borrowing.returnDate)
+                ))
+                .groupBy(tbl_thesis_borrowing.userId),
+            db.select({ userId: tbl_journal_borrowing.userId, count: count() })
+                .from(tbl_journal_borrowing)
+                .where(and(
+                    or(eq(tbl_journal_borrowing.status, 'borrowed'), eq(tbl_journal_borrowing.status, 'overdue')),
+                    isNull(tbl_journal_borrowing.returnDate)
+                ))
+                .groupBy(tbl_journal_borrowing.userId)
+        ]);
+        const totalBorrowingsByUser = new Map<number, number>();
+        for (const rows of borrowingCounts) {
+            for (const row of rows) {
+                totalBorrowingsByUser.set(row.userId, (totalBorrowingsByUser.get(row.userId) || 0) + Number(row.count));
+            }
+        }
+
         if (userType === 'student') {
             users = users.filter(u => u.userType === 'student');
 
@@ -103,7 +144,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                         .from(tbl_student)
                         .where(eq(tbl_student.userId, u.id))
                         .limit(1);
-                    return { ...u, studentData: student || null };
+                    return { ...u, studentData: student || null, booksCount: totalBorrowingsByUser.get(u.id) || 0 };
                 })
             );
         } else if (userType === 'faculty') {
@@ -117,7 +158,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                         .from(tbl_faculty)
                         .where(eq(tbl_faculty.userId, u.id))
                         .limit(1);
-                    return { ...u, facultyData: faculty || null };
+                    return { ...u, facultyData: faculty || null, booksCount: totalBorrowingsByUser.get(u.id) || 0 };
                 })
             );
         } else {
@@ -143,7 +184,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
                         facultyData = faculty || null;
                     }
                     
-                    return { ...u, studentData, facultyData };
+                    return { ...u, studentData, facultyData, booksCount: totalBorrowingsByUser.get(u.id) || 0 };
                 })
             );
         }

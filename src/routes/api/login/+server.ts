@@ -240,7 +240,8 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 // Generate tokens using centralized auth function
                 const { accessToken, refreshToken, sessionId } = await generateTokens(authUser, {
                     userAgent: userAgent || '',
-                    ipAddress: clientIP
+                    ipAddress: clientIP,
+                    rememberMe: true
                 });
                 
                 // Set cookies
@@ -338,7 +339,8 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         // Generate tokens using centralized auth function
         const { accessToken, refreshToken, sessionId } = await generateTokens(authUser, {
             userAgent: userAgent || '',
-            ipAddress: clientIP
+            ipAddress: clientIP,
+            rememberMe: Boolean(rememberMe)
         });
 
         // Set cookies for authentication
@@ -350,14 +352,13 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             maxAge: 15 * 60
         });
         
-        // Refresh token lifetime depends on "remember me" choice: 7 days when not remembered, 30 days when remembered
         const refreshCookieOptions: Parameters<typeof cookies.set>[2] = {
             path: '/',
             httpOnly: true,
             sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
             secure: process.env.NODE_ENV === 'production'
         };
-        if (rememberMe) refreshCookieOptions.maxAge = 7 * 24 * 60 * 60;
+        refreshCookieOptions.maxAge = rememberMe ? 7 * 24 * 60 * 60 : 24 * 60 * 60;
         cookies.set('refresh_token', refreshToken, refreshCookieOptions);
 
         // Log successful login (don't log password or sensitive data)

@@ -55,7 +55,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
     try {
         const ip = getClientAddress();
         const body = await request.json();
-        const { otp, rememberMe } = body;
+        const { otp, rememberMe: submittedRememberMe } = body;
 
         const cookieHeader = request.headers.get('cookie') || '';
         const cookieEntries = Object.fromEntries(cookieHeader.split('; ').filter(Boolean).map((c) => { const [name, ...rest] = c.split('='); return [name, rest.join('=')]; }));
@@ -77,6 +77,9 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
         const tokenData = JSON.parse(rawToken);
         const userId = tokenData.userId;
+        const rememberMe = typeof tokenData.rememberMe === 'boolean'
+            ? tokenData.rememberMe
+            : Boolean(submittedRememberMe);
 
         if (!userId) {
             return new Response(JSON.stringify({ success: false, message: 'User not found in token' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
@@ -115,10 +118,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         }
 
         const authUser = await createAuthUser(foundUser);
-        const { accessToken, refreshToken, sessionId } = await generateTokens(authUser, { userAgent: request.headers.get('user-agent') || '', ipAddress: ip });
+        const { accessToken, refreshToken, sessionId } = await generateTokens(authUser, {
+            userAgent: request.headers.get('user-agent') || '',
+            ipAddress: ip,
+            rememberMe
+        });
 
         cookies.set('token', accessToken, { path: '/', httpOnly: true, sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 15 * 60 });
-        cookies.set('refresh_token', refreshToken, { path: '/', httpOnly: true, sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', secure: process.env.NODE_ENV === 'production', maxAge: rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60 });
+        cookies.set('refresh_token', refreshToken, { path: '/', httpOnly: true, sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', secure: process.env.NODE_ENV === 'production', maxAge: rememberMe ? 7 * 24 * 60 * 60 : 24 * 60 * 60 });
 
         return new Response(JSON.stringify({ success: true, message: '2FA verified. Login successful.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     } catch (error) {
