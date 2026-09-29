@@ -1,6 +1,12 @@
 // $lib/server/utils/fineCalculation.ts
 import { db } from '$lib/server/db/index.js';
-import { tbl_book_borrowing, tbl_library_settings } from '$lib/server/db/schema/schema.js';
+import {
+  tbl_book_borrowing,
+  tbl_journal_borrowing,
+  tbl_library_settings,
+  tbl_magazine_borrowing,
+  tbl_thesis_borrowing
+} from '$lib/server/db/schema/schema.js';
 import { and, eq, lt, or, isNull } from 'drizzle-orm';
 
 // simple in‑process cache to avoid a database hit on every call
@@ -161,48 +167,39 @@ export async function updateBorrowingFine(borrowingId: number): Promise<number> 
  * Update fines for all active borrowings
  * @returns Array of updated borrowing IDs and their fines in pesos
  */
-export async function updateAllOverdueFines(): Promise<Array<{ id: number; fine: number }>> {
+export async function updateAllOverdueFines(): Promise<Array<{ id: number; fine: number; itemType: string }>> {
   try {
     const currentDate = new Date();
 
-    const activeBorrowings = await db
-      .select({
-        id: tbl_book_borrowing.id,
-        dueDate: tbl_book_borrowing.dueDate,
-        status: tbl_book_borrowing.status
-      })
-      .from(tbl_book_borrowing)
-      .where(
-        and(
-          or(
-            eq(tbl_book_borrowing.status, 'borrowed'),
-            eq(tbl_book_borrowing.status, 'overdue')
-          ),
-          isNull(tbl_book_borrowing.returnDate)
-        )
-      );
+    const borrowingTables = [
+      { table: tbl_book_borrowing, itemType: 'book' },
+      { table: tbl_magazine_borrowing, itemType: 'magazine' },
+      { table: tbl_thesis_borrowing, itemType: 'thesis' },
+      { table: tbl_journal_borrowing, itemType: 'journal' }
+    ];
 
-    const updates: Array<{ id: number; fine: number }> = [];
+    const updates = await Promise.all(borrowingTables.map(async ({ table, itemType }) => {
+      const activeBorrowings = await db
+        .select({ id: table.id, dueDate: table.dueDate, status: table.status })
+        .from(table)
+        .where(and(
+          or(eq(table.status, 'borrowed'), eq(table.status, 'overdue')),
+          isNull(table.returnDate)
+        ));
 
-    for (const borrowing of activeBorrowings) {
-      const dueDate = new Date(borrowing.dueDate);
-      const calculatedFine = await calculateFineAmount(dueDate, currentDate);
-      const newStatus = calculatedFine > 0 ? 'overdue' : 'borrowed';
+      return Promise.all(activeBorrowings.map(async borrowing => {
+        const calculatedFine = await calculateFineAmount(new Date(borrowing.dueDate), currentDate);
+        const newStatus = calculatedFine > 0 ? 'overdue' : 'borrowed';
 
-      if (newStatus !== borrowing.status) {
-        await db
-          .update(tbl_book_borrowing)
-          .set({
-            status: newStatus,
-            updatedAt: currentDate
-          })
-          .where(eq(tbl_book_borrowing.id, borrowing.id));
-      }
+        if (newStatus !== borrowing.status) {
+          await db.update(table).set({ status: newStatus, updatedAt: currentDate }).where(eq(table.id, borrowing.id));
+        }
 
-      updates.push({ id: borrowing.id, fine: calculatedFine });
-    }
+        return { id: borrowing.id, fine: calculatedFine, itemType };
+      }));
+    }));
 
-    return updates;
+    return updates.flat();
   } catch (error) {
     console.error('Error updating all overdue fines:', error);
     throw error;

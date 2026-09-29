@@ -644,6 +644,11 @@
                       <button on:click={() => openViewModal(member.id)} class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details">
                         View
                       </button>
+                      {#if userRole === 'staff'}
+                        <button on:click={() => openViewModal(member.id)} class="text-amber-700 hover:text-amber-900 transition-colors duration-200" title="Manage Restrictions">
+                          Restrict
+                        </button>
+                      {/if}
                       {#if userRole === 'admin'}
                         <button on:click={() => openEditModal(member)} class="text-emerald-600 hover:text-emerald-700 transition-colors duration-200" title="Edit Member">
                           Edit
@@ -693,6 +698,14 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                   </svg>
                 </button>
+                {#if userRole === 'staff'}
+                  <button on:click={() => openViewModal(member.id)} class="p-2 text-amber-700 hover:text-amber-900 hover:bg-amber-50 rounded-lg transition-colors duration-200" title="Manage Restrictions" aria-label="Manage member restrictions">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7l8-4z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4" />
+                    </svg>
+                  </button>
+                {/if}
                 {#if userRole === 'admin'}
                   <button on:click={() => openEditModal(member)} class="p-2 text-emerald-600 hover:text-yellow-700 hover:bg-yellow-50 rounded-lg transition-colors duration-200" title="Edit Member" aria-label="Edit member">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -829,6 +842,7 @@
       <ViewMember
         isOpen={showViewModal}
         member={selectedMember}
+        canManageRestrictions={userRole === 'staff'}
         on:close={closeModals}
       />
     {/if}

@@ -4,6 +4,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { updateAllOverdueFines } from '$lib/server/utils/fineCalculation.js';
+import { createDueDateNotifications } from '$lib/server/services/notifications.js';
 
 // Secret token to prevent unauthorized access
 const CRON_SECRET = process.env.CRON_SECRET || 'your-secret-token-here';
@@ -23,6 +24,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
     // Update all overdue fines
     const updates = await updateAllOverdueFines();
+    const notificationsCreated = await createDueDateNotifications();
 
     const duration = Date.now() - startTime;
 
@@ -33,6 +35,7 @@ export const GET: RequestHandler = async ({ request }) => {
       message: 'Fines updated successfully',
       data: {
         recordsUpdated: updates.length,
+        notificationsCreated,
         duration: `${duration}ms`,
         timestamp: new Date().toISOString()
       }

@@ -28,6 +28,8 @@ import { eq, sql } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
+import { assertUserCanBorrow } from '$lib/server/utils/userRestrictions.js';
+import { createConfiguredUserNotification } from '$lib/server/services/notifications.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -150,6 +152,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   }
 
   if (bookReq && (bookReq.status === 'active' || bookReq.status === 'borrow_request')) {
+    await assertUserCanBorrow(bookReq.userId);
     const copyId = await allocateCopy(tbl_book_copy);
     if (!copyId) throw error(400, { message: 'No available book copies to allocate' });
 
@@ -170,6 +173,16 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     }).returning();
 
     await db.update(tbl_book_reservation).set({ status: 'fulfilled', reviewedBy: approverRole === 'staff' ? approverId : null }).where(eq(tbl_book_reservation.id, reqId));
+
+    const [book] = await db.select({ title: tbl_book.title }).from(tbl_book).where(eq(tbl_book.id, bookReq.bookId)).limit(1);
+    await createConfiguredUserNotification('notifReservationReady', {
+      recipientId: bookReq.userId,
+      title: 'Reservation approved',
+      message: `Your request for "${book?.title ?? 'Book'}" has been approved and is ready for pickup.`,
+      type: 'reservation_ready',
+      relatedItemType: 'book',
+      relatedItemId: bookReq.bookId
+    });
 
     // Decrement available copies on the parent book
     try {
@@ -194,6 +207,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   }
 
   if (magReq && (magReq.status === 'active' || magReq.status === 'borrow_request')) {
+    await assertUserCanBorrow(magReq.userId);
     const copyId = await allocateCopy(tbl_magazine_copy);
     if (!copyId) throw error(400, { message: 'No available magazine copies to allocate' });
 
@@ -211,6 +225,16 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     }).returning();
 
     await db.update(tbl_magazine_reservation).set({ status: 'fulfilled', reviewedBy: approverRole === 'staff' ? approverId : null }).where(eq(tbl_magazine_reservation.id, reqId));
+
+    const [magazine] = await db.select({ title: tbl_magazine.title }).from(tbl_magazine).where(eq(tbl_magazine.id, magReq.magazineId)).limit(1);
+    await createConfiguredUserNotification('notifReservationReady', {
+      recipientId: magReq.userId,
+      title: 'Reservation approved',
+      message: `Your request for "${magazine?.title ?? 'Magazine'}" has been approved and is ready for pickup.`,
+      type: 'reservation_ready',
+      relatedItemType: 'magazine',
+      relatedItemId: magReq.magazineId
+    });
 
     // Decrement available copies on the parent magazine
     try {
@@ -234,6 +258,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   }
 
   if (thesisReq && (thesisReq.status === 'active' || thesisReq.status === 'borrow_request')) {
+    await assertUserCanBorrow(thesisReq.userId);
     const copyId = await allocateCopy(tbl_thesis_copy);
     if (!copyId) throw error(400, { message: 'No available thesis copies to allocate' });
 
@@ -251,6 +276,16 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     }).returning();
 
     await db.update(tbl_thesis_reservation).set({ status: 'fulfilled', reviewedBy: approverRole === 'staff' ? approverId : null }).where(eq(tbl_thesis_reservation.id, reqId));
+
+    const [thesis] = await db.select({ title: tbl_thesis.title }).from(tbl_thesis).where(eq(tbl_thesis.id, thesisReq.thesisId)).limit(1);
+    await createConfiguredUserNotification('notifReservationReady', {
+      recipientId: thesisReq.userId,
+      title: 'Reservation approved',
+      message: `Your request for "${thesis?.title ?? 'Research'}" has been approved and is ready for pickup.`,
+      type: 'reservation_ready',
+      relatedItemType: 'thesis',
+      relatedItemId: thesisReq.thesisId
+    });
 
     // Decrement available copies on the parent thesis
     try {
@@ -275,6 +310,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
   // Handle journal reservations the same way
   if (journalReq && (journalReq.status === 'active' || journalReq.status === 'borrow_request')) {
+    await assertUserCanBorrow(journalReq.userId);
     const copyId = await allocateCopy(tbl_journal_copy);
     if (!copyId) throw error(400, { message: 'No available journal copies to allocate' });
 
@@ -292,6 +328,16 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
     }).returning();
 
     await db.update(tbl_journal_reservation).set({ status: 'fulfilled', reviewedBy: approverRole === 'staff' ? approverId : null }).where(eq(tbl_journal_reservation.id, reqId));
+
+    const [journal] = await db.select({ title: tbl_journal.title }).from(tbl_journal).where(eq(tbl_journal.id, journalReq.journalId)).limit(1);
+    await createConfiguredUserNotification('notifReservationReady', {
+      recipientId: journalReq.userId,
+      title: 'Reservation approved',
+      message: `Your request for "${journal?.title ?? 'Journal'}" has been approved and is ready for pickup.`,
+      type: 'reservation_ready',
+      relatedItemType: 'journal',
+      relatedItemId: journalReq.journalId
+    });
 
     // Decrement available copies on the parent journal
     try {
@@ -350,6 +396,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
   }
 
   if (pending) {
+    await assertUserCanBorrow(pending.userId);
     const dueDateStr = dueDate.toISOString();
     await db.update(
       pendingType === 'book' ? tbl_book_borrowing :

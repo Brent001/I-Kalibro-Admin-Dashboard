@@ -28,6 +28,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
 import { calculateFineAmount, calculateDaysOverdue } from '$lib/server/utils/fineCalculation.js';
+import { createConfiguredUserNotification } from '$lib/server/services/notifications.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const FINE_PER_HOUR = 5; // 5 pesos per hour overdue
@@ -274,6 +275,30 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
         console.debug('Failed to increment journal.availableCopies on return:', e);
       }
     }
+
+    let itemTitle = 'Library item';
+    if (itemType === 'book') {
+      const [item] = await db.select({ title: tbl_book.title }).from(tbl_book).where(eq(tbl_book.id, b.bookId)).limit(1);
+      itemTitle = item?.title ?? itemTitle;
+    } else if (itemType === 'magazine') {
+      const [item] = await db.select({ title: tbl_magazine.title }).from(tbl_magazine).where(eq(tbl_magazine.id, b.magazineId)).limit(1);
+      itemTitle = item?.title ?? itemTitle;
+    } else if (itemType === 'thesis') {
+      const [item] = await db.select({ title: tbl_thesis.title }).from(tbl_thesis).where(eq(tbl_thesis.id, b.thesisId)).limit(1);
+      itemTitle = item?.title ?? itemTitle;
+    } else if (itemType === 'journal') {
+      const [item] = await db.select({ title: tbl_journal.title }).from(tbl_journal).where(eq(tbl_journal.id, b.journalId)).limit(1);
+      itemTitle = item?.title ?? itemTitle;
+    }
+
+    await createConfiguredUserNotification('notifReturnConfirmation', {
+      recipientId: b.userId,
+      title: 'Return confirmed',
+      message: `Your return of "${itemTitle}" has been processed.${calculatedFine > 0 ? ` A fine of ₱${calculatedFine.toFixed(2)} was recorded.` : ''}`,
+      type: 'return_confirmation',
+      relatedItemType: itemType,
+      relatedItemId: itemType === 'book' ? b.bookId : itemType === 'magazine' ? b.magazineId : itemType === 'thesis' ? b.thesisId : b.journalId
+    });
 
     return json({
       success: true,

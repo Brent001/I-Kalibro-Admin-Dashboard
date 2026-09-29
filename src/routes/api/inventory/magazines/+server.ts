@@ -3,11 +3,12 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import jwt from 'jsonwebtoken';
-import { eq, ilike, and, or, inArray, count } from 'drizzle-orm';
+import { eq, ilike, and, or, inArray, count, sum } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import {
     tbl_magazine,
     tbl_magazine_copy,
+    tbl_magazine_borrowing,
     tbl_category,
     tbl_super_admin,
     tbl_admin,
@@ -92,6 +93,25 @@ export const GET: RequestHandler = async ({ request, url }) => {
         if (!user) throw error(401, { message: 'Unauthorized' });
 
         const searchParams = url.searchParams;
+        if (searchParams.get('summary') === 'true') {
+            const [magazineCount, availableCount, borrowedCount, categoryCount] = await Promise.all([
+                db.select({ count: count() }).from(tbl_magazine).where(eq(tbl_magazine.isActive, true)),
+                db.select({ total: sum(tbl_magazine.availableCopies) }).from(tbl_magazine).where(eq(tbl_magazine.isActive, true)),
+                db.select({ count: count() }).from(tbl_magazine_borrowing).where(eq(tbl_magazine_borrowing.status, 'borrowed')),
+                db.select({ count: count() }).from(tbl_category).where(eq(tbl_category.itemType, 'magazine'))
+            ]);
+
+            return json({
+                success: true,
+                data: {
+                    totalMagazines: Number(magazineCount[0]?.count || 0),
+                    availableCopies: Number(availableCount[0]?.total || 0),
+                    borrowedMagazines: Number(borrowedCount[0]?.count || 0),
+                    categoriesCount: Number(categoryCount[0]?.count || 0)
+                }
+            });
+        }
+
         const page = parseInt(searchParams.get('page') || '1', 10);
         const limit = Math.min(parseInt(searchParams.get('limit') || '10', 10), 100);
         const search = searchParams.get('q') || '';

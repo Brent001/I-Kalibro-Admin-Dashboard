@@ -7,7 +7,7 @@
   $: capitalizedItemType = itemType && itemType.length ? itemType.charAt(0).toUpperCase() + itemType.slice(1) : 'Item';
 
   const dispatch = createEventDispatcher();
-  
+
   // Form data for journals (serial-only)
   let formData = {
     title: '',
@@ -28,7 +28,7 @@
     volume: '',
     issue: '',
   };
-  
+
   let errors: {[key: string]: string} = {};
   let isSubmitting = false;
   let coverImageFile: File | null = null;
@@ -105,9 +105,7 @@
     try {
       const response = await fetch('/api/inventory/books/generate-call-number', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           authorLastName: formData.author.trim(),
@@ -121,13 +119,13 @@
       });
 
       const data = await response.json();
-      
+
       if (data.success && data.data) {
         // Update bookId with the generated unique ID
         if (!formData.bookId || formData.bookId.trim().length === 0) {
           formData.bookId = data.data.bookId;
         }
-        
+
         // Update location with the full call number
         if (!formData.location || formData.location.trim().length === 0) {
           formData.location = data.data.display.full;
@@ -143,23 +141,12 @@
   function handleCoverImageChange(event: Event) {
     const target = event.target as HTMLInputElement;
     const file = target.files?.[0];
-    
     if (file) {
-      if (!file.type.startsWith('image/')) {
-        errors.coverImage = 'Please select an image file';
-        return;
-      }
-      
-      if (file.size > 5 * 1024 * 1024) {
-        errors.coverImage = 'Image size must be less than 5MB';
-        return;
-      }
-      
+      if (!file.type.startsWith('image/')) { errors.coverImage = 'Please select an image file'; return; }
+      if (file.size > 5 * 1024 * 1024) { errors.coverImage = 'Image size must be less than 5MB'; return; }
       coverImageFile = file;
       const reader = new FileReader();
-      reader.onload = (e) => {
-        coverImagePreview = e.target?.result as string;
-      };
+      reader.onload = (e) => { coverImagePreview = e.target?.result as string; };
       reader.readAsDataURL(file);
       errors.coverImage = '';
     }
@@ -174,30 +161,23 @@
 
   async function uploadCoverImageToBackblaze(): Promise<string | null> {
     if (!coverImageFile) return null;
-    
     uploadingCoverImage = true;
     try {
       const formDataUpload = new FormData();
       formDataUpload.append('file', coverImageFile);
       formDataUpload.append('itemId', '0');
-      formDataUpload.append('itemType', itemType || 'book');
-      
+      formDataUpload.append('itemType', itemType || 'journal');
       const uploadResponse = await fetch('/api/images/upload/', {
-        method: 'POST',
-        credentials: 'include',
-        body: formDataUpload
+        method: 'POST', credentials: 'include', body: formDataUpload
       });
-      
       if (!uploadResponse.ok) {
         const errorData = await uploadResponse.json();
         errors.coverImage = errorData.message || 'Upload failed';
         return null;
       }
-      
       const result = await uploadResponse.json();
       return result.photoUrl;
     } catch (error) {
-      console.error('Error uploading cover image:', error);
       errors.coverImage = 'Network error while uploading image';
       return null;
     } finally {
@@ -207,67 +187,41 @@
 
   function validateForm() {
     const newErrors: {[key: string]: string} = {};
-    
     if (!formData.title.trim()) newErrors.title = 'Title is required';
     if (!formData.author.trim()) newErrors.author = 'Author is required';
     if (!formData.categoryId) newErrors.category = 'Category is required';
     if (!formData.publisher.trim()) newErrors.publisher = 'Publisher is required';
-    
     if (!formData.publishedYear) {
       newErrors.publishedYear = 'Published year is required';
     } else {
       const year = parseInt(formData.publishedYear);
       const currentYear = new Date().getFullYear();
-      if (year < 1000 || year > currentYear) {
-        newErrors.publishedYear = `Year must be between 1000 and ${currentYear}`;
-      }
+      if (year < 1000 || year > currentYear) newErrors.publishedYear = `Year must be between 1000 and ${currentYear}`;
     }
-    
-    // Validate serial-specific fields (journal-only)
     if (formData.volume) {
       const vol = parseInt(formData.volume);
-      if (vol < 1 || vol > 9999) {
-        newErrors.volume = 'Volume must be between 1 and 9999';
-      }
+      if (vol < 1 || vol > 9999) newErrors.volume = 'Volume must be between 1 and 9999';
     }
-
     if (formData.issue) {
       const iss = parseInt(formData.issue);
-      if (iss < 1 || iss > 999) {
-        newErrors.issue = 'Issue must be between 1 and 999';
-      }
+      if (iss < 1 || iss > 999) newErrors.issue = 'Issue must be between 1 and 999';
     }
-    
-    if (formData.totalCopies < 1 || formData.totalCopies > 999) {
-      newErrors.totalCopies = 'Copies must be between 1 and 999';
-    }
-    
+    if (formData.totalCopies < 1 || formData.totalCopies > 999) newErrors.totalCopies = 'Copies must be between 1 and 999';
     errors = newErrors;
     return Object.keys(newErrors).length === 0;
   }
 
   async function handleSubmit(event: Event) {
     event.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-
+    if (!validateForm()) return;
     isSubmitting = true;
-
     try {
       let coverImageUrl = formData.coverImage;
-      
       if (coverImageFile) {
         const uploadedUrl = await uploadCoverImageToBackblaze();
-        if (uploadedUrl) {
-          coverImageUrl = uploadedUrl;
-        } else {
-          isSubmitting = false;
-          return;
-        }
+        if (uploadedUrl) { coverImageUrl = uploadedUrl; }
+        else { isSubmitting = false; return; }
       }
-
       const submitData = {
         title: formData.title.trim(),
         author: formData.author.trim(),
@@ -291,21 +245,19 @@
       // post to journals endpoint instead of books
       const response = await fetch('/api/inventory/journals', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ ...submitData, itemType }),
       });
 
       const result = await response.json();
-
       if (response.ok && result.success) {
         dispatch('bookAdded', result.data);
+        dispatch('success', result.data);
         handleClose();
         resetForm();
       } else {
-        errors.submit = result.message || 'Failed to add book';
+        errors.submit = result.message || 'Failed to add journal';
       }
     } catch (error) {
       console.error('Error submitting form:', error);
@@ -317,22 +269,10 @@
 
   function resetForm() {
     formData = {
-      title: '',
-      author: '',
-      bookId: '',
-      isbn: '',
-      publisher: '',
-      publishedYear: '',
-      edition: '',
-      language: 'English',
-      pages: '',
-      categoryId: '',
-      location: '',
-      totalCopies: 1,
-      description: '',
-      coverImage: '',
-      volume: '',
-      issue: '',
+      title: '', author: '', bookId: '', isbn: '', publisher: '',
+      publishedYear: '', edition: '', language: 'English', pages: '',
+      categoryId: '', location: '', totalCopies: 1, description: '', coverImage: '',
+      volume: '', issue: '',
     };
     errors = {};
     coverImageFile = null;
@@ -347,518 +287,386 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && isOpen && !isSubmitting && !uploadingCoverImage) {
-      handleClose();
-    }
+    if (event.key === 'Escape' && isOpen && !isSubmitting && !uploadingCoverImage) handleClose();
   }
 </script>
 
 {#if isOpen}
-  <div 
-    class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4"
-    on:click={(e) => e.target === e.currentTarget && handleClose()}
-  >
-    <div 
-      class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden"
-      on:click|stopPropagation
-    >
-      <!-- Header -->
-      <div class="px-6 py-5 border-b border-[#4A7C59]/20 bg-gradient-to-r from-[#0D5C29] to-[#4A7C59] flex-shrink-0">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <div class="h-10 w-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
-              <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-              </svg>
-            </div>
-            <div>
-              <h3 class="text-xl sm:text-2xl font-bold text-white">Add New {capitalizedItemType}</h3>
-              <p class="text-white/80 text-xs sm:text-sm mt-0.5">Complete the form to add a new {itemType} to the library</p>
-            </div>
-          </div>
-          <button 
-            type="button"
-            on:click={handleClose}
-            disabled={isSubmitting || uploadingCoverImage}
-            class="h-10 w-10 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur flex items-center justify-center transition-all duration-200 disabled:opacity-50 group"
-          >
-            <svg class="h-5 w-5 text-white group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-          </button>
-        </div>
-      </div>
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <!-- Backdrop -->
+    <button
+      class="fixed inset-0 bg-black/50 backdrop-blur-sm cursor-default"
+      on:click={!isSubmitting && !uploadingCoverImage ? handleClose : null}
+      disabled={isSubmitting || uploadingCoverImage}
+      aria-label="Close modal"
+      type="button"
+    ></button>
 
-      <!-- Form -->
-      <form on:submit={handleSubmit} class="flex-1 overflow-y-auto custom-scrollbar">
-        <div class="p-6 space-y-5">
-          {#if errors.submit}
-            <div class="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-              <svg class="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
-              </svg>
-              <div class="flex-1">
-                <h4 class="text-sm font-semibold text-red-800">Error Adding {capitalizedItemType}</h4>
-                <p class="text-sm text-red-700 mt-1">{errors.submit}</p>
-              </div>
-            </div>
-          {/if}
+    <div class="relative w-full max-w-5xl transform transition-all duration-300 scale-100">
+      <div class="bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-[#4A7C59]/30 overflow-hidden flex flex-col h-[90vh]">
+        <form on:submit={handleSubmit} class="flex flex-col h-full">
 
-          <!-- Journal mode only -->
-          <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
-            <div class="flex items-center gap-3">
-              <svg class="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-              </svg>
-              <div>
-                <p class="text-sm font-semibold text-gray-900">Journal/Periodical Mode</p>
-                <p class="text-xs text-gray-600 mt-0.5">Adding a journal, magazine, or periodical with volume/issue tracking</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Basic Information -->
-          <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
-            <div class="flex items-center gap-2 mb-4">
-              <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-              </svg>
-              <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Basic Information</h4>
-            </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="md:col-span-2">
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                  Journal/Periodical Title
-                  <span class="text-red-500">*</span>
-                </label>
-                <input 
-                  type="text" 
-                  bind:value={formData.title} 
-                  disabled={isSubmitting || uploadingCoverImage}
-                  class="w-full px-3 sm:px-4 py-2.5 border {errors.title ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'} rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base" 
-                  placeholder="e.g., Business & Society Review" 
-                />
-                {#if errors.title}
-                  <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
-                    <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                    {errors.title}
-                  </p>
-                {/if}
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                  Main Author/Editor
-                  <span class="text-red-500">*</span>
-                </label>
-                <input 
-                  type="text" 
-                  bind:value={formData.author}
-                  on:input={() => handleInputChange('author', formData.author)}
-                  disabled={isSubmitting || uploadingCoverImage}
-                  class="w-full px-3 sm:px-4 py-2.5 border {errors.author ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'} rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base" 
-                  placeholder="e.g., Business or BSR" 
-                />
-                <p class="text-xs text-gray-500 mt-1.5">First word of journal title or abbreviation</p>
-                {#if errors.author}
-                  <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
-                    <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                    {errors.author}
-                  </p>
-                {/if}
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                  Category <span class="text-red-500">*</span>
-                </label>
-                <select 
-                  bind:value={formData.categoryId}
-                  on:change={() => handleInputChange('categoryId', formData.categoryId)}
-                  disabled={isSubmitting || uploadingCoverImage || categoriesLoading}
-                  class="w-full px-3 sm:px-4 py-2.5 border {errors.category ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'} rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base"
-                >
-                  <option value="">Select a category</option>
-                  {#if categoriesLoading}
-                    <option value="" disabled>Loading categories...</option>
-                  {:else}
-                    {#each categories as category}
-                      <option value={category.id}>{category.name}</option>
-                    {/each}
-                  {/if}
-                </select>
-                {#if errors.category}
-                  <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
-                    <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                    {errors.category}
-                  </p>
-                {/if}
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-4 sm:p-5">
-            <div class="flex items-center gap-2 mb-4">
-              <svg class="h-5 w-5 text-purple-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-              </svg>
-              <h4 class="text-base sm:text-lg font-semibold text-purple-900">Volume & Issue</h4>
-            </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">Volume Number</label>
-                <input 
-                  type="number" 
-                  bind:value={formData.volume}
-                  on:input={() => handleInputChange('volume', formData.volume)}
-                  disabled={isSubmitting || uploadingCoverImage}
-                  min="1"
-                  max="9999"
-                  class="w-full px-3 sm:px-4 py-2.5 border {errors.volume ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'} rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-purple-400 transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base" 
-                  placeholder="e.g., 64" 
-                />
-                <p class="text-xs text-gray-500 mt-1.5">Optional - Volume number of this issue</p>
-                {#if errors.volume}
-                  <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
-                    <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                    {errors.volume}
-                  </p>
-                {/if}
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">Issue Number</label>
-                <input 
-                  type="number" 
-                  bind:value={formData.issue}
-                  on:input={() => handleInputChange('issue', formData.issue)}
-                  disabled={isSubmitting || uploadingCoverImage}
-                  min="1"
-                  max="999"
-                  class="w-full px-3 sm:px-4 py-2.5 border {errors.issue ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'} rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-purple-400 transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base" 
-                  placeholder="e.g., 8" 
-                />
-                <p class="text-xs text-gray-500 mt-1.5">Optional - Issue number within the volume</p>
-                {#if errors.issue}
-                  <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
-                    <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                    {errors.issue}
-                  </p>
-                {/if}
-              </div>
-            </div>
-
-            {#if formData.volume && formData.issue}
-              <div class="mt-3 p-3 bg-purple-100 border border-purple-300 rounded-lg">
-                <p class="text-sm font-medium text-purple-900">
-                  📖 This will be displayed as: <span class="font-mono">Vol.{formData.volume}/{formData.issue}</span>
-                </p>
-              </div>
-            {/if}
-          </div>
-
-          <!-- Publication Details -->
-          <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
-            <div class="flex items-center gap-2 mb-4">
-              <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-              </svg>
-              <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Publication Details</h4>
-            </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                  Publisher <span class="text-red-500">*</span>
-                </label>
-                <input 
-                  type="text" 
-                  bind:value={formData.publisher} 
-                  disabled={isSubmitting || uploadingCoverImage}
-                  class="w-full px-3 sm:px-4 py-2.5 border {errors.publisher ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'} rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base" 
-                  placeholder="e.g., Penguin Books" 
-                />
-                {#if errors.publisher}
-                  <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
-                    <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                    {errors.publisher}
-                  </p>
-                {/if}
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">
-                  Published Year <span class="text-red-500">*</span>
-                </label>
-                <input 
-                  type="number" 
-                  bind:value={formData.publishedYear}
-                  on:input={() => handleInputChange('publishedYear', formData.publishedYear)}
-                  disabled={isSubmitting || uploadingCoverImage}
-                  min="1000"
-                  max={new Date().getFullYear()}
-                  class="w-full px-3 sm:px-4 py-2.5 border {errors.publishedYear ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'} rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base" 
-                  placeholder={new Date().getFullYear().toString()} 
-                />
-                {#if errors.publishedYear}
-                  <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
-                    <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                    {errors.publishedYear}
-                  </p>
-                {/if}
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">ISSN</label>
-                <input 
-                  type="text" 
-                  bind:value={formData.isbn} 
-                  disabled={isSubmitting || uploadingCoverImage}
-                  class="w-full px-3 sm:px-4 py-2.5 border border-gray-300 bg-white rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base" 
-                  placeholder="e.g., 1234-5678" 
-                />
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">Language</label>
-                <select 
-                  bind:value={formData.language} 
-                  disabled={isSubmitting || uploadingCoverImage}
-                  class="w-full px-3 sm:px-4 py-2.5 border border-gray-300 bg-white rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base"
-                >
-                  {#each languages as lang}
-                    <option value={lang}>{lang}</option>
-                  {/each}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- Library Management -->
-          <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
-            <div class="flex items-center gap-2 mb-4">
-              <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
-              </svg>
-              <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Library Management</h4>
-            </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">Book ID</label>
-                <div class="relative">
-                  <input 
-                    type="text" 
-                    bind:value={formData.bookId} 
-                    disabled={isSubmitting || uploadingCoverImage}
-                    class="w-full px-3 sm:px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 bg-white text-sm sm:text-base pr-10" 
-                    placeholder="Auto-generated" 
-                  />
-                  {#if generatingCallNumber}
-                    <div class="absolute right-3 top-1/2 -translate-y-1/2">
-                      <svg class="animate-spin h-4 w-4 text-[#4A7C59]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                    </div>
-                  {/if}
+          <!-- ── Header ── -->
+          <div class="px-6 py-4 border-b border-[#4A7C59]/20 bg-white/80 flex-shrink-0">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="flex items-center justify-center h-10 w-10 sm:h-12 sm:w-12 rounded-xl bg-gradient-to-br from-[#0D5C29] to-[#4A7C59] shadow-lg flex-shrink-0">
+                  <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                  </svg>
                 </div>
-                <p class="text-xs text-gray-500 mt-1.5">Unique identifier - auto-generated, editable</p>
+                <div class="min-w-0">
+                  <h3 class="text-lg sm:text-xl font-bold text-[#0D5C29] truncate">Add New {capitalizedItemType}</h3>
+                  <p class="text-xs sm:text-sm text-[#4A7C59] hidden sm:block">Complete the form to add a new {itemType} to the library</p>
+                </div>
               </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">Total Copies</label>
-                <input 
-                  type="number" 
-                  bind:value={formData.totalCopies}
-                  disabled={isSubmitting || uploadingCoverImage}
-                  class="w-full px-3 sm:px-4 py-2.5 border {errors.totalCopies ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'} rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 text-sm sm:text-base" 
-                  min="1" 
-                  placeholder="1" 
-                />
-                {#if errors.totalCopies}
-                  <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
-                    <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                    {errors.totalCopies}
-                  </p>
-                {/if}
-              </div>
-              
-              <div class="md:col-span-2">
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">Call Number (Shelf Location)</label>
-                <textarea
-                  bind:value={formData.location} 
-                  disabled={isSubmitting}
-                  rows="3"
-                  class="w-full px-3 sm:px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 bg-white text-sm sm:text-base font-mono resize-none" 
-                  placeholder="650 B22\nVol.64/8\n2025" 
-                ></textarea>
-                <p class="text-xs text-gray-500 mt-1.5">
-                  Multi-line call number (DDC + Cutter, Volume/Issue, Year) - auto-generated
-                </p>
-              </div>
+              <button
+                type="button" on:click={handleClose}
+                disabled={isSubmitting || uploadingCoverImage}
+                aria-label="Close modal"
+                class="p-2 rounded-lg text-gray-400 hover:text-[#0D5C29] hover:bg-[#0D5C29]/10 transition-colors duration-200 disabled:opacity-50 flex-shrink-0"
+              >
+                <svg class="h-5 w-5 sm:h-6 sm:w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
             </div>
           </div>
 
-          <!-- Description & Cover -->
-          <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
-            <div class="flex items-center gap-2 mb-4">
-              <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
-              </svg>
-              <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Description & Cover</h4>
-            </div>
-            
-            <div class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">Journal Description</label>
-                <textarea 
-                  bind:value={formData.description} 
-                  rows="4" 
-                  disabled={isSubmitting || uploadingCoverImage}
-                  maxlength="500"
-                  class="w-full px-3 sm:px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 disabled:bg-gray-50 bg-white resize-none text-sm sm:text-base" 
-                  placeholder="Brief description of the journal's focus, topics covered, target audience..."
-                ></textarea>
-                <p class="text-xs text-gray-500 mt-1.5">{formData.description.length}/500 characters</p>
-              </div>
+          <!-- ── Body ── -->
+          <div class="px-6 py-6 overflow-y-auto flex-1 min-h-0 custom-scrollbar">
+            <div class="space-y-5">
 
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1.5">Cover Photo</label>
-                
-                {#if coverImagePreview}
-                  <div class="relative mb-4">
-                    <div class="relative inline-block">
-                      <img 
-                        src={coverImagePreview} 
-                        alt="Cover preview" 
-                        class="h-48 w-32 object-cover rounded-lg border border-gray-300 shadow-md"
+              {#if errors.submit}
+                <div class="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+                  <svg class="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                  </svg>
+                  <div class="flex-1">
+                    <h4 class="text-sm font-semibold text-red-800">Error Adding {capitalizedItemType}</h4>
+                    <p class="text-sm text-red-700 mt-1">{errors.submit}</p>
+                  </div>
+                </div>
+              {/if}
+
+              <!-- ══ SECTION 1: Basic Information ══ -->
+              <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
+                <div class="flex items-center gap-2 mb-4">
+                  <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                  <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Basic Information</h4>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-5">
+                  <!-- Cover image column -->
+                  <div class="flex-shrink-0 flex flex-col items-center sm:items-start gap-2">
+                    {#if coverImagePreview}
+                      <img
+                        src={coverImagePreview}
+                        alt="Cover preview"
+                        class="w-32 sm:w-40 rounded-lg shadow-md object-cover border border-[#B8860B]/20"
                       />
-                      <button
-                        type="button"
-                        on:click={removeCoverImage}
-                        disabled={uploadingCoverImage || isSubmitting}
-                        class="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors duration-200 disabled:opacity-50"
-                      >
-                        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    {:else}
+                      <div class="w-32 sm:w-40 rounded-lg border-2 border-dashed border-[#4A7C59]/30 bg-white flex flex-col items-center justify-center gap-2 py-8">
+                        <svg class="h-8 w-8 text-[#4A7C59]/40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                         </svg>
-                      </button>
-                    </div>
-                    <div class="ml-4 inline-block">
-                      <p class="text-sm font-medium text-gray-700">{coverImageFile?.name}</p>
-                      <p class="text-xs text-gray-500 mt-1">{(coverImageFile?.size || 0) / (1024 * 1024) > 0 ? ((coverImageFile?.size || 0) / (1024 * 1024)).toFixed(2) : '0'} MB</p>
-                    </div>
-                  </div>
-                {:else}
-                  <div class="flex items-center">
-                    <label for="cover-image-input" class="flex-1">
-                      <div class="flex items-center justify-center w-full px-3 sm:px-4 py-8 border-2 border-dashed border-[#4A7C59]/30 rounded-lg cursor-pointer hover:border-[#E8B923] hover:bg-[#E8B923]/5 transition-all duration-200 {errors.coverImage ? 'border-red-300 bg-red-50' : 'bg-white'}">
-                        <div class="text-center">
-                          <svg class="mx-auto h-8 w-8 text-[#4A7C59] mb-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                          </svg>
-                          <p class="text-sm font-medium text-gray-700">Click to upload or drag and drop</p>
-                          <p class="text-xs text-gray-500 mt-1">PNG, JPG, GIF up to 5MB</p>
-                        </div>
+                        <span class="text-xs text-gray-400 text-center px-2">No cover photo</span>
                       </div>
-                    </label>
-                    <input 
-                      id="cover-image-input"
-                      type="file" 
-                      accept="image/*" 
-                      on:change={handleCoverImageChange}
-                      disabled={isSubmitting || uploadingCoverImage}
-                      class="hidden"
-                    />
+                    {/if}
+
+                    <div class="flex flex-col gap-1.5 w-32 sm:w-40">
+                      <label
+                        for="cover-file"
+                        class="cursor-pointer text-center px-3 py-1.5 rounded-lg border border-[#4A7C59]/40 bg-white text-xs font-medium text-[#0D5C29] hover:bg-[#0D5C29]/5 transition-colors duration-200"
+                      >
+                        {coverImagePreview ? 'Change photo' : 'Upload photo'}
+                      </label>
+                      <input
+                        id="cover-file" type="file" accept="image/*" class="sr-only"
+                        on:change={handleCoverImageChange}
+                        disabled={uploadingCoverImage || isSubmitting}
+                      />
+                      {#if coverImagePreview}
+                        <button
+                          type="button" on:click={removeCoverImage}
+                          class="text-center px-3 py-1.5 rounded-lg border border-red-200 bg-white text-xs font-medium text-red-500 hover:bg-red-50 transition-colors duration-200"
+                        >Remove</button>
+                      {/if}
+                      {#if uploadingCoverImage}
+                        <p class="text-xs text-[#4A7C59] text-center">Uploading…</p>
+                      {/if}
+                      {#if errors.coverImage}
+                        <p class="text-xs text-red-600 text-center">{errors.coverImage}</p>
+                      {/if}
+                      <p class="text-xs text-gray-400 text-center leading-tight">PNG, JPG up to 5 MB</p>
+                    </div>
                   </div>
-                {/if}
-                
-                {#if errors.coverImage}
-                  <p class="text-red-600 text-xs mt-1.5 flex items-center gap-1">
-                    <svg class="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                    {errors.coverImage}
-                  </p>
-                {/if}
+
+                  <!-- Fields column -->
+                  <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                    <!-- Title (full width) -->
+                    <div class="sm:col-span-2">
+                      <span class="block text-xs font-medium text-gray-500 mb-1">Journal/Periodical Title <span class="text-red-400">*</span></span>
+                      <input
+                        type="text" bind:value={formData.title} disabled={isSubmitting || uploadingCoverImage}
+                        placeholder="e.g., Business & Society Review"
+                        class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.title ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                      />
+                      {#if errors.title}<p class="text-red-600 text-xs mt-1">{errors.title}</p>{/if}
+                    </div>
+
+                    <!-- Author -->
+                    <div>
+                      <span class="block text-xs font-medium text-gray-500 mb-1">Main Author/Editor <span class="text-red-400">*</span></span>
+                      <input
+                        type="text" bind:value={formData.author}
+                        on:input={() => handleInputChange('author', formData.author)}
+                        disabled={isSubmitting || uploadingCoverImage}
+                        placeholder="e.g., Business or BSR"
+                        class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.author ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                      />
+                      <p class="text-xs text-gray-400 mt-1">First word of journal title or abbreviation — used for call number generation</p>
+                      {#if errors.author}<p class="text-red-600 text-xs mt-1">{errors.author}</p>{/if}
+                    </div>
+
+                    <!-- Category -->
+                    <div>
+                      <span class="block text-xs font-medium text-gray-500 mb-1">Category <span class="text-red-400">*</span></span>
+                      <select
+                        bind:value={formData.categoryId}
+                        on:change={() => handleInputChange('categoryId', formData.categoryId)}
+                        disabled={isSubmitting || uploadingCoverImage || categoriesLoading}
+                        class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.category ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                      >
+                        <option value="">Select a category</option>
+                        {#if categoriesLoading}
+                          <option value="" disabled>Loading categories…</option>
+                        {:else}
+                          {#each categories as category}
+                            <option value={category.id}>{category.name}</option>
+                          {/each}
+                        {/if}
+                      </select>
+                      {#if errors.category}<p class="text-red-600 text-xs mt-1">{errors.category}</p>{/if}
+                    </div>
+
+                    <!-- Publisher -->
+                    <div>
+                      <span class="block text-xs font-medium text-gray-500 mb-1">Publisher <span class="text-red-400">*</span></span>
+                      <input
+                        type="text" bind:value={formData.publisher} disabled={isSubmitting || uploadingCoverImage}
+                        placeholder="e.g., Elsevier"
+                        class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.publisher ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                      />
+                      {#if errors.publisher}<p class="text-red-600 text-xs mt-1">{errors.publisher}</p>{/if}
+                    </div>
+
+                    <!-- ISSN -->
+                    <div>
+                      <span class="block text-xs font-medium text-gray-500 mb-1">ISSN</span>
+                      <input
+                        type="text" bind:value={formData.isbn} disabled={isSubmitting || uploadingCoverImage}
+                        placeholder="e.g., 1234-5678"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                      />
+                    </div>
+
+                  </div>
+                </div>
               </div>
+
+              <!-- ══ SECTION 2: Publication Details ══ -->
+              <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
+                <div class="flex items-center gap-2 mb-4">
+                  <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                  </svg>
+                  <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Publication Details</h4>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+
+                  <!-- Published Year -->
+                  <div>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Published Year <span class="text-red-400">*</span></span>
+                    <input
+                      type="number" bind:value={formData.publishedYear}
+                      on:input={() => handleInputChange('publishedYear', formData.publishedYear)}
+                      disabled={isSubmitting || uploadingCoverImage}
+                      min="1000" max={new Date().getFullYear()}
+                      placeholder={new Date().getFullYear().toString()}
+                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.publishedYear ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                    />
+                    {#if errors.publishedYear}<p class="text-red-600 text-xs mt-1">{errors.publishedYear}</p>{/if}
+                  </div>
+
+                  <!-- Volume -->
+                  <div>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Volume</span>
+                    <input
+                      type="number" bind:value={formData.volume}
+                      on:input={() => handleInputChange('volume', formData.volume)}
+                      disabled={isSubmitting || uploadingCoverImage}
+                      min="1" max="9999" placeholder="e.g., 64"
+                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.volume ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                    />
+                    {#if errors.volume}<p class="text-red-600 text-xs mt-1">{errors.volume}</p>{/if}
+                  </div>
+
+                  <!-- Issue -->
+                  <div>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Issue</span>
+                    <input
+                      type="number" bind:value={formData.issue}
+                      on:input={() => handleInputChange('issue', formData.issue)}
+                      disabled={isSubmitting || uploadingCoverImage}
+                      min="1" max="999" placeholder="e.g., 8"
+                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.issue ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                    />
+                    {#if errors.issue}<p class="text-red-600 text-xs mt-1">{errors.issue}</p>{/if}
+                  </div>
+
+                  <!-- Language -->
+                  <div>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Language</span>
+                    <select
+                      bind:value={formData.language} disabled={isSubmitting || uploadingCoverImage}
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                    >
+                      {#each languages as lang}
+                        <option value={lang}>{lang}</option>
+                      {/each}
+                    </select>
+                  </div>
+
+                  <!-- Total Copies -->
+                  <div>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Total Copies</span>
+                    <input
+                      type="number" bind:value={formData.totalCopies} disabled={isSubmitting || uploadingCoverImage}
+                      min="1" placeholder="1"
+                      class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.totalCopies ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
+                    />
+                    {#if errors.totalCopies}<p class="text-red-600 text-xs mt-1">{errors.totalCopies}</p>{/if}
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- ══ SECTION 3: Library Management ══ -->
+              <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
+                <div class="flex items-center gap-2 mb-4">
+                  <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+                  </svg>
+                  <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Library Management</h4>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                  <!-- Book ID -->
+                  <div>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Journal ID</span>
+                    <div class="relative">
+                      <input
+                        type="text" bind:value={formData.bookId} disabled={isSubmitting || uploadingCoverImage}
+                        placeholder="Auto-generated"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white pr-10"
+                      />
+                      {#if generatingCallNumber}
+                        <div class="absolute right-3 top-1/2 -translate-y-1/2">
+                          <svg class="animate-spin h-4 w-4 text-[#4A7C59]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                          </svg>
+                        </div>
+                      {/if}
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1">Auto-generated, editable</p>
+                  </div>
+
+                  <!-- Call Number -->
+                  <div>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Call Number (Shelf Location)</span>
+                    <textarea
+                      bind:value={formData.location} disabled={isSubmitting}
+                      rows="3"
+                      placeholder={"650 B22\nVol.64/8\n2025"}
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white resize-none"
+                    ></textarea>
+                    <p class="text-xs text-gray-400 mt-1">DDC + Cutter, Volume/Issue, Year — auto-generated</p>
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- ══ SECTION 4: Description ══ -->
+              <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
+                <div class="flex items-center gap-2 mb-3">
+                  <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+                  </svg>
+                  <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Description</h4>
+                </div>
+                <textarea
+                  bind:value={formData.description} rows="4"
+                  disabled={isSubmitting || uploadingCoverImage} maxlength="500"
+                  placeholder="Brief description of the journal's focus, topics covered, target audience…"
+                  class="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white resize-none leading-relaxed"
+                ></textarea>
+                <p class="text-xs text-gray-400 mt-1 text-right">{formData.description.length}/500 characters</p>
+              </div>
+
             </div>
           </div>
-        </div>
-      </form>
-      
-      <!-- Footer -->
-      <div class="px-6 py-4 border-t border-[#4A7C59]/20 bg-white/80 flex flex-col sm:flex-row-reverse gap-3 flex-shrink-0">
-        <button 
-          type="submit"
-          on:click={handleSubmit}
-          disabled={isSubmitting || uploadingCoverImage}
-          class="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg bg-gradient-to-r from-[#0D5C29] to-[#4A7C59] text-sm sm:text-base font-semibold text-white hover:from-[#0A4520] hover:to-[#3D664A] shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          {#if isSubmitting}
-            <svg class="animate-spin h-4 w-4 sm:h-5 sm:w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Adding {capitalizedItemType}...
-          {:else if uploadingCoverImage}
-            <svg class="animate-spin h-4 w-4 sm:h-5 sm:w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Uploading Cover...
-          {:else}
-            <svg class="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            Add {capitalizedItemType}
-          {/if}
-        </button>
-        <button 
-          type="button" 
-          on:click={handleClose} 
-          disabled={isSubmitting || uploadingCoverImage}
-          class="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg border border-gray-300 bg-white text-sm sm:text-base font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Cancel
-        </button>
+
+          <!-- ── Footer ── -->
+          <div class="px-6 py-4 border-t border-[#4A7C59]/20 bg-white/80 flex flex-col sm:flex-row-reverse gap-3 flex-shrink-0">
+            <button
+              type="submit"
+              disabled={isSubmitting || uploadingCoverImage}
+              class="w-full sm:w-auto px-6 py-2.5 rounded-lg bg-gradient-to-r from-[#0D5C29] to-[#4A7C59] text-sm font-semibold text-white hover:from-[#0A4520] hover:to-[#3D664A] shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {#if isSubmitting}
+                <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                </svg>
+                Adding {capitalizedItemType}…
+              {:else if uploadingCoverImage}
+                <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                </svg>
+                Uploading Cover…
+              {:else}
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                Add {capitalizedItemType}
+              {/if}
+            </button>
+            <button
+              type="button" on:click={handleClose}
+              disabled={isSubmitting || uploadingCoverImage}
+              class="w-full sm:w-auto px-6 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+          </div>
+
+        </form>
       </div>
     </div>
   </div>
 {/if}
 
 <style>
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.05);
-    border-radius: 10px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(74, 124, 89, 0.3);
-    border-radius: 10px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(74, 124, 89, 0.5);
-  }
+  .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,.05); border-radius: 10px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(74,124,89,.3); border-radius: 10px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(74,124,89,.5); }
 </style>

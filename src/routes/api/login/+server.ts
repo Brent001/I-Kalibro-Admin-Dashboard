@@ -16,11 +16,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-i
 
 // Input validation schema
 const loginSchema = z.object({
-    username: z.string()
-        .min(1, 'Username is required')
-        .trim(),
-    password: z.string()
-        .min(1, 'Password is required'),
+    username: z.string().trim().optional(),
+    password: z.string().optional(),
     rememberMe: z.boolean().optional(),
     rememberMeToken: z.string().optional()
 });
@@ -199,6 +196,13 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
         const { username, password, rememberMe, rememberMeToken } = validationResult.data;
 
+        if (!rememberMeToken && (!username || !password)) {
+            return new Response(
+                JSON.stringify({ success: false, message: 'Username and password are required' }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+
         // Handle remember me token login
         if (rememberMeToken && !username && !password) {
             try {
@@ -253,7 +257,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                     httpOnly: true,
                     sameSite: 'strict',
                     secure: process.env.NODE_ENV === 'production',
-                    maxAge: 30 * 24 * 60 * 60
+                    maxAge: 7 * 24 * 60 * 60
                 });
                 
                 console.log(`Remember me login: ${foundUser.username} (${foundUser.userType}) from ${clientIP}`);
@@ -288,7 +292,8 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             }
         }
 
-        const { username: usernameValue, password: passwordValue } = validationResult.data;
+        const usernameValue = validationResult.data.username!;
+        const passwordValue = validationResult.data.password!;
 
         // Find user across all tables
         const foundUser = await findUserByUsernameOrEmail(usernameValue);
@@ -346,14 +351,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         });
         
         // Refresh token lifetime depends on "remember me" choice: 7 days when not remembered, 30 days when remembered
-        const refreshMaxAge = rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
-        cookies.set('refresh_token', refreshToken, {
+        const refreshCookieOptions: Parameters<typeof cookies.set>[2] = {
             path: '/',
             httpOnly: true,
             sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-            secure: process.env.NODE_ENV === 'production',
-            maxAge: refreshMaxAge
-        });
+            secure: process.env.NODE_ENV === 'production'
+        };
+        if (rememberMe) refreshCookieOptions.maxAge = 7 * 24 * 60 * 60;
+        cookies.set('refresh_token', refreshToken, refreshCookieOptions);
 
         // Log successful login (don't log password or sensitive data)
         console.log(`Successful login: ${foundUser.username} (${foundUser.userType}) from ${clientIP}`);
@@ -379,7 +384,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 jti: randomBytes(16).toString('hex')
             };
             rememberMeTokenToReturn = jwt.sign(rememberMePayload, JWT_SECRET as Secret, {
-                expiresIn: '30d',
+                expiresIn: '7d',
                 issuer: 'kalibro-library',
                 subject: String(foundUser.id)
             });

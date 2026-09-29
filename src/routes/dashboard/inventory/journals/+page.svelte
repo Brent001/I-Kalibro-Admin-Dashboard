@@ -3,9 +3,9 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import AddBooks from "$lib/components/ui/inventory/journals/add_journals.svelte";
+  import AddJournal from "$lib/components/ui/inventory/journals/add_journals.svelte";
   import AddCategory from "$lib/components/ui/inventory/journals/add_category.svelte";
-  import ViewBook from "$lib/components/ui/inventory/journals/view_journal.svelte";
+  import JournalDetails from "$lib/components/ui/inventory/journals/journal_details.svelte";
 
   let searchTerm = "";
   let committedSearchTerm = "";
@@ -32,47 +32,51 @@
     initialized = true;
   }
 
-  interface ApiBook {
+  interface ApiJournal {
     id: number;
-    bookId: string;
+    journalId: string;
     title: string;
-    author: string;
-    isbn?: string;
-    publishedYear: number;
+    publisher?: string | null;
+    issn?: string | null;
+    volume?: string | null;
+    issueNumber?: string | null;
+    publishedDate?: string | null;
     copiesAvailable?: number;
     availableCopies?: number;
     totalCopies?: number;
     categoryId?: number;
     category?: string;
     language?: string;
-    originPlace?: string;
-    publisher?: string;
     location?: string;
     description?: string;
   }
 
-  interface Book {
+  interface Journal {
     id: number;
+    journalId: string;
     title: string;
-    author: string;
-    isbn: string;
-    qrCode?: string;
-    publishedYear: number;
+    publisher?: string | null;
+    issn?: string | null;
+    volume?: string | null;
+    issueNumber?: string | null;
+    publishedDate?: string | null;
     copiesAvailable?: number;
     availableCopies?: number;
     totalCopies?: number;
     categoryId?: number;
     copies?: number;
     available?: number;
-    published?: string;
     status?: string;
     category?: string;
+    language?: string;
+    location?: string;
+    description?: string;
   }
 
   interface ApiResponse {
     success: boolean;
     data: {
-      journals: ApiBook[];
+      journals: ApiJournal[];
       pagination: {
         currentPage: number;
         totalPages: number;
@@ -85,7 +89,7 @@
     message?: string;
   }
 
-  let books: Book[] = [];
+  let journals: Journal[] = [];
   let pagination = {
     currentPage: 1,
     totalPages: 1,
@@ -96,7 +100,7 @@
   };
 
   $: if (browser && initialPage) {
-    fetchBooks(initialPage, initialSearch, initialCategory, initialLanguage);
+    fetchJournals(initialPage, initialSearch, initialCategory, initialLanguage);
   }
 
   let categories: { id: number, name: string }[] = [];
@@ -104,10 +108,8 @@
   let languages: string[] = [];
 
   let stats = {
-    totalBooks: 0,
     totalJournals: 0,
     availableCopies: 0,
-    borrowedBooks: 0,
     borrowedJournals: 0,
     categoriesCount: 0,
     lowStock: 0,
@@ -116,7 +118,7 @@
     availability: 0
   };
 
-  async function fetchBooks(page = 1, search = "", category = "", language = "") {
+  async function fetchJournals(page = 1, search = "", category = "", language = "", retry = true) {
     if (!browser) return;
     loading = true;
     error = "";
@@ -135,6 +137,15 @@
         headers: { 'Content-Type': 'application/json' }
       });
       if (!response.ok) {
+        if (response.status === 401 && retry) {
+          const sessionResponse = await fetch('/api/auth/session', { credentials: 'include' });
+          if (sessionResponse.ok) {
+            await fetchJournals(page, search, category, language, false);
+            return;
+          }
+          window.location.href = '/';
+          return;
+        }
         if (response.status === 401) {
           window.location.href = '/';
           return;
@@ -143,23 +154,20 @@
       }
       const data: ApiResponse = await response.json();
       if (data?.success && data?.data?.journals) {
-        books = (data.data.journals || []).map((book: ApiBook) => {
-          const available = parseInt((book.availableCopies ?? book.copiesAvailable)?.toString() || '0', 10);
-          const total = parseInt((book.totalCopies ?? book.copiesAvailable ?? available)?.toString() || '0', 10);
+        journals = (data.data.journals || []).map((journal: ApiJournal) => {
+          const available = Number(journal.availableCopies || 0);
+          const total = Number(journal.totalCopies || 0);
           const status = total > 0 ? (available > 5 ? 'Available' : available > 0 ? 'Limited' : 'Unavailable') : 'Unavailable';
           return {
-            ...book,
-            bookId: book.bookId,
-            isbn: book.isbn || '',
+            ...journal,
             copiesAvailable: available,
             availableCopies: available,
             totalCopies: total,
             copies: total,
             available: available,
-            published: book.publishedYear?.toString() || 'Unknown',
             status,
-            category: book.categoryId !== undefined ? categoryMap[book.categoryId] || book.category || 'General' : book.category || 'General'
-          } as unknown as Book;
+            category: journal.categoryId !== undefined ? categoryMap[journal.categoryId] || journal.category || 'General' : journal.category || 'General'
+          } as Journal;
         });
         pagination = data?.data?.pagination || {
           currentPage: 1,
@@ -175,7 +183,7 @@
     } catch (err) {
       console.error('Error fetching journals:', err);
       error = err instanceof Error ? err.message : 'An error occurred while fetching journals';
-      books = [];
+      journals = [];
     } finally {
       loading = false;
     }
@@ -196,7 +204,7 @@
     if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
 
     const queryString = params.toString();
-    await goto(`/dashboard/inventory/journal${queryString ? '?' + queryString : ''}`);
+    await goto(`/dashboard/inventory/journals${queryString ? '?' + queryString : ''}`);
   }
 
   onMount(() => {
@@ -212,7 +220,7 @@
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         try {
           await fetchStats();
-          await fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage);
+          await fetchJournals(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage);
         } catch (e) {
           console.debug('Periodic refresh failed:', e);
         }
@@ -235,7 +243,7 @@
         es.onmessage = async (ev) => {
           try {
             await fetchStats();
-            await fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage);
+            await fetchJournals(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage);
           } catch (e) {
             console.debug('SSE message handled:', e);
           }
@@ -244,7 +252,7 @@
           try {
             await fetchStats();
             if (pagination.currentPage === 1) {
-              await fetchBooks(1, committedSearchTerm, selectedCategory, selectedLanguage);
+              await fetchJournals(1, committedSearchTerm, selectedCategory, selectedLanguage);
             }
           } catch (e) {
             console.debug('Journal created event handled:', e);
@@ -335,63 +343,30 @@
         if (data?.data) {
           stats = data.data;
         } else {
-          stats = {
-            totalBooks: 0,
-            totalJournals: 0,
-            availableCopies: 0,
-            borrowedBooks: 0,
-            borrowedJournals: 0,
-            categoriesCount: 0,
-            lowStock: 0,
-            outOfStock: 0,
-            utilization: 0,
-            availability: 0
-          };
+          stats = { totalJournals: 0, availableCopies: 0, borrowedJournals: 0, categoriesCount: 0, lowStock: 0, outOfStock: 0, utilization: 0, availability: 0 };
         }
       } else {
-        stats = {
-          totalBooks: 0,
-          totalJournals: 0,
-          availableCopies: 0,
-          borrowedBooks: 0,
-          borrowedJournals: 0,
-          categoriesCount: 0,
-          lowStock: 0,
-          outOfStock: 0,
-          utilization: 0,
-          availability: 0
-        };
+        stats = { totalJournals: 0, availableCopies: 0, borrowedJournals: 0, categoriesCount: 0, lowStock: 0, outOfStock: 0, utilization: 0, availability: 0 };
       }
     } catch (err) {
       console.error('Error fetching stats:', err);
-      stats = {
-        totalBooks: 0,
-        totalJournals: 0,
-        availableCopies: 0,
-        borrowedBooks: 0,
-        borrowedJournals: 0,
-        categoriesCount: 0,
-        lowStock: 0,
-        outOfStock: 0,
-        utilization: 0,
-        availability: 0
-      };
+      stats = { totalJournals: 0, availableCopies: 0, borrowedJournals: 0, categoriesCount: 0, lowStock: 0, outOfStock: 0, utilization: 0, availability: 0 };
     }
   }
 
-  async function deleteBook(bookId: number, bookTitle: string) {
-    if (!confirm(`Are you sure you want to delete "${bookTitle}"?`)) return;
+  async function deleteJournal(journalId: number, journalTitle: string) {
+    if (!confirm(`Are you sure you want to delete "${journalTitle}"?`)) return;
     try {
       const response = await fetch('/api/inventory/journals', {
         method: 'DELETE',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: bookId, itemType: 'journal' })
+        body: JSON.stringify({ id: journalId, itemType: 'journal' })
       });
       const data = await response.json();
       if (response.ok && data.success) {
         await Promise.all([
-          fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
+          fetchJournals(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
           fetchStats()
         ]);
       } else {
@@ -403,15 +378,15 @@
     }
   }
 
-  async function handleAddBookSuccess(event: CustomEvent) {
+  async function handleAddJournalSuccess() {
     showAddModal = false;
     pagination.currentPage = 1;
-    await fetchBooks(1, committedSearchTerm, selectedCategory, selectedLanguage);
+    await fetchJournals(1, committedSearchTerm, selectedCategory, selectedLanguage);
     await fetchStats();
-    goto(`/dashboard/inventory/journal?page=1`, { replaceState: true });
+    goto(`/dashboard/inventory/journals?page=1`, { replaceState: true });
   }
 
-  function handleAddBookError(event: CustomEvent) {
+  function handleAddJournalError(event: CustomEvent) {
     error = event.detail.message;
   }
 
@@ -466,7 +441,7 @@
       if (selectedCategory && selectedCategory !== 'all') params.set('category', selectedCategory);
       if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
       const queryString = params.toString();
-      goto(`/dashboard/inventory/journal${queryString ? '?' + queryString : ''}`);
+      goto(`/dashboard/inventory/journals${queryString ? '?' + queryString : ''}`);
     }
   }
 
@@ -477,39 +452,20 @@
   function handleAddCategoryError(event: CustomEvent) { categoryError = event.detail.message; }
   function handleAddCategoryClose() { showAddCategoryModal = false; }
 
-  let showViewBookModal = false;
-  let showEditBookModal = false;
-  let selectedBook: Book | null = null;
+  let showViewJournalModal = false;
+  let showEditJournalModal = false;
+  let selectedJournal: Journal | null = null;
 
-  function openViewBookModal(book: Book) { selectedBook = book; showViewBookModal = true; showEditBookModal = false; }
-  function openEditBookModal(book: Book) { selectedBook = book; showEditBookModal = true; showViewBookModal = false; }
-  function closeBookModal() { showViewBookModal = false; showEditBookModal = false; selectedBook = null; }
+  function openViewJournalModal(journal: Journal) { selectedJournal = journal; showViewJournalModal = true; showEditJournalModal = false; }
+  function openEditJournalModal(journal: Journal) { selectedJournal = journal; showEditJournalModal = true; showViewJournalModal = false; }
+  function closeJournalModal() { showViewJournalModal = false; showEditJournalModal = false; selectedJournal = null; }
 
-  function handleBookSave(event: CustomEvent) {
-    (async () => {
-      const updatedData = event.detail;
-      try {
-        const response = await fetch('/api/inventory/journals', {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedData)
-        });
-        const data = await response.json();
-        if (response.ok && data.success) {
-          closeBookModal();
-          await Promise.all([
-            fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
-            fetchStats()
-          ]);
-        } else {
-          throw new Error(data.message || 'Failed to update journal');
-        }
-      } catch (err) {
-        console.error('Error updating journal:', err);
-        error = err instanceof Error ? err.message : 'An error occurred while updating the journal';
-      }
-    })();
+  function handleJournalSave() {
+    closeJournalModal();
+    Promise.all([
+      fetchJournals(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
+      fetchStats()
+    ]);
   }
 
   $: pageNumbers = (() => {
@@ -549,7 +505,7 @@
       <div class="flex justify-center gap-2">
         <button
           on:click={() => showAddModal = true}
-          class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-600 transition-colors duration-200"
+          class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-sky-700 hover:bg-sky-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-600 transition-colors duration-200"
         >
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
@@ -566,7 +522,7 @@
           Add Category
         </button>
         <button
-          on:click={() => goto('/dashboard/inventory/journal/quick_add')}
+          on:click={() => showAddModal = true}
           class="inline-flex items-center justify-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-lg text-slate-900 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
           title="Quick Add Journals"
         >
@@ -586,7 +542,7 @@
             <p class="font-medium">Error:</p>
             <p class="text-sm">{error}</p>
             <button 
-              on:click={() => fetchBooks()} 
+              on:click={() => fetchJournals()}
               class="mt-2 text-sm text-red-800 hover:text-red-900 underline"
             >
               Try again
@@ -606,7 +562,7 @@
     {/if}
 
     <!-- Stats Cards -->
-    {#if loading && books.length === 0}
+    {#if loading && journals.length === 0}
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {#each Array(4) as _, i}
           <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
@@ -631,7 +587,7 @@
               </svg>
             </div>
             <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Total Journals</p>
-            <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.totalBooks}</p>
+            <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.totalJournals}</p>
           </div>
         </div>
 
@@ -658,7 +614,7 @@
               </svg>
             </div>
             <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Borrowed</p>
-            <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.borrowedBooks}</p>
+            <p class="text-lg sm:text-xl font-bold text-gray-900">{stats.borrowedJournals}</p>
           </div>
         </div>
 
@@ -757,7 +713,7 @@
             </svg>
             <input
               type="text"
-              placeholder="Search by title, author, or ISBN..."
+              placeholder="Search by journal title, publisher, or ISSN..."
               bind:value={searchTerm}
               on:keydown={(e) => { if (e.key === 'Enter') debouncedSearch(true); }}
               class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200 {committedSearchTerm ? 'border-green-500 bg-green-50' : ''}"
@@ -859,7 +815,7 @@
     </div>
 
     <!-- Loading State with Skeleton -->
-    {#if loading && books.length === 0}
+    {#if loading && journals.length === 0}
       <div class="bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-slate-200">
@@ -902,9 +858,9 @@
     {/if}
 
     <!-- Journal List -->
-    {#key 'book-list'}
+    {#key 'journal-list'}
       <!-- Desktop Table View -->
-      {#if !loading || books.length > 0}
+      {#if !loading || journals.length > 0}
         <div class="bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden hidden lg:block">
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-slate-200">
@@ -918,50 +874,50 @@
                 </tr>
               </thead>
               <tbody class="bg-white divide-y divide-slate-100">
-                {#each books as book}
-                  <tr class="hover:bg-yellow-50 transition-colors duration-200">
+                {#each journals as journal}
+                  <tr class="hover:bg-sky-50 transition-colors duration-200">
                     <td class="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div class="text-sm font-semibold text-slate-900">{book.title}</div>
-                        <div class="text-sm text-slate-600">by {book.author}</div>
-                        <div class="text-xs text-slate-400">ISBN: {book.isbn} • {book.published}</div>
+                        <div class="text-sm font-semibold text-slate-900">{journal.title}</div>
+                        <div class="text-sm text-slate-600">{journal.publisher || 'Publisher not recorded'}</div>
+                        <div class="text-xs text-slate-400">ISSN: {journal.issn || '—'} · ID: {journal.journalId}</div>
                       </div>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
                       <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
-                        {book.category || 'General'}
+                        {journal.category || 'General'}
                       </span>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
                       <div class="mb-2">
-                        <span class="font-semibold">{book.availableCopies ?? book.copiesAvailable ?? 0}</span> / <span class="font-medium">{book.totalCopies ?? book.copiesAvailable ?? 0}</span> available
+                        <span class="font-semibold">{journal.availableCopies ?? 0}</span> / <span class="font-medium">{journal.totalCopies ?? 0}</span> available
                       </div>
                       <div class="w-full bg-slate-200 rounded-full h-2">
                         <div
-                          class="bg-green-600 h-2 rounded-full transition-all duration-300"
-                          style="width: {book.totalCopies && book.totalCopies > 0 ? Math.min(Math.round(((book.availableCopies ?? book.copiesAvailable ?? 0) / book.totalCopies) * 100), 100) : 0}%"
+                          class="bg-sky-600 h-2 rounded-full transition-all duration-300"
+                          style="width: {journal.totalCopies && journal.totalCopies > 0 ? Math.min(Math.round(((journal.availableCopies ?? 0) / journal.totalCopies) * 100), 100) : 0}%"
                         ></div>
                       </div>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
-                      <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(book.status || 'Unknown')}`}>
-                        {book.status || 'Unknown'}
+                      <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(journal.status || 'Unknown')}`}>
+                        {journal.status || 'Unknown'}
                       </span>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div class="flex space-x-3">
-                        <button aria-label="View Details" class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Details" on:click={() => openViewBookModal(book)}>
+                        <button aria-label="View Journal" class="text-slate-600 hover:text-slate-900 transition-colors duration-200" title="View Journal" on:click={() => openViewJournalModal(journal)}>
                           <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                             <circle cx="12" cy="12" r="3"/>
                             <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                           </svg>
                         </button>
-                        <button aria-label="Edit Journal" class="text-green-600 hover:text-green-700 transition-colors duration-200" title="Edit Journal" on:click={() => openEditBookModal(book)}>
+                        <button aria-label="Edit Journal" class="text-sky-700 hover:text-sky-900 transition-colors duration-200" title="Edit Journal" on:click={() => openEditJournalModal(journal)}>
                           <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
                           </svg>
                         </button>
-                        <button aria-label="Delete Journal" class="text-red-600 hover:text-red-700 transition-colors duration-200" title="Delete Journal" on:click={() => deleteBook(book.id, book.title)}>
+                        <button aria-label="Delete Journal" class="text-red-600 hover:text-red-700 transition-colors duration-200" title="Delete Journal" on:click={() => deleteJournal(journal.id, journal.title)}>
                           <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                             <polyline points="3 6 5 6 21 6"/>
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m5 6v6m4-6v6"/>
@@ -974,7 +930,7 @@
                 {/each}
               </tbody>
             </table>
-            {#if books.length === 0 && !loading}
+            {#if journals.length === 0 && !loading}
               <div class="text-center py-8">
                 <p class="text-slate-500">No journals found matching your criteria.</p>
               </div>
@@ -984,51 +940,51 @@
       {/if}
 
       <!-- Mobile Card View -->
-      {#if !loading || books.length > 0}
+      {#if !loading || journals.length > 0}
         <div class="grid grid-cols-1 gap-3 lg:hidden">
-          {#each books as book}
+          {#each journals as journal}
             <div class="bg-white p-4 rounded-xl shadow-lg border border-slate-200">
               <div class="flex items-start justify-between mb-3">
                 <div class="flex-1 min-w-0">
-                  <h3 class="text-base font-semibold text-slate-900 truncate">{book.title}</h3>
-                  <p class="text-sm text-slate-600">by {book.author}</p>
-                  <p class="text-xs text-slate-400">ISBN: {book.isbn} • {book.published}</p>
+                  <h3 class="text-base font-semibold text-slate-900 truncate">{journal.title}</h3>
+                  <p class="text-sm text-slate-600">{journal.publisher || 'Publisher not recorded'}</p>
+                  <p class="text-xs text-slate-400">ISSN: {journal.issn || '—'} · ID: {journal.journalId}</p>
                 </div>
-                <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(book.status || 'Unknown')} ml-3`}>
-                  {book.status || 'Unknown'}
+                <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(journal.status || 'Unknown')} ml-3`}>
+                  {journal.status || 'Unknown'}
                 </span>
               </div>
               <div class="flex items-center justify-between mb-3">
                 <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
-                  {book.category || 'General'}
+                  {journal.category || 'General'}
                 </span>
                 <div class="text-right">
                   <div class="text-sm text-slate-900">
-                    <span class="font-semibold">{book.availableCopies ?? book.copiesAvailable ?? 0}</span> / <span class="font-medium">{book.totalCopies ?? book.copiesAvailable ?? 0}</span> copies
+                    <span class="font-semibold">{journal.availableCopies ?? 0}</span> / <span class="font-medium">{journal.totalCopies ?? 0}</span> copies
                   </div>
                 </div>
               </div>
               <div class="mb-4">
                 <div class="w-full bg-slate-200 rounded-full h-2">
                   <div
-                    class="bg-green-600 h-2 rounded-full transition-all duration-300"
-                    style="width: {book.totalCopies && book.totalCopies > 0 ? Math.min(Math.round(((book.availableCopies ?? book.copiesAvailable ?? 0) / book.totalCopies) * 100), 100) : 0}%"
+                    class="bg-sky-600 h-2 rounded-full transition-all duration-300"
+                    style="width: {journal.totalCopies && journal.totalCopies > 0 ? Math.min(Math.round(((journal.availableCopies ?? 0) / journal.totalCopies) * 100), 100) : 0}%"
                   ></div>
                 </div>
               </div>
               <div class="flex justify-center space-x-3">
-                <button aria-label="View Details" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors duration-200" title="View Details" on:click={() => openViewBookModal(book)}>
+                <button aria-label="View Journal" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors duration-200" title="View Journal" on:click={() => openViewJournalModal(journal)}>
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="3"/>
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                   </svg>
                 </button>
-                <button aria-label="Edit Journal" class="p-2 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors duration-200" title="Edit Journal" on:click={() => openEditBookModal(book)}>
+                <button aria-label="Edit Journal" class="p-2 text-sky-700 hover:text-sky-900 hover:bg-sky-50 rounded-lg transition-colors duration-200" title="Edit Journal" on:click={() => openEditJournalModal(journal)}>
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 3.487a2.1 2.1 0 112.97 2.97L7.5 18.789l-4 1 1-4 12.362-12.302z"/>
                   </svg>
                 </button>
-                <button aria-label="Delete Journal" class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" title="Delete Journal" on:click={() => deleteBook(book.id, book.title)}>
+                <button aria-label="Delete Journal" class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors duration-200" title="Delete Journal" on:click={() => deleteJournal(journal.id, journal.title)}>
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <polyline points="3 6 5 6 21 6"/>
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m5 6v6m4-6v6"/>
@@ -1038,7 +994,7 @@
               </div>
             </div>
           {/each}
-          {#if books.length === 0 && !loading}
+          {#if journals.length === 0 && !loading}
             <div class="bg-white p-8 rounded-xl shadow-lg border border-slate-200 text-center">
               <p class="text-slate-500">No journals found matching your criteria.</p>
             </div>
@@ -1049,7 +1005,7 @@
 
     <!-- Pagination -->
     {#if pagination.totalPages > 1}
-      <div class="bg-white px-4 lg:px-6 py-4 border border-amber-200 rounded-xl shadow-lg flex flex-col sm:flex-row items-center justify-between gap-2">
+      <div class="bg-white px-4 lg:px-6 py-4 border border-sky-200 rounded-xl shadow-lg flex flex-col sm:flex-row items-center justify-between gap-2">
         <div class="text-sm text-slate-700 order-2 sm:order-1">
           Page {pagination.currentPage} of {pagination.totalPages} • Showing <span class="font-semibold">{((pagination.currentPage - 1) * pagination.limit) + 1}</span> to 
           <span class="font-semibold">{Math.min(pagination.currentPage * pagination.limit, pagination.totalCount)}</span> of
@@ -1059,7 +1015,7 @@
           <button 
             on:click={prevPage}
             disabled={!pagination.hasPrevPage || loading}
-            class="relative inline-flex items-center px-3 py-2 border border-amber-300 text-sm font-medium rounded-l-lg text-slate-500 bg-white hover:bg-yellow-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="relative inline-flex items-center px-3 py-2 border border-sky-300 text-sm font-medium rounded-l-lg text-slate-500 bg-white hover:bg-sky-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
@@ -1068,12 +1024,12 @@
           </button>
           {#each pageNumbers as pageNum}
             {#if pageNum === '...'}
-              <span class="relative inline-flex items-center px-4 py-2 border border-amber-300 bg-white text-sm font-medium text-slate-700">...</span>
+              <span class="relative inline-flex items-center px-4 py-2 border border-sky-300 bg-white text-sm font-medium text-slate-700">...</span>
             {:else}
               <button 
                 on:click={() => goToPage(pageNum as number)}
                 disabled={loading}
-                class="relative inline-flex items-center px-4 py-2 border border-amber-300 text-sm font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed {pageNum === pagination.currentPage ? 'text-yellow-800 bg-yellow-100' : 'text-slate-500 bg-white hover:bg-yellow-50'}"
+                class="relative inline-flex items-center px-4 py-2 border border-sky-300 text-sm font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed {pageNum === pagination.currentPage ? 'text-sky-900 bg-sky-100' : 'text-slate-500 bg-white hover:bg-sky-50'}"
               >
                 {pageNum}
               </button>
@@ -1082,7 +1038,7 @@
           <button 
             on:click={nextPage}
             disabled={!pagination.hasNextPage || loading}
-            class="relative inline-flex items-center px-3 py-2 border border-amber-300 text-sm font-medium rounded-r-lg text-slate-500 bg-white hover:bg-yellow-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="relative inline-flex items-center px-3 py-2 border border-sky-300 text-sm font-medium rounded-r-lg text-slate-500 bg-white hover:bg-sky-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span class="hidden sm:inline">Next</span>
             <svg class="h-4 w-4 ml-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -1094,13 +1050,11 @@
     {/if}
 
     <!-- Add Journal Modal -->
-    <AddBooks
+    <AddJournal
       isOpen={showAddModal}
-      itemType={'journal'}
       on:close={handleModalClose}
-      on:success={handleAddBookSuccess}
-      on:bookAdded={handleAddBookSuccess}
-      on:error={handleAddBookError}
+      on:success={handleAddJournalSuccess}
+      on:error={handleAddJournalError}
     />
 
     <!-- Add Category Modal -->
@@ -1112,16 +1066,16 @@
     />
 
     <!-- Journal View/Edit Modal -->
-    {#if showViewBookModal || showEditBookModal}
-      <ViewBook
-        isOpen={showViewBookModal || showEditBookModal}
-        book={selectedBook}
-        isEditMode={showEditBookModal}
-        on:close={closeBookModal}
-        on:save={handleBookSave}
+    {#if showViewJournalModal || showEditJournalModal}
+      <JournalDetails
+        isOpen={showViewJournalModal || showEditJournalModal}
+        journal={selectedJournal}
+        isEditMode={showEditJournalModal}
+        on:close={closeJournalModal}
+        on:save={handleJournalSave}
         on:edit={() => {
-          showEditBookModal = true;
-          showViewBookModal = false;
+          showEditJournalModal = true;
+          showViewJournalModal = false;
         }}
       />
     {/if}

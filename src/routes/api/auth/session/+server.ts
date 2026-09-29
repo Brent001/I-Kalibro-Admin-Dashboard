@@ -3,6 +3,9 @@ import { json } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
 import { verifyToken, refreshAccessToken } from '$lib/server/db/auth.js';
 import type { JWTPayload } from '$lib/server/db/auth.js';
+import { db } from '$lib/server/db/index.js';
+import { tbl_library_settings } from '$lib/server/db/schema/schema.js';
+import { eq } from 'drizzle-orm';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -105,6 +108,21 @@ export const GET: RequestHandler = async ({ request, getClientAddress, cookies }
     // ── 5. Pull timing info from the (now-trusted) token ─────────────────────
     // At this point the token has passed full verification – safe to decode.
     const decoded = jwt.decode(token) as JWTPayload;
+    let sessionTimeoutMinutes = 30;
+    try {
+        const [settingsRow] = await db.select({ settingValue: tbl_library_settings.settingValue })
+            .from(tbl_library_settings)
+            .where(eq(tbl_library_settings.settingKey, 'systemSettings'))
+            .limit(1);
+        if (settingsRow) {
+            const settings = JSON.parse(settingsRow.settingValue) as { sessionTimeoutMinutes?: number };
+            if (Number.isFinite(settings.sessionTimeoutMinutes) && settings.sessionTimeoutMinutes >= 5) {
+                sessionTimeoutMinutes = settings.sessionTimeoutMinutes;
+            }
+        }
+    } catch {
+        // Keep the safe default when settings are temporarily unavailable.
+    }
 
     return json(
         {
@@ -125,6 +143,7 @@ export const GET: RequestHandler = async ({ request, getClientAddress, cookies }
                     processingTime: Date.now() - startTime,
                     tokenIssued: decoded?.iat ? new Date(decoded.iat * 1000).toISOString() : null,
                     tokenExpires: decoded?.exp ? new Date(decoded.exp * 1000).toISOString() : null,
+                    sessionTimeoutMinutes,
                 },
             },
         },

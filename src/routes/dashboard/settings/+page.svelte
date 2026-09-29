@@ -1,9 +1,22 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import FileText from 'lucide-svelte/icons/file-text';
+  import BookOpen from 'lucide-svelte/icons/book-open';
+  import CircleDollarSign from 'lucide-svelte/icons/circle-dollar-sign';
+  import CalendarDays from 'lucide-svelte/icons/calendar-days';
+  import Bell from 'lucide-svelte/icons/bell';
+  import ShieldCheck from 'lucide-svelte/icons/shield-check';
+  import LockKeyhole from 'lucide-svelte/icons/lock-keyhole';
+  import SettingsIcon from 'lucide-svelte/icons/settings';
+  import QrCode from 'lucide-svelte/icons/qr-code';
+  import Barcode from 'lucide-svelte/icons/barcode';
+
+  let { data } = $props();
 
   let activeTab = $state('general');
   let isSaving = $state(false);
   let saveSuccess = $state(false);
+  let saveError = $state('');
 
   let storageInfo = $state<{
     used: number;
@@ -17,10 +30,10 @@
 
   type PermKey = 'canManageBooks'|'canManageUsers'|'canManageBorrowing'|'canManageReservations'|'canViewReports'|'canManageFines';
 
-  let settings = $state({
+  const defaultSettings = {
     libraryName: 'Metro Dagupan Colleges Library',
     libraryCode: 'MDC-LIB',
-    address: 'Dagupan City, Pangasinan',
+    address: 'National Highway, Barangay Salay, Mangaldan, 2432 Pangasinan',
     phone: '+63 75 522 4567',
     email: 'library@mdc.edu.ph',
     website: 'https://mdc.edu.ph/library',
@@ -54,7 +67,6 @@
     notifReturnConfirmation: true,
     notifDueReminderDaysBefore: 2,
     notifChannelEmail: true,
-    notifChannelSMS: false,
 
     sessionTimeoutMinutes: 30,
     passwordExpiryDays: 90,
@@ -68,15 +80,26 @@
       closedWeekdays: [0] as number[],
       holidays: [] as { date: string; description: string; type: 'holiday' | 'closed' }[]
     }
+  };
+
+  let settings = $state<typeof defaultSettings>({
+    ...defaultSettings,
+    ...(data.settings && typeof data.settings === 'object' ? data.settings : {}),
+    fineCalculation: defaultSettings.fineCalculation
   });
 
-  let defaultStaffPermissions = $state<Record<PermKey, boolean>>({
+  const defaultStaffPermissionValues: Record<PermKey, boolean> = {
     canManageBooks: false,
     canManageUsers: false,
     canManageBorrowing: true,
     canManageReservations: true,
     canViewReports: false,
     canManageFines: true
+  };
+
+  let defaultStaffPermissions = $state<Record<PermKey, boolean>>({
+    ...defaultStaffPermissionValues,
+    ...(data.defaultStaffPermissions && typeof data.defaultStaffPermissions === 'object' ? data.defaultStaffPermissions : {})
   });
 
   // Fine calc
@@ -113,26 +136,46 @@
 
   async function handleSave() {
     isSaving = true;
+    saveSuccess = false;
+    saveError = '';
     try {
-      const [r1, r2, r3] = await Promise.all([
-        fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(settings), credentials:'same-origin' }).catch(() => ({ok:false})),
-        fetch('/api/settings/finecal', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(settings.fineCalculation), credentials:'same-origin' }).catch(() => ({ok:false})),
-        fetch('/api/settings/permissions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(defaultStaffPermissions), credentials:'same-origin' }).catch(() => ({ok:false}))
+      const [settingsResponse, fineResponse] = await Promise.all([
+        fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...settings, defaultStaffPermissions }), credentials:'same-origin' }),
+        fetch('/api/settings/finecal', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(settings.fineCalculation), credentials:'same-origin' })
       ]);
-      if ((r1 as any).ok || (r2 as any).ok || (r3 as any).ok) { saveSuccess = true; setTimeout(() => saveSuccess = false, 3000); }
-    } finally { isSaving = false; }
+      if (!settingsResponse.ok || !fineResponse.ok) throw new Error('Settings could not be saved. Please try again.');
+      saveSuccess = true;
+      setTimeout(() => saveSuccess = false, 3000);
+    } catch (err) {
+      saveError = err instanceof Error ? err.message : 'Settings could not be saved.';
+    } finally {
+      isSaving = false;
+    }
   }
 
   const tabs = [
-    { id:'general',       name:'General',             icon:'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-    { id:'borrowing',     name:'Borrowing',            icon:'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
-    { id:'fines',         name:'Fines & Returns',      icon:'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-    { id:'finecalc',      name:'Fine Exemptions',      icon:'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-    { id:'notifications', name:'Notifications',        icon:'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
-    { id:'permissions',   name:'Permissions',          icon:'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
-    { id:'security',      name:'Security',             icon:'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
-    { id:'system',        name:'System',               icon:'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
+    { id:'general',       name:'General',             icon:FileText },
+    { id:'borrowing',     name:'Borrowing',            icon:BookOpen },
+    { id:'fines',         name:'Fines & Returns',      icon:CircleDollarSign },
+    { id:'finecalc',      name:'Fine Exemptions',      icon:CalendarDays },
+    { id:'notifications', name:'Notifications',        icon:Bell },
+    { id:'permissions',   name:'Permissions',          icon:ShieldCheck },
+    { id:'security',      name:'Security',             icon:LockKeyhole },
+    { id:'system',        name:'System',               icon:SettingsIcon },
   ];
+
+  const tabDescriptions: Record<string, string> = {
+    general: 'Library profile, contact details, and visitor scan method',
+    borrowing: 'Loan periods, copy limits, and reservation rules',
+    fines: 'Fine rates, penalties, and return requests',
+    finecalc: 'Calendar exemptions used when calculating fines',
+    notifications: 'Notification events and delivery channels',
+    permissions: 'Default permissions for new staff accounts',
+    security: 'Sessions, authentication, and backup policy',
+    system: 'Service health, storage, and maintenance tasks'
+  };
+
+  let activeTabData = $derived(tabs.find(tab => tab.id === activeTab) ?? tabs[0]);
 
   function selectTab(id: string) {
     activeTab = id;
@@ -158,9 +201,69 @@
   ];
 
   const channelRows = [
-    { key:'notifChannelEmail', label:'Email', desc:'Send notifications to user/staff email' },
-    { key:'notifChannelSMS',   label:'SMS',   desc:'Send urgent alerts via phone number' },
+    { key:'notifChannelEmail', label:'Email via Resend', desc:'Send notifications to user/staff email through Resend' },
   ];
+
+  let testEmailStatus = $state('');
+  let testingEmail = $state(false);
+
+  async function sendTestEmail() {
+    testingEmail = true;
+    testEmailStatus = '';
+    try {
+      const response = await fetch('/api/settings/test-email', { method: 'POST', credentials: 'same-origin' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Test email could not be sent.');
+      testEmailStatus = 'Test email sent.';
+    } catch (err) {
+      testEmailStatus = err instanceof Error ? err.message : 'Test email could not be sent.';
+    } finally {
+      testingEmail = false;
+    }
+  }
+
+  let maintenanceTask = $state('');
+  let maintenanceStatus = $state('');
+
+  const maintenanceActions: Record<string, string> = {
+    'Optimize Database': 'optimize_database',
+    'Clear Cache': 'clear_cache',
+    'Export Logs': 'export_logs',
+    'Rebuild QR Index': 'rebuild_qr_index',
+    'Recalculate Overdue Fines': 'recalculate_fines'
+  };
+
+  async function runMaintenance(task: string) {
+    maintenanceTask = task;
+    maintenanceStatus = '';
+    try {
+      const response = await fetch('/api/settings/maintenance', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: maintenanceActions[task] })
+      });
+
+      if (task === 'Export Logs' && response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `security-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+        maintenanceStatus = 'Security logs exported.';
+      } else {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || 'Maintenance task failed.');
+        maintenanceStatus = result.message || `${task} completed.`;
+      }
+    } catch (err) {
+      maintenanceStatus = err instanceof Error ? err.message : `${task} failed.`;
+    } finally {
+      maintenanceTask = '';
+    }
+  }
 
   const permRows: { key: PermKey; label: string; desc: string }[] = [
     { key:'canManageBooks',        label:'Manage Books & Copies',    desc:'Add, edit, deactivate tbl_book and tbl_book_copy' },
@@ -242,6 +345,9 @@
         <p class="text-slate-500 text-sm">Manage library configuration, policies, and system preferences</p>
       </div>
       <div class="flex items-center gap-3">
+        {#if saveError}
+          <div class="px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm font-medium">{saveError}</div>
+        {/if}
         {#if saveSuccess}
           <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">
             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
@@ -256,42 +362,41 @@
     </div>
   </div>
 
-  <!-- ✅ FIX: Mobile tab strip is NOW outside the flex row so it stacks above content -->
-  <div class="lg:hidden bg-white rounded-xl border border-gray-200 overflow-x-auto mb-3">
-    <div class="flex px-1">
+  <!-- Settings navigation -->
+  <div class="bg-white border border-gray-200 rounded-xl p-1 mb-1 overflow-hidden">
+    <div class="flex gap-0.5 overflow-x-auto" role="tablist" aria-label="Settings sections"
+      style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
       {#each tabs as tab}
-        <button onclick={() => selectTab(tab.id)}
-          class="px-3 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-all flex flex-col items-center gap-1
-            {activeTab === tab.id ? 'border-[#0D5C29] text-[#0D5C29]' : 'border-transparent text-gray-500'}">
-          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d={tab.icon}/>
-          </svg>
-          {tab.name}
+        {@const TabIcon = tab.icon}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === tab.id}
+          onclick={() => selectTab(tab.id)}
+          class="flex items-center gap-1.5 px-3.5 py-[7px] rounded-lg text-[13px] font-medium whitespace-nowrap flex-shrink-0 transition-all duration-150
+            {activeTab === tab.id
+              ? 'bg-[#0D5C29] text-white shadow-sm'
+              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}">
+          <TabIcon size={15} class="shrink-0" />
+          <span>{tab.name}</span>
         </button>
       {/each}
     </div>
   </div>
 
-  <!-- Sidebar + Content row (desktop sidebar lives here, mobile tab strip does NOT) -->
-  <div class="flex gap-5">
+  {#if activeTabData}
+    {@const ActiveTabIcon = activeTabData.icon}
+    <div class="flex items-center gap-2 px-1 py-2.5 mb-3">
+      <div class="flex items-center justify-center w-6 h-6 rounded-md bg-[#0D5C29]/10 shrink-0">
+        <ActiveTabIcon size={14} class="text-[#0D5C29]" />
+      </div>
+      <span class="text-sm font-semibold text-slate-700">{activeTabData.name}</span>
+      <span class="text-slate-300 select-none">·</span>
+      <span class="text-xs text-slate-400 truncate">{tabDescriptions[activeTab]}</span>
+    </div>
+  {/if}
 
-    <!-- Desktop Sidebar -->
-    <aside class="hidden lg:flex flex-col w-52 shrink-0 gap-1">
-      {#each tabs as tab}
-        <button onclick={() => selectTab(tab.id)}
-          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-left transition-all w-full
-            {activeTab === tab.id ? 'bg-[#0D5C29] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}">
-          <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d={tab.icon}/>
-          </svg>
-          {tab.name}
-        </button>
-      {/each}
-    </aside>
-
-    <!-- Content Panel -->
-    <div class="flex-1 min-w-0">
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200">
 
         <!-- GENERAL -->
         {#if activeTab === 'general'}
@@ -343,9 +448,7 @@
                       {settings.visitScanMethod === 'qrcode'
                         ? 'bg-white text-[#0D5C29] shadow-sm ring-1 ring-gray-200'
                         : 'text-slate-500 hover:text-slate-700'}">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h6v6H3zm12 0h6v6h-6zM3 15h6v6H3zm2-10h2v2H5zm10 0h2v2h-2zM5 17h2v2H5zm5-14h2v2h-2zm0 4h2v2h-2zm4 4h2v2h-2zm0 4h2v2h-2zm-4 0h2v2h-2zm0 4h2v2h-2zm4-8h2v2h-2zm4 4h2v2h-2z"/>
-                    </svg>
+                    <QrCode class="w-4 h-4" />
                     QR Code
                   </button>
                   <button
@@ -355,9 +458,7 @@
                       {settings.visitScanMethod === 'barcode'
                         ? 'bg-white text-[#0D5C29] shadow-sm ring-1 ring-gray-200'
                         : 'text-slate-500 hover:text-slate-700'}">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h1v12H4zm3 0h1v12H7zm2 0h2v12H9zm3 0h1v12h-1zm2 0h1v12h-1zm2 0h2v12h-2z"/>
-                    </svg>
+                    <Barcode class="w-4 h-4" />
                     Barcode
                   </button>
                 </div>
@@ -411,8 +512,8 @@
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {#each borrowLimits as item}
                     <div class="space-y-1.5">
-                      <label class="block text-sm font-medium text-slate-700">{item.label}</label>
-                      <input type="number" min="0" bind:value={settings[item.key as keyof typeof settings] as number} class={inp}/>
+                      <label for="borrow-limit-{item.key}" class="block text-sm font-medium text-slate-700">{item.label}</label>
+                      <input id="borrow-limit-{item.key}" type="number" min="0" bind:value={settings[item.key as keyof typeof settings] as number} class={inp}/>
                     </div>
                   {/each}
                 </div>
@@ -647,6 +748,15 @@
                     )}
                   {/each}
                 </div>
+                <div class="mt-5 flex flex-wrap items-center gap-3">
+                  <button type="button" onclick={sendTestEmail} disabled={testingEmail}
+                    class="px-4 py-2 border border-[#0D5C29] text-[#0D5C29] text-sm font-semibold rounded-lg hover:bg-emerald-50 disabled:opacity-50 transition-colors">
+                    {testingEmail ? 'Sending…' : 'Send Test Email'}
+                  </button>
+                  {#if testEmailStatus}
+                    <span class="text-xs {testEmailStatus === 'Test email sent.' ? 'text-emerald-700' : 'text-red-600'}">{testEmailStatus}</span>
+                  {/if}
+                </div>
               </div>
 
             </div>
@@ -801,19 +911,20 @@
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Maintenance Tasks</h4>
                 <div class="flex flex-wrap gap-3">
                   {#each ['Optimize Database','Clear Cache','Export Logs','Rebuild QR Index','Recalculate Overdue Fines'] as task}
-                    <button type="button" class="px-4 py-2 border border-gray-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
-                      {task}
+                    <button type="button" onclick={() => runMaintenance(task)} disabled={Boolean(maintenanceTask)} class="px-4 py-2 border border-gray-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-wait transition-colors">
+                      {maintenanceTask === task ? 'Working…' : task}
                     </button>
                   {/each}
                 </div>
+                {#if maintenanceStatus}
+                  <p class="mt-3 text-xs {maintenanceStatus.endsWith('failed.') || maintenanceStatus.includes('could not') ? 'text-red-600' : 'text-emerald-700'}">{maintenanceStatus}</p>
+                {/if}
               </div>
 
             </div>
           </div>
         {/if}
 
-      </div>
-    </div>
   </div>
 </div>
 

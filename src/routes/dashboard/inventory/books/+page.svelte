@@ -119,7 +119,7 @@
   };
 
   // Function to fetch books from API
-  async function fetchBooks(page = 1, search = "", category = "", language = "") {
+  async function fetchBooks(page = 1, search = "", category = "", language = "", retry = true) {
     if (!browser) return;
     loading = true;
     error = "";
@@ -138,6 +138,15 @@
         headers: { 'Content-Type': 'application/json' }
       });
       if (!response.ok) {
+        if (response.status === 401 && retry) {
+          const sessionResponse = await fetch('/api/auth/session', { credentials: 'include' });
+          if (sessionResponse.ok) {
+            await fetchBooks(page, search, category, language, false);
+            return;
+          }
+          window.location.href = '/';
+          return;
+        }
         if (response.status === 401) {
           window.location.href = '/';
           return;

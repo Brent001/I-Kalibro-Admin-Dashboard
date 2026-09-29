@@ -31,6 +31,7 @@ import {
     tbl_faculty
 } from '$lib/server/db/schema/schema.js';
 import { loadFineSettings, calculateFineAmount, calculateDaysOverdue } from '$lib/server/utils/fineCalculation.js';
+import { assertUserCanBorrow } from '$lib/server/utils/userRestrictions.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -736,6 +737,8 @@ export const POST: RequestHandler = async ({ request }) => {
         if (!userId || !itemId || !copyId || !borrowDate || !dueDate) {
             throw error(400, { message: 'All fields are required' });
         }
+
+        await assertUserCanBorrow(Number(userId));
 
         let borrowing;
 

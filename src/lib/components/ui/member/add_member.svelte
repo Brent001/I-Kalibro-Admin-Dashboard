@@ -1,14 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { fade, scale, slide } from 'svelte/transition';
 
   export let isOpen = false;
   const dispatch = createEventDispatcher();
-
-  const colors = {
-    mdcBlue: '#0D5C29',
-    mdcGold: '#E8B923',
-  };
 
   let isLoading = false;
   let formData = {
@@ -29,7 +23,16 @@
   };
 
   function closeModal() {
-    dispatch('close');
+    if (!isLoading) {
+      dispatch('close');
+      resetForm();
+    }
+  }
+
+  function handleBackdropClick(event: MouseEvent) {
+    if (event.target === event.currentTarget) {
+      closeModal();
+    }
   }
 
   function resetForm() {
@@ -49,6 +52,7 @@
       facultyNumber: '',
       position: ''
     };
+    isLoading = false;
   }
 
   async function handleSubmit() {
@@ -57,198 +61,285 @@
       dispatch('memberAdded', formData);
       isLoading = false;
       resetForm();
-      closeModal();
+      dispatch('close');
     }, 1500);
   }
 </script>
 
 {#if isOpen}
-  <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 backdrop-blur-sm bg-slate-900/60" transition:fade>
-    
-    <div class="relative w-full max-w-2xl bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden border-t-[6px]" 
-         style="border-top-color: {colors.mdcGold}"
-         transition:scale={{ start: 0.95, duration: 200 }}>
-      
-      <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100" style="background-color: {colors.mdcBlue}">
-        <div class="flex items-center gap-3 sm:gap-4">
-          <div class="p-2 sm:p-2.5 rounded-xl text-white shadow-md hidden sm:block" style="background-color: {colors.mdcGold}; color: {colors.mdcBlue}">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <!-- Backdrop -->
+    <button
+      class="fixed inset-0 bg-black/50 backdrop-blur-sm cursor-default"
+      onclick={!isLoading ? closeModal : null}
+      disabled={isLoading}
+      aria-label="Close modal"
+      type="button"
+    ></button>
+
+    <div class="relative w-full max-w-3xl transform transition-all duration-300 scale-100">
+      <div class="bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-[#4A7C59]/30 overflow-hidden flex flex-col h-[90vh]">
+        <form onsubmit={(event) => { event.preventDefault(); handleSubmit(); }} class="flex flex-col h-full">
+
+          <!-- ── Header ── -->
+          <div class="px-6 py-4 border-b border-[#4A7C59]/20 bg-white/80 flex-shrink-0">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="flex items-center justify-center h-10 w-10 sm:h-12 sm:w-12 rounded-xl bg-gradient-to-br from-[#0D5C29] to-[#4A7C59] shadow-lg flex-shrink-0">
+                  <svg class="h-5 w-5 sm:h-6 sm:w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2m18-8h-6m3-3v6M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+                  </svg>
+                </div>
+                <div class="min-w-0">
+                  <h3 class="text-lg sm:text-xl font-bold text-[#0D5C29] truncate">Add New Member</h3>
+                  <p class="text-xs sm:text-sm text-[#4A7C59] hidden sm:block">Metro-Dagupan Colleges Library System</p>
+                </div>
+              </div>
+              <button
+                type="button" onclick={closeModal}
+                disabled={isLoading}
+                aria-label="Close modal"
+                class="p-2 rounded-lg text-gray-400 hover:text-[#0D5C29] hover:bg-[#0D5C29]/10 transition-colors duration-200 disabled:opacity-50 flex-shrink-0"
+              >
+                <svg class="h-5 w-5 sm:h-6 sm:w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
           </div>
-          <div>
-            <h2 class="text-base sm:text-lg font-bold text-white leading-tight">Add New Member</h2>
-            <p class="text-[10px] sm:text-xs text-slate-200 font-medium">Metro-Dagupan Colleges System</p>
+
+          <!-- ── Body ── -->
+          <div class="px-6 py-6 overflow-y-auto flex-1 min-h-0 custom-scrollbar">
+            <div class="space-y-5">
+
+              <!-- ══ SECTION 1: Personal Details ══ -->
+              <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
+                <div class="flex items-center gap-2 mb-4">
+                  <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                  </svg>
+                  <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Personal Details</h4>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                  <div class="sm:col-span-2">
+                    <label for="full-name" class="block text-xs font-medium text-gray-500 mb-1">Full Name <span class="text-red-400">*</span></label>
+                    <input
+                      id="full-name" bind:value={formData.name}
+                      disabled={isLoading}
+                      placeholder="Juan Dela Cruz"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label for="email" class="block text-xs font-medium text-gray-500 mb-1">Email Address <span class="text-red-400">*</span></label>
+                    <input
+                      id="email" type="email" bind:value={formData.email}
+                      disabled={isLoading}
+                      placeholder="name@mdc.edu.ph"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label for="phone" class="block text-xs font-medium text-gray-500 mb-1">Phone Number</label>
+                    <input
+                      id="phone" type="tel" bind:value={formData.phone}
+                      disabled={isLoading}
+                      placeholder="+63 900 000 0000"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label for="age" class="block text-xs font-medium text-gray-500 mb-1">Age</label>
+                    <input
+                      id="age" type="number" bind:value={formData.age}
+                      disabled={isLoading}
+                      placeholder="18" min="1" max="120"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label for="gender" class="block text-xs font-medium text-gray-500 mb-1">Gender</label>
+                    <select
+                      id="gender" bind:value={formData.gender} disabled={isLoading}
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                    >
+                      <option value="">Select Gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- ══ SECTION 2: Credentials ══ -->
+              <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
+                <div class="flex items-center gap-2 mb-4">
+                  <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                  </svg>
+                  <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Credentials</h4>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                  <div>
+                    <label for="username" class="block text-xs font-medium text-gray-500 mb-1">Username <span class="text-red-400">*</span></label>
+                    <div class="relative">
+                      <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <span class="text-gray-400 text-sm">@</span>
+                      </div>
+                      <input
+                        id="username" bind:value={formData.username}
+                        disabled={isLoading}
+                        placeholder="username"
+                        class="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label for="password" class="block text-xs font-medium text-gray-500 mb-1">Password <span class="text-red-400">*</span></label>
+                    <input
+                      id="password" type="password" bind:value={formData.password}
+                      disabled={isLoading}
+                      placeholder="••••••••"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                      required
+                    />
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- ══ SECTION 3: Academic Affiliation ══ -->
+              <div class="bg-[#f8faf9] border border-[#4A7C59]/20 rounded-xl p-4 sm:p-5">
+                <div class="flex items-center justify-between gap-2 mb-4">
+                  <div class="flex items-center gap-2">
+                    <svg class="h-5 w-5 text-[#0D5C29]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422A12.083 12.083 0 0112 20.055 12.083 12.083 0 015.84 10.578L12 14z"/>
+                    </svg>
+                    <h4 class="text-base sm:text-lg font-semibold text-[#0D5C29]">Academic Affiliation</h4>
+                  </div>
+                  <div class="flex p-1 rounded-lg bg-[#0D5C29]/10 flex-shrink-0">
+                    <button
+                      type="button"
+                      onclick={() => formData.type = 'Student'}
+                      disabled={isLoading}
+                      class="px-4 py-1.5 text-xs font-bold rounded-md transition-all {formData.type === 'Student' ? 'bg-white text-[#0D5C29] shadow-sm' : 'text-gray-500'}"
+                    >
+                      Student
+                    </button>
+                    <button
+                      type="button"
+                      onclick={() => formData.type = 'Faculty'}
+                      disabled={isLoading}
+                      class="px-4 py-1.5 text-xs font-bold rounded-md transition-all {formData.type === 'Faculty' ? 'bg-white text-[#0D5C29] shadow-sm' : 'text-gray-500'}"
+                    >
+                      Faculty
+                    </button>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {#if formData.type === 'Student'}
+                    <div>
+                      <label for="enroll-no" class="block text-xs font-medium text-gray-500 mb-1">Enrollment # <span class="text-red-400">*</span></label>
+                      <input id="enroll-no" bind:value={formData.enrollmentNo} disabled={isLoading} placeholder="2024-0001"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required />
+                    </div>
+                    <div>
+                      <label for="course" class="block text-xs font-medium text-gray-500 mb-1">Course</label>
+                      <input id="course" bind:value={formData.course} disabled={isLoading} placeholder="BS Information Technology"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" />
+                    </div>
+                    <div>
+                      <label for="dept" class="block text-xs font-medium text-gray-500 mb-1">Department</label>
+                      <input id="dept" bind:value={formData.department} disabled={isLoading} placeholder="IT Department"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" />
+                    </div>
+                    <div>
+                      <label for="year" class="block text-xs font-medium text-gray-500 mb-1">Year Level</label>
+                      <select id="year" bind:value={formData.year} disabled={isLoading}
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white">
+                        <option value="">Select Year</option>
+                        <option value="1st Year">1st Year</option>
+                        <option value="2nd Year">2nd Year</option>
+                        <option value="3rd Year">3rd Year</option>
+                        <option value="4th Year">4th Year</option>
+                      </select>
+                    </div>
+                  {:else}
+                    <div class="sm:col-span-2">
+                      <label for="fac-no" class="block text-xs font-medium text-gray-500 mb-1">Faculty ID No. <span class="text-red-400">*</span></label>
+                      <input id="fac-no" bind:value={formData.facultyNumber} disabled={isLoading} placeholder="FAC-2024-001"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" required />
+                    </div>
+                    <div class="sm:col-span-2">
+                      <label for="fac-dept" class="block text-xs font-medium text-gray-500 mb-1">Department</label>
+                      <input id="fac-dept" bind:value={formData.department} disabled={isLoading} placeholder="IT Department"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" />
+                    </div>
+                    <div class="sm:col-span-2">
+                      <label for="position" class="block text-xs font-medium text-gray-500 mb-1">Position</label>
+                      <input id="position" bind:value={formData.position} disabled={isLoading} placeholder="Assistant Professor"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" />
+                    </div>
+                  {/if}
+                </div>
+              </div>
+
+            </div>
           </div>
-        </div>
-        <button on:click={closeModal} aria-label="Close modal" class="p-2 hover:bg-white/20 rounded-full transition-colors text-slate-200">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
+
+          <!-- ── Footer ── -->
+          <div class="px-6 py-4 border-t border-[#4A7C59]/20 bg-white/80 flex flex-col sm:flex-row-reverse gap-3 flex-shrink-0">
+            <button
+              type="submit"
+              disabled={isLoading}
+              class="w-full sm:w-auto px-6 py-2.5 rounded-lg bg-gradient-to-r from-[#0D5C29] to-[#4A7C59] text-sm font-semibold text-white hover:from-[#0A4520] hover:to-[#3D664A] shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {#if isLoading}
+                <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                </svg>
+                Saving…
+              {:else}
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                </svg>
+                Save Member
+              {/if}
+            </button>
+            <button
+              type="button" onclick={closeModal}
+              disabled={isLoading}
+              class="w-full sm:w-auto px-6 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+          </div>
+
+        </form>
       </div>
-
-      <form on:submit|preventDefault={handleSubmit} class="p-5 sm:p-8 space-y-6 sm:space-y-8 max-h-[80vh] sm:max-h-[85vh] overflow-y-auto">
-        
-        <!-- Personal Details Section -->
-        <section class="space-y-4">
-          <div class="flex items-center gap-2 border-b pb-2" style="border-color: {colors.mdcGold}">
-            <div class="w-2 h-2 rounded-full" style="background-color: {colors.mdcBlue}"></div>
-            <h3 class="text-[11px] font-black uppercase tracking-widest" style="color: {colors.mdcBlue}">Personal Details</h3>
-          </div>
-          
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-            <div class="space-y-1.5">
-              <label for="full-name" class="label-text">Full Name</label>
-              <input id="full-name" bind:value={formData.name} placeholder="Juan Dela Cruz" class="input-field" required />
-            </div>
-            <div class="space-y-1.5">
-              <label for="email" class="label-text">Email Address</label>
-              <input id="email" type="email" bind:value={formData.email} placeholder="name@mdc.edu.ph" class="input-field" required />
-            </div>
-            <div class="space-y-1.5">
-              <label for="phone" class="label-text">Phone Number</label>
-              <input id="phone" type="tel" bind:value={formData.phone} placeholder="+63 900 000 0000" class="input-field" />
-            </div>
-            <div class="space-y-1.5">
-              <label for="age" class="label-text">Age</label>
-              <input id="age" type="number" bind:value={formData.age} placeholder="18" class="input-field" min="1" max="120" />
-            </div>
-            <div class="space-y-1.5">
-              <label for="gender" class="label-text">Gender</label>
-              <select id="gender" bind:value={formData.gender} class="input-field">
-                <option value="">Select Gender</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-            <div class="space-y-1.5">
-              <label for="username" class="label-text">Username</label>
-              <input id="username" bind:value={formData.username} placeholder="username" class="input-field" required />
-            </div>
-          </div>
-        </section>
-
-        <!-- Credentials Section -->
-        <section class="space-y-4">
-          <div class="flex items-center gap-2 border-b pb-2" style="border-color: {colors.mdcGold}">
-            <div class="w-2 h-2 rounded-full" style="background-color: {colors.mdcBlue}"></div>
-            <h3 class="text-[11px] font-black uppercase tracking-widest" style="color: {colors.mdcBlue}">Credentials</h3>
-          </div>
-          
-          <div class="grid grid-cols-1 gap-4 sm:gap-6">
-            <div class="space-y-1.5">
-              <label for="password" class="label-text">Password</label>
-              <input id="password" type="password" bind:value={formData.password} placeholder="••••••••" class="input-field" required />
-            </div>
-          </div>
-        </section>
-
-        <!-- Academic Affiliation Section -->
-        <section class="p-4 sm:p-6 rounded-2xl border-2 transition-all" style="border-color: {colors.mdcBlue}; background-color: #fcfcfd">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h3 class="text-xs font-bold uppercase tracking-tight" style="color: {colors.mdcBlue}">Academic Affiliation</h3>
-            <div class="flex p-1 rounded-xl w-full sm:w-auto" style="background-color: {colors.mdcBlue}20">
-                <button type="button" 
-                        class="flex-1 sm:flex-none px-6 py-1.5 text-xs font-bold rounded-lg transition-all"
-                        style="background: {formData.type === 'Student' ? 'white' : 'transparent'}; color: {formData.type === 'Student' ? colors.mdcBlue : '#64748b'}; box-shadow: {formData.type === 'Student' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none'}"
-                        on:click={() => formData.type = 'Student'}>Student</button>
-                <button type="button" 
-                        class="flex-1 sm:flex-none px-6 py-1.5 text-xs font-bold rounded-lg transition-all"
-                        style="background: {formData.type === 'Faculty' ? 'white' : 'transparent'}; color: {formData.type === 'Faculty' ? colors.mdcBlue : '#64748b'}"
-                        on:click={() => formData.type = 'Faculty'}>Faculty</button>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" transition:slide>
-            {#if formData.type === 'Student'}
-              <div class="space-y-1.5">
-                <label for="enroll-no" class="label-text">Enrollment #</label>
-                <input id="enroll-no" bind:value={formData.enrollmentNo} placeholder="2024-0001" class="input-field bg-white" required />
-              </div>
-              <div class="space-y-1.5">
-                <label for="course" class="label-text">Course</label>
-                <input id="course" bind:value={formData.course} placeholder="BS Information Technology" class="input-field bg-white" />
-              </div>
-              <div class="space-y-1.5">
-                <label for="dept" class="label-text">Department</label>
-                <input id="dept" bind:value={formData.department} placeholder="IT Department" class="input-field bg-white" />
-              </div>
-              <div class="space-y-1.5">
-                <label for="year" class="label-text">Year Level</label>
-                <select id="year" bind:value={formData.year} class="input-field bg-white">
-                  <option value="">Select Year</option>
-                  <option value="1st Year">1st Year</option>
-                  <option value="2nd Year">2nd Year</option>
-                  <option value="3rd Year">3rd Year</option>
-                  <option value="4th Year">4th Year</option>
-                </select>
-              </div>
-            {:else}
-              <div class="col-span-1 sm:col-span-2 space-y-1.5">
-                <label for="fac-no" class="label-text">Faculty ID No.</label>
-                <input id="fac-no" bind:value={formData.facultyNumber} placeholder="FAC-2024-001" class="input-field bg-white" required />
-              </div>
-              <div class="col-span-1 sm:col-span-2 space-y-1.5">
-                <label for="fac-dept" class="label-text">Department</label>
-                <input id="fac-dept" bind:value={formData.department} placeholder="IT Department" class="input-field bg-white" />
-              </div>
-              <div class="col-span-1 sm:col-span-2 space-y-1.5">
-                <label for="position" class="label-text">Position</label>
-                <input id="position" bind:value={formData.position} placeholder="Assistant Professor" class="input-field bg-white" />
-              </div>
-            {/if}
-          </div>
-        </section>
-
-        <div class="flex flex-col-reverse sm:flex-row justify-end items-center gap-3 sm:gap-4 pt-2 pb-6 sm:pb-0">
-          <button type="button" on:click={closeModal} 
-            class="w-full sm:w-auto px-6 py-3 text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all uppercase tracking-wide">
-            Cancel
-          </button>
-          <button type="submit" disabled={isLoading}
-            class="w-full sm:w-auto px-10 py-3 text-sm font-bold text-white rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-70"
-            style="background-color: {colors.mdcBlue}; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1)">
-            {#if isLoading}
-              <span class="inline-block animate-spin mr-2">↻</span>
-            {/if}
-            Save Member
-          </button>
-        </div>
-      </form>
     </div>
   </div>
 {/if}
 
 <style>
-  .label-text {
-    display: block;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #64748b;
-    text-transform: uppercase;
-    margin-left: 0.1rem;
-    letter-spacing: 0.025em;
-  }
-
-  .input-field {
-    width: 100%;
-    padding: 0.75rem 1rem; /* Slightly larger for mobile tap targets */
-    background-color: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 0.75rem;
-    outline: none;
-    font-size: 1rem; /* Prevents auto-zoom on iOS */
-    transition: all 0.2s;
-  }
-
-  @media (min-width: 640px) {
-    .input-field {
-      font-size: 0.9rem;
-      padding: 0.65rem 0.9rem;
-    }
-  }
-
-  .input-field:focus {
-    background-color: #ffffff;
-    border-color: #003399;
-    box-shadow: 0 0 0 4px rgba(0, 51, 153, 0.08);
-  }
+  .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,.05); border-radius: 10px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(74,124,89,.3); border-radius: 10px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(74,124,89,.5); }
 </style>

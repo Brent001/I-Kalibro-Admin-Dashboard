@@ -1,5 +1,5 @@
 import type { PageServerLoad, Actions } from './$types.js';
-import { redirect, fail } from '@sveltejs/kit';
+import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
 import { tbl_super_admin } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
@@ -244,21 +244,10 @@ export const actions: Actions = {
 
             console.log(`[Setup] Super admin account created successfully: ${admin.email} (ID: ${admin.id})`);
 
-            // Return success response - let the client handle redirect
-            return {
-                success: true,
-                message: 'Super admin account created successfully',
-                admin: {
-                    id: admin.id,
-                    name: admin.name,
-                    email: admin.email,
-                    username: admin.username
-                }
-            };
+            throw redirect(303, '/');
 
         } catch (error) {
-            // Re-throw redirect responses (they're not errors)
-            if (error instanceof Response) {
+            if (isRedirect(error)) {
                 throw error;
             }
 

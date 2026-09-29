@@ -1,19 +1,19 @@
 <script lang="ts">
   import AddStaff from "$lib/components/ui/staff/add_staff.svelte";
   import EditStaff from "$lib/components/ui/staff/edit_staff.svelte";
-  import PermissionsModal from "$lib/components/ui/staff/PermissionsModal.svelte";
   import { onMount } from "svelte";
+  import { page } from '$app/stores';
 
   let searchTerm = "";
   let selectedStatus = "all";
   let isAddStaffOpen = false;
   let isEditStaffOpen = false;
   let isDeleteStaffOpen = false;
-  let isPermissionsModalOpen = false;
   let staff: any[] = [];
   let selectedStaff: any = null;
   let loading = false;
   let errorMsg = "";
+  $: isSuperAdmin = $page.data?.user?.userType === 'super_admin';
 
   const statusTypes = ['all', 'active', 'inactive'];
 
@@ -27,26 +27,20 @@
     { key: 'canManageFines', label: 'Manage Fines', icon: '' }
   ];
 
-  function countPermissions(perms: Record<string, any> | null): number {
-    if (!perms) return 0;
-    return permissionsList.reduce((cnt, p) => cnt + (perms[p.key] ? 1 : 0), 0);
-  }
-
-  // Fetch staff from API
   async function fetchStaff() {
     loading = true;
-    errorMsg = "";
+    errorMsg = '';
     try {
-      const res = await fetch('/api/staff');
+      const res = await fetch('/api/staff', { credentials: 'include' });
       const data = await res.json();
-      staff = data.data.map((s: any) => ({
-        ...s,
-        createdAt: s.createdAt || new Date().toISOString(),
-        updatedAt: s.updatedAt || new Date().toISOString()
+      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to load staff.');
+      staff = (data.data || []).map((member: any) => ({
+        ...member,
+        createdAt: member.createdAt || new Date().toISOString(),
+        updatedAt: member.updatedAt || new Date().toISOString()
       }));
     } catch (err) {
-      errorMsg = "Failed to load staff.";
-      console.error(err);
+      errorMsg = err instanceof Error ? err.message : 'Failed to load staff.';
     } finally {
       loading = false;
     }
@@ -54,85 +48,32 @@
 
   onMount(fetchStaff);
 
-  $: filteredStaff = staff.filter(member => {
-    const search = searchTerm.toLowerCase();
-    const matchesSearch =
-      member.name?.toLowerCase().includes(search) ||
-      member.email?.toLowerCase().includes(search) ||
-      member.username?.toLowerCase().includes(search);
-
-    const matchesStatus = selectedStatus === 'all' ||
-      (selectedStatus === 'active' && member.isActive) ||
-      (selectedStatus === 'inactive' && !member.isActive);
-
-    return matchesSearch && matchesStatus;
-  });
-
-  function getStatusColor(isActive: boolean) {
-    return isActive
-      ? 'bg-green-100 text-green-800'
-      : 'bg-red-100 text-red-800';
-  }
-
-  function getDepartmentColor(department: string | null) {
-    const colors: { [key: string]: string } = {
-      'library': 'bg-purple-100 text-purple-800',
-      'circulation': 'bg-blue-100 text-blue-800',
-      'reference': 'bg-green-100 text-green-800',
-      'cataloging': 'bg-indigo-100 text-indigo-800'
-    };
-    return department ? (colors[department] || 'bg-slate-100 text-slate-800') : 'bg-slate-100 text-slate-800';
-  }
-
-  function formatDateTime(dateTimeString: string) {
-    return new Date(dateTimeString).toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }
-
-  function formatDateTimeMobile(dateTimeString: string) {
-    return new Date(dateTimeString).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-  }
-
-  // Add Staff Handler
   async function handleStaffAdded(event: CustomEvent) {
     loading = true;
-    errorMsg = "";
+    errorMsg = '';
     try {
-      // build permissions object if provided
-      const permsObj: Record<string, boolean> = {};
+      const permissions: Record<string, boolean> = {};
       if (event.detail.permissions && typeof event.detail.permissions === 'object') {
-        permissionsList.forEach(p => {
-          permsObj[p.key] = event.detail.permissions[p.key] || false;
+        permissionsList.forEach(permission => {
+          permissions[permission.key] = Boolean(event.detail.permissions[permission.key]);
         });
       }
 
       const res = await fetch('/api/staff', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...event.detail.formData,
-          permissions: permsObj
+          permissions: event.detail.formData?.role === 'admin' ? undefined : permissions
         })
       });
       const data = await res.json();
-      if (data.success) {
-        await fetchStaff();
-        isAddStaffOpen = false;
-      } else {
-        errorMsg = data.message || 'Failed to add staff.';
-      }
+      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to add staff.');
+      await fetchStaff();
+      isAddStaffOpen = false;
     } catch (err) {
-      errorMsg = "Failed to add staff.";
-      console.error(err);
+      errorMsg = err instanceof Error ? err.message : 'Failed to add staff.';
     } finally {
       loading = false;
     }
@@ -149,6 +90,7 @@
     errorMsg = "";
     try {
       const { id, username, password, permissions, uniqueId } = event.detail;
+      const role = selectedStaff?.role || 'staff';
 
       // 1. Update username/password if changed
       if (
@@ -156,9 +98,9 @@
         (password && password.length >= 8)
       ) {
         const updateRes = await fetch('/api/staff', {
-          method: 'PATCH',
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, username, password })
+          body: JSON.stringify({ id, username, password, role })
         });
 
         if (!updateRes.ok) {
@@ -170,7 +112,7 @@
       }
 
       // 2. Update permissions for this staff member
-      if (uniqueId && permissions && typeof permissions === 'object') {
+      if (role === 'staff' && uniqueId && permissions && typeof permissions === 'object') {
         const permRes = await fetch(`/api/staff/${uniqueId}/permissions`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -210,7 +152,7 @@
       const res = await fetch('/api/staff', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: selectedStaff.id })
+        body: JSON.stringify({ id: selectedStaff.id, role: selectedStaff.role || 'staff' })
       });
       
       if (res.ok) {
@@ -237,7 +179,7 @@
       const res = await fetch('/api/staff', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: staffMember.id, isActive: !staffMember.isActive })
+        body: JSON.stringify({ id: staffMember.id, role: staffMember.role || 'staff', isActive: !staffMember.isActive })
       });
       
       if (res.ok) {
@@ -253,10 +195,52 @@
       loading = false;
     }
   }
+
+  $: filteredStaff = staff.filter((member: any) => {
+    const search = searchTerm.toLowerCase();
+    const matchesSearch = member.name?.toLowerCase().includes(search)
+      || member.email?.toLowerCase().includes(search)
+      || member.username?.toLowerCase().includes(search);
+    const matchesStatus = selectedStatus === 'all'
+      || (selectedStatus === 'active' && member.isActive)
+      || (selectedStatus === 'inactive' && !member.isActive);
+    return matchesSearch && matchesStatus;
+  });
+
+  function getStatusColor(isActive: boolean) {
+    return isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+  }
+
+  function getDepartmentColor(department: string | null) {
+    const colors: Record<string, string> = {
+      library: 'bg-purple-100 text-purple-800',
+      circulation: 'bg-blue-100 text-blue-800',
+      reference: 'bg-green-100 text-green-800',
+      cataloging: 'bg-indigo-100 text-indigo-800'
+    };
+    return department ? (colors[department] || 'bg-slate-100 text-slate-800') : 'bg-slate-100 text-slate-800';
+  }
+
+  function formatDateTime(dateTimeString: string) {
+    return new Date(dateTimeString).toLocaleString('en-US', {
+      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  function formatDateTimeMobile(dateTimeString: string) {
+    return new Date(dateTimeString).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric'
+    });
+  }
+
+  function countPermissions(perms: Record<string, any> | null) {
+    if (!perms) return 0;
+    return permissionsList.reduce((count, permission) => count + (perms[permission.key] ? 1 : 0), 0);
+  }
 </script>
 
 <svelte:head>
-  <title>Staff | E-Kalibro Admin Portal</title>
+  <title>{isSuperAdmin ? 'Staff & Admins' : 'Staff'} | E-Kalibro Admin Portal</title>
 </svelte:head>
 
 <div class={`space-y-2 transition-all duration-300 ${isAddStaffOpen || isEditStaffOpen ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
@@ -276,8 +260,8 @@
     <div class="mb-2">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 class="text-2xl font-bold text-slate-900">Staff Management</h2>
-          <p class="text-slate-600">Manage library staff accounts and permissions</p>
+          <h2 class="text-2xl font-bold text-slate-900">{isSuperAdmin ? 'Staff & Admins' : 'Staff'}</h2>
+          <p class="text-slate-600">{isSuperAdmin ? 'Manage administrator and staff accounts' : 'Manage library staff accounts'}</p>
         </div>
         <button
           class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-200"
@@ -570,7 +554,7 @@
   </div>
 
   <!-- Staff Permissions/Access Control Section -->
-  <div class="mb-2">
+  <div class="mb-2 hidden">
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
       <div class="flex items-center justify-between mb-4">
         <div>
@@ -636,7 +620,7 @@
                     <button
                       on:click={() => {
                         selectedStaff = member;
-                        isPermissionsModalOpen = true;
+                        isEditStaffOpen = true;
                       }}
                       class="inline-flex items-center px-4 py-2 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors duration-200 text-xs font-medium"
                       title="Manage permissions for this staff member"
@@ -644,7 +628,7 @@
                       <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                       </svg>
-                      Manage Permissions
+                      Edit Staff Permissions
                     </button>
                   {:else}
                     <span class="text-xs text-gray-500 italic">N/A</span>
@@ -671,6 +655,7 @@
   <AddStaff
     isOpen={isAddStaffOpen}
     permissionsList={permissionsList}
+    canManageAdmins={isSuperAdmin}
     on:close={() => isAddStaffOpen = false}
     on:staffAdded={handleStaffAdded}
     on:addStaff={handleStaffAdded}
@@ -683,14 +668,6 @@
     permissionsList={permissionsList}
     on:close={() => { isEditStaffOpen = false; selectedStaff = null; }}
     on:editStaff={handleStaffUpdated}
-  />
-
-  <!-- Comprehensive Permissions Modal -->
-  <PermissionsModal
-    isOpen={isPermissionsModalOpen}
-    staff={selectedStaff}
-    permissionsList={permissionsList}
-    on:close={() => { isPermissionsModalOpen = false; selectedStaff = null; }}
   />
 
   <!-- Delete Confirmation Modal -->

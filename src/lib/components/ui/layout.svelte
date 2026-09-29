@@ -47,6 +47,8 @@
   let user: UserType = null;
   let isLoadingUser = true;
   let sessionError = false;
+  let sessionTimeoutMinutes = 30;
+  let lastActivityAt = Date.now();
   
   $: user = $userStore;
   $: isLoadingUser = $isLoadingStore;
@@ -68,7 +70,7 @@
           // session might be invalid — try refreshing session then retry once
           unreadCount = 0;
           try {
-            await fetchUserSession();
+            await fetchUserSession(true);
             // retry once
             const retry = await fetch('/api/fetch_nof?unread=true', { credentials: 'include' });
             console.debug('fetchUnreadCount: retry status', retry.status);
@@ -257,7 +259,7 @@
       name: "Logs",
       href: "/dashboard/security_logs",
       icon: Icons.Clipboard,
-      userTypes: ["admin", "super_admin"]
+      userTypes: ["admin", "super_admin", "staff"]
     },
     {
       name: "Settings",
@@ -273,6 +275,7 @@
       .filter(item => item.userTypes.includes($user.userType!))
       .map(item => ({
         ...item,
+        ...(item.href === '/dashboard/staff' ? { name: $user.userType === 'super_admin' ? 'Staff & Admins' : 'Staff' } : {}),
         submenu: item.submenu?.filter(sub => sub.userTypes.includes($user.userType!))
       }));
   });
@@ -304,9 +307,9 @@
     expandedMenus[activeSubmenuParent] = true;
   }
 
-  async function fetchUserSession() {
+  async function fetchUserSession(force = false) {
     if (!browser) return;
-    if (get(userStore) !== null) {
+    if (!force && get(userStore) !== null) {
       isLoadingStore.set(false);
       return;
     }
@@ -322,6 +325,8 @@
         const result = await response.json();
         if (result.success && result.data?.user) {
           userStore.set(result.data.user);
+          sessionTimeoutMinutes = Number(result.data.sessionInfo?.sessionTimeoutMinutes) || 30;
+          lastActivityAt = Date.now();
         } else {
           sessionErrorStore.set(true);
         }
@@ -458,8 +463,17 @@
       };
       document.addEventListener('click', unlockAudio, { once: true });
       let isCheckPending = false;
+      const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'touchstart', 'touchmove', 'mousemove', 'scroll'];
+      const recordActivity = () => { lastActivityAt = Date.now(); };
+      activityEvents.forEach(eventName => window.addEventListener(eventName, recordActivity, { passive: true }));
       const sessionCheckInterval = setInterval(async () => {
         if (isCheckPending || !$userStore) return;
+        if (Date.now() - lastActivityAt >= sessionTimeoutMinutes * 60 * 1000) {
+          userStore.set(null);
+          notifications.show('Your session expired after inactivity.', 'warning');
+          await goto('/', { replaceState: true, noScroll: true });
+          return;
+        }
         try {
           isCheckPending = true;
           const response = await fetch('/api/auth/session', {
@@ -471,9 +485,12 @@
             userStore.set(null);
             notifications.show('Your session has been revoked. Please log in again.', 'error');
             if (browser) await goto('/', { replaceState: true, noScroll: true });
-          } else if (!response.ok) {
-            userStore.set(null);
-            if (browser) await goto('/', { replaceState: true, noScroll: true });
+          } else if (response.ok) {
+            const result = await response.json();
+            sessionTimeoutMinutes = Number(result.data?.sessionInfo?.sessionTimeoutMinutes) || sessionTimeoutMinutes;
+          } else {
+            // A transient API failure must not be treated as an expired session.
+            sessionErrorStore.set(true);
           }
         } catch (error) {
           console.error('Session check failed:', error);
@@ -487,6 +504,7 @@
       document.addEventListener('click', handleClickOutside);
       return () => {
         document.removeEventListener('click', handleClickOutside);
+        activityEvents.forEach(eventName => window.removeEventListener(eventName, recordActivity));
         clearInterval(sessionCheckInterval);
         if (notifPollInterval) clearInterval(notifPollInterval);
       };

@@ -22,6 +22,7 @@ import {
 } from '$lib/server/db/schema/schema.js';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
 import { calculateFineAmount, calculateDaysOverdue } from '$lib/server/utils/fineCalculation.js';
+import { createConfiguredUserNotification } from '$lib/server/services/notifications.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 // We'll calculate fines using the shared fineCalculation utilities which respect exemptions.
@@ -318,6 +319,21 @@ export const POST: RequestHandler = async ({ request }) => {
                 .update(tbl_journal_copy)
                 .set({ status: 'available', condition })
                 .where(eq(tbl_journal_copy.id, copyId));
+        }
+
+        if (derivedUserId) {
+            const relatedItemId = itemType === 'book' ? existingBorrowing?.bookId
+                : itemType === 'magazine' ? existingBorrowing?.magazineId
+                : itemType === 'thesis' ? existingBorrowing?.thesisId
+                : existingBorrowing?.journalId;
+            await createConfiguredUserNotification('notifReturnConfirmation', {
+                recipientId: derivedUserId,
+                title: 'Return confirmed',
+                message: `Your ${itemType} return has been processed.${calculatedFinePesos > 0 ? ` A fine of ₱${calculatedFinePesos.toFixed(2)} was recorded.` : ''}`,
+                type: 'return_confirmation',
+                relatedItemType: itemType,
+                relatedItemId
+            });
         }
 
                 return json({

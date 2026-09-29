@@ -3,9 +3,9 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import AddBooks from "$lib/components/ui/inventory/books/add_books.svelte";
+  import AddMagazine from "$lib/components/ui/inventory/magazines/add_magazines.svelte";
   import AddCategory from "$lib/components/ui/inventory/books/add_category.svelte";
-  import ViewBook from "$lib/components/ui/inventory/books/view_book.svelte";
+  import ViewMagazine from "$lib/components/ui/inventory/magazines/view_magazine.svelte";
 
   let searchTerm = "";
   let committedSearchTerm = ""; // For active filters display - only set on Enter
@@ -39,28 +39,39 @@
     id: number;
     magazineId?: string;
     title: string;
-    publisher?: string;
-    publishedYear?: number;
-    copiesAvailable?: number;
+    publisher?: string | null;
+    issn?: string | null;
+    volume?: string | null;
+    issueNumber?: string | null;
+    publishedDate?: string | null;
+    totalCopies?: number;
+    availableCopies?: number;
     categoryId?: number;
     category?: string;
     language?: string;
-    originPlace?: string;
+    location?: string;
     description?: string;
+    coverImage?: string | null;
   }
 
   interface Magazine {
     id: number;
+    magazineId?: string;
     title: string;
-    publisher?: string;
-    publishedYear?: number;
-    copiesAvailable?: number;
+    publisher?: string | null;
+    issn?: string | null;
+    volume?: string | null;
+    issueNumber?: string | null;
+    publishedDate?: string | null;
+    totalCopies?: number;
+    availableCopies?: number;
     categoryId?: number;
-    copies?: number;
-    available?: number;
-    published?: string;
     status?: string;
     category?: string;
+    language?: string;
+    location?: string;
+    description?: string;
+    coverImage?: string | null;
   }
 
   interface ApiResponse {
@@ -108,8 +119,8 @@
     categoriesCount: 0
   };
 
-  // Function to fetch magazines from API (uses books endpoint with itemType=magazine)
-  async function fetchMagazines(page = 1, search = "", category = "", language = "") {
+  // Fetch the magazine inventory using its dedicated API.
+  async function fetchMagazines(page = 1, search = "", category = "", language = "", retry = true) {
     if (!browser) return;
     loading = true;
     error = "";
@@ -135,6 +146,15 @@
         headers: { 'Content-Type': 'application/json' }
       });
       if (!response.ok) {
+        if (response.status === 401 && retry) {
+          const sessionResponse = await fetch('/api/auth/session', { credentials: 'include' });
+          if (sessionResponse.ok) {
+            await fetchMagazines(page, search, category, language, false);
+            return;
+          }
+          window.location.href = '/';
+          return;
+        }
         if (response.status === 401) {
           window.location.href = '/';
           return;
@@ -144,14 +164,13 @@
       const data: ApiResponse = await response.json();
       if (data.success) {
         magazines = data.data.magazines.map((m: ApiMagazine) => {
-          const copies = parseInt(m.copiesAvailable?.toString() || '0', 10);
+          const copies = Number(m.availableCopies || 0);
+          const total = Number(m.totalCopies || 0);
           return {
             ...m,
-            copiesAvailable: copies,
-            copies: copies,
-            available: copies,
-            published: m.publishedYear?.toString() || 'Unknown',
-            status: copies > 5 ? 'Available' : copies > 0 ? 'Limited' : 'Unavailable',
+            availableCopies: copies,
+            totalCopies: total,
+            status: total > 0 ? (copies > 5 ? 'Available' : copies > 0 ? 'Limited' : 'Unavailable') : 'Unavailable',
             category: m.categoryId !== undefined ? categoryMap[m.categoryId] || m.category || 'General' : m.category || 'General'
           } as Magazine;
         });
@@ -185,7 +204,7 @@
     if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
 
     const queryString = params.toString();
-    await goto(`/dashboard/magazines${queryString ? '?' + queryString : ''}`);
+    await goto(`/dashboard/inventory/magazines${queryString ? '?' + queryString : ''}`);
   }
 
   // Load initial data on component mount
@@ -247,15 +266,7 @@
   async function fetchLanguages() {
     if (!browser) return;
     try {
-      const response = await fetch('/api/books/languages', {
-        credentials: 'include'
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          languages = data.data.languages;
-        }
-      }
+      languages = ['English', 'Filipino', 'Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Other'];
     } catch (err) {
       console.error('Error fetching languages:', err);
     }
@@ -266,7 +277,7 @@
     if (!browser) return;
     
     try {
-      const response = await fetch('/api/books/stats?itemType=magazine', {
+      const response = await fetch('/api/inventory/magazines?summary=true', {
         credentials: 'include'
       });
 
@@ -313,11 +324,13 @@
   }
 
   // Event handlers for the modal
-  function handleAddMagazineSuccess(event: CustomEvent) {
-    console.log('Magazine added successfully:', event.detail);
-    // Refresh the list and stats, go to first page
-    goto('/dashboard/inventory/magazines?page=1');
-    fetchStats();
+  async function handleAddMagazineSuccess() {
+    pagination.currentPage = 1;
+    await Promise.all([
+      fetchMagazines(1, committedSearchTerm, selectedCategory, selectedLanguage),
+      fetchStats()
+    ]);
+    await goto('/dashboard/inventory/magazines?page=1', { replaceState: true });
   }
 
   function handleAddMagazineError(event: CustomEvent) {
@@ -393,7 +406,7 @@
       if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
       
       const queryString = params.toString();
-      goto(`/dashboard/magazines${queryString ? '?' + queryString : ''}`);
+      goto(`/dashboard/inventory/magazines${queryString ? '?' + queryString : ''}`);
     }
   }
 
@@ -443,30 +456,11 @@
   }
 
   function handleMagazineSave(event: CustomEvent) {
-    (async () => {
-      const updatedData = event.detail;
-      try {
-        const response = await fetch('/api/inventory/magazines', {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedData)
-        });
-        const data = await response.json();
-        if (response.ok && data.success) {
-          closeMagazineModal();
-          await Promise.all([
-            fetchMagazines(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
-            fetchStats()
-          ]);
-        } else {
-          throw new Error(data.message || 'Failed to update magazine');
-        }
-      } catch (err) {
-        console.error('Error updating magazine:', err);
-        error = err instanceof Error ? err.message : 'An error occurred while updating the magazine';
-      }
-    })();
+    closeMagazineModal();
+    Promise.all([
+      fetchMagazines(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
+      fetchStats()
+    ]);
   }
 
   // Generate page numbers to display
@@ -526,7 +520,7 @@
       <div class="flex justify-center gap-2">
         <button
           on:click={() => showAddModal = true}
-          class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-600 transition-colors duration-200"
+          class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-orange-700 hover:bg-orange-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-600 transition-colors duration-200"
         >
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
@@ -591,7 +585,7 @@
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           <div class="flex flex-col items-center text-center">
-            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-green-400 to-green-600 shadow-sm">
+            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-orange-500 to-orange-700 shadow-sm">
               <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
               </svg>
@@ -602,7 +596,7 @@
         </div>
         <div class="group relative bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
           <div class="flex flex-col items-center text-center">
-            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-green-400 to-green-600 shadow-sm">
+            <div class="p-2.5 rounded-lg mb-3 bg-gradient-to-br from-orange-500 to-orange-700 shadow-sm">
               <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
               </svg>
@@ -723,7 +717,7 @@
                   debouncedSearch(true);
                 }
               }}
-              class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200 {committedSearchTerm ? 'border-green-500 bg-green-50' : ''}"
+              class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors duration-200 {committedSearchTerm ? 'border-orange-500 bg-orange-50' : ''}"
               disabled={loading}
             />
             {#if loading}
@@ -733,7 +727,7 @@
             {/if}
             {#if committedSearchTerm}
               <div class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center">
-                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-900">
                   Active
                 </span>
               </div>
@@ -747,7 +741,7 @@
             <div class="relative">
               <button
                 on:click={() => categoryDropdownOpen = !categoryDropdownOpen}
-                class="px-4 py-3 w-full sm:w-48 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200 {selectedCategory !== 'all' ? 'border-green-500 bg-green-50' : ''} flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
+                class="px-4 py-3 w-full sm:w-48 border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white text-slate-700 transition-colors duration-200 {selectedCategory !== 'all' ? 'border-orange-500 bg-orange-50' : ''} flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={loading}
               >
                 <span class="truncate">
@@ -788,7 +782,7 @@
             
             {#if selectedCategory !== 'all'}
               <div class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center">
-                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-900">
                   Active
                 </span>
               </div>
@@ -800,7 +794,7 @@
             <div class="relative">
               <button
                 on:click={() => languageDropdownOpen = !languageDropdownOpen}
-                class="px-4 py-3 w-full sm:w-48 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200 {selectedLanguage ? 'border-green-500 bg-green-50' : ''} flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
+                class="px-4 py-3 w-full sm:w-48 border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white text-slate-700 transition-colors duration-200 {selectedLanguage ? 'border-orange-500 bg-orange-50' : ''} flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={loading}
               >
                 <span class="truncate">
@@ -859,15 +853,57 @@
       </div>
     </div>
 
-    <!-- The rest of the UI mirrors the books page but shows magazines -->
+    {#if loading && magazines.length === 0}
+      <div class="rounded-lg border border-slate-200 bg-white p-10 text-center text-slate-500">Loading magazine records…</div>
+    {:else if magazines.length === 0}
+      <div class="rounded-lg border border-slate-200 bg-white p-10 text-center">
+        <h3 class="font-semibold text-slate-900">No magazines found</h3>
+        <p class="mt-1 text-sm text-slate-500">Try changing the filters or add a magazine to the collection.</p>
+      </div>
+    {:else}
+      <div class="hidden overflow-x-auto rounded-lg border border-orange-200 bg-white lg:block">
+        <table class="min-w-full divide-y divide-slate-200">
+          <thead class="bg-orange-50 text-left text-xs font-semibold uppercase text-orange-950">
+            <tr><th class="px-5 py-3">Magazine</th><th class="px-5 py-3">Issue</th><th class="px-5 py-3">Category</th><th class="px-5 py-3">Copies</th><th class="px-5 py-3">Status</th><th class="px-5 py-3">Actions</th></tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {#each magazines as magazine}
+              <tr class="hover:bg-orange-50/60">
+                <td class="px-5 py-4"><div class="flex items-center gap-3">{#if magazine.coverImage}<img src={magazine.coverImage} alt="" class="h-12 w-9 rounded object-cover" />{:else}<div class="h-12 w-9 rounded bg-orange-50"></div>{/if}<div><p class="font-semibold text-slate-900">{magazine.title}</p><p class="mt-1 text-xs text-slate-500">{magazine.publisher || 'Publisher not recorded'} · ISSN {magazine.issn || '—'}</p><p class="text-xs text-slate-400">ID {magazine.magazineId || magazine.id}</p></div></div></td>
+                <td class="px-5 py-4 text-sm text-slate-700">Vol. {magazine.volume || '—'} / Issue {magazine.issueNumber || '—'}<br /><span class="text-xs text-slate-500">{magazine.publishedDate || 'Date not recorded'}</span></td>
+                <td class="px-5 py-4 text-sm text-slate-700">{magazine.category || 'General'}</td>
+                <td class="px-5 py-4 text-sm text-slate-700">{magazine.availableCopies ?? 0} available / {magazine.totalCopies ?? 0}</td>
+                <td class="px-5 py-4"><span class={`rounded-full px-2.5 py-1 text-xs font-medium ${getStatusColor(magazine.status || 'Unknown')}`}>{magazine.status}</span></td>
+                <td class="px-5 py-4"><div class="flex items-center gap-3"><button class="text-sm font-medium text-orange-800 hover:text-orange-950" on:click={() => openViewMagazineModal(magazine)}>View</button><button class="text-sm font-medium text-slate-600 hover:text-slate-950" on:click={() => openEditMagazineModal(magazine)}>Edit</button><button class="text-sm font-medium text-red-700 hover:text-red-900" on:click={() => deleteMagazine(magazine.id, magazine.title)}>Delete</button></div></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      <div class="grid gap-3 lg:hidden">
+        {#each magazines as magazine}
+          <article class="rounded-lg border border-orange-200 bg-white p-4">
+            <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h3 class="truncate font-semibold text-slate-900">{magazine.title}</h3><p class="mt-1 text-sm text-slate-600">{magazine.publisher || 'Publisher not recorded'}</p></div><span class={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${getStatusColor(magazine.status || 'Unknown')}`}>{magazine.status}</span></div>
+            <dl class="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 text-sm"><div><dt class="text-xs text-slate-500">ISSN</dt><dd>{magazine.issn || '—'}</dd></div><div><dt class="text-xs text-slate-500">Volume / Issue</dt><dd>{magazine.volume || '—'} / {magazine.issueNumber || '—'}</dd></div><div><dt class="text-xs text-slate-500">Category</dt><dd>{magazine.category || 'General'}</dd></div><div><dt class="text-xs text-slate-500">Available</dt><dd>{magazine.availableCopies ?? 0} / {magazine.totalCopies ?? 0}</dd></div></dl>
+            <div class="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">{#if magazine.coverImage}<img src={magazine.coverImage} alt="" class="h-12 w-9 rounded object-cover" />{:else}<span></span>{/if}<div class="flex gap-4"><button class="text-sm font-medium text-orange-800" on:click={() => openViewMagazineModal(magazine)}>View</button><button class="text-sm font-medium text-slate-600" on:click={() => openEditMagazineModal(magazine)}>Edit</button><button class="text-sm font-medium text-red-700" on:click={() => deleteMagazine(magazine.id, magazine.title)}>Delete</button></div></div>
+          </article>
+        {/each}
+      </div>
+    {/if}
+
+    {#if pagination.totalPages > 1}
+      <nav class="flex items-center justify-between rounded-lg border border-orange-200 bg-white px-4 py-3" aria-label="Magazine pages">
+        <span class="text-sm text-slate-600">Page {pagination.currentPage} of {pagination.totalPages} · {pagination.totalCount} magazines</span>
+        <div class="flex gap-2"><button disabled={!pagination.hasPrevPage || loading} on:click={prevPage} class="rounded border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50">Previous</button><button disabled={!pagination.hasNextPage || loading} on:click={nextPage} class="rounded border border-orange-700 bg-orange-700 px-3 py-1.5 text-sm text-white disabled:opacity-50">Next</button></div>
+      </nav>
+    {/if}
 
     <!-- Add Magazine Modal -->
-    <AddBooks
+    <AddMagazine
       isOpen={showAddModal}
       on:close={handleModalClose}
       on:success={handleAddMagazineSuccess}
       on:error={handleAddMagazineError}
-      itemType={'magazine'}
     />
 
     <!-- Add Category Modal Component -->
@@ -881,10 +917,9 @@
 
     <!-- Magazine View/Edit Modal -->
     {#if showViewMagazineModal || showEditMagazineModal}
-      <ViewBook
+      <ViewMagazine
         isOpen={showViewMagazineModal || showEditMagazineModal}
-        book={selectedMagazine}
-        itemType={'magazine'}
+        magazine={selectedMagazine}
         isEditMode={showEditMagazineModal}
         on:close={closeMagazineModal}
         on:save={handleMagazineSave}

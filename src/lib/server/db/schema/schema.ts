@@ -133,6 +133,19 @@ export const tbl_faculty = pgTable('tbl_faculty', {
     updatedAt: timestamp('updated_at').defaultNow()
 });
 
+export const tbl_user_restriction = pgTable('tbl_user_restriction', {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id').references(() => tbl_user.id).notNull(),
+    restrictionType: varchar('restriction_type', { length: 50 }).notNull(),
+    reason: text('reason'),
+    startDate: timestamp('start_date').defaultNow().notNull(),
+    endDate: timestamp('end_date'),
+    appliedBy: integer('applied_by').references(() => tbl_staff.id).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow()
+});
+
 // ============================================
 // LIBRARY ITEM TABLES
 // ============================================

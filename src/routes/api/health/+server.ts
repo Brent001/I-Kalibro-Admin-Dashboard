@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { sql } from 'drizzle-orm';
+import { cpus, loadavg } from 'node:os';
 
 async function checkDatabaseConnection(): Promise<{ status: 'ok' | 'error', responseTime: number }> {
     const startTime = Date.now();
@@ -39,9 +40,9 @@ async function checkMemoryUsage(): Promise<{ status: 'ok' | 'error', usage: numb
 async function checkServerLoad(): Promise<{ status: 'ok' | 'error', load: number[] }> {
     try {
         // Get system load average (1, 5, 15 minute averages)
-        const load = require('os').loadavg();
+        const load = loadavg();
         // Consider high load if 1-minute average > number of CPU cores
-        const cpuCount = require('os').cpus().length;
+        const cpuCount = cpus().length;
         return { status: load[0] > cpuCount ? 'error' : 'ok', load: load.map((l: number) => Math.round(l * 100) / 100) };
     } catch (error) {
         return { status: 'error', load: [0, 0, 0] };

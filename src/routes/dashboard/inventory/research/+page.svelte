@@ -3,9 +3,9 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import AddBooks from "$lib/components/ui/inventory/journals/add_journals.svelte";
-  import AddCategory from "$lib/components/ui/inventory/journals/add_category.svelte";
-  import ViewBook from "$lib/components/ui/inventory/journals/view_journal.svelte";
+  import AddResearch from "$lib/components/ui/inventory/research/add_research.svelte";
+  import AddCategory from "$lib/components/ui/inventory/research/add_category.svelte";
+  import ViewResearch from "$lib/components/ui/inventory/research/view_research.svelte";
 
   let searchTerm = "";
   let committedSearchTerm = "";
@@ -150,7 +150,7 @@
     if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
 
     const queryString = params.toString();
-    await goto(`/dashboard/inventory/journal${queryString ? '?' + queryString : ''}`);
+    await goto(`/dashboard/inventory/journals${queryString ? '?' + queryString : ''}`);
   }
 
   onMount(() => {
@@ -311,7 +311,7 @@
     pagination.currentPage = 1;
     await fetchBooks(1, committedSearchTerm, selectedCategory, selectedLanguage);
     await fetchStats();
-    goto(`/dashboard/inventory/journal?page=1`, { replaceState: true });
+    goto(`/dashboard/inventory/journals?page=1`, { replaceState: true });
   }
 
   function handleAddBookError(event: CustomEvent) {
@@ -369,7 +369,7 @@
       if (selectedCategory && selectedCategory !== 'all') params.set('category', selectedCategory);
       if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
       const queryString = params.toString();
-      goto(`/dashboard/inventory/journal${queryString ? '?' + queryString : ''}`);
+      goto(`/dashboard/inventory/journals${queryString ? '?' + queryString : ''}`);
     }
   }
 
@@ -469,7 +469,7 @@
           Add Category
         </button>
         <button
-          on:click={() => goto('/dashboard/inventory/journal/quick_add')}
+          on:click={() => goto('/dashboard/inventory/journals/quick_add')}
           class="inline-flex items-center justify-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-lg text-slate-900 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
           title="Quick Add Research"
         >
@@ -987,9 +987,8 @@
     {/if}
 
     <!-- Add Research Modal -->
-    <AddBooks
+    <AddResearch
       isOpen={showAddModal}
-      itemType={'journal'}
       on:close={handleModalClose}
       on:success={handleAddBookSuccess}
       on:bookAdded={handleAddBookSuccess}
@@ -1006,7 +1005,7 @@
 
     <!-- Research View/Edit Modal -->
     {#if showViewBookModal || showEditBookModal}
-      <ViewBook
+      <ViewResearch
         isOpen={showViewBookModal || showEditBookModal}
         book={selectedBook}
         isEditMode={showEditBookModal}
