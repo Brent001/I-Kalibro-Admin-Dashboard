@@ -16,6 +16,7 @@
   onMount(async () => {
       if (data.redirect) {
           await goto(data.redirect);
+          return;
       }
       
       const rememberMeToken = localStorage.getItem('rememberMe');

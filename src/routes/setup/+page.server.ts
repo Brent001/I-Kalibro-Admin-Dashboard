@@ -1,6 +1,6 @@
 import type { PageServerLoad, Actions } from './$types.js';
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
-import { db } from '$lib/server/db/index.js';
+import { db, ensureDatabaseSchema } from '$lib/server/db/index.js';
 import { tbl_super_admin } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
@@ -175,7 +175,7 @@ export const load: PageServerLoad = async () => {
 };
 
 // Form actions
-export const actions: Actions = {
+export const actions = {
     default: async ({ request, locals }) => {
         const formData = await request.formData();
         const formFields = {
@@ -185,6 +185,18 @@ export const actions: Actions = {
             password: (formData.get('password') as string) || '',
             confirmPassword: (formData.get('confirmPassword') as string) || ''
         };
+
+        try {
+            await ensureDatabaseSchema();
+        } catch (error) {
+            console.error('[Setup] Failed to initialize database schema:', error);
+            return fail(503, {
+                errorMsg: 'An unexpected error occurred. Please try again.',
+                name: formFields.name,
+                email: formFields.email,
+                username: formFields.username
+            });
+        }
 
         try {
             // Check if setup already completed
@@ -261,4 +273,4 @@ export const actions: Actions = {
             });
         }
     }
-};
+} satisfies Actions;

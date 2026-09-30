@@ -2,16 +2,18 @@
     import { enhance } from '$app/forms';
     import { goto } from '$app/navigation';
     import { onMount } from 'svelte';
+    import { setupToast } from '$lib/stores/setupToastStore.js';
     
     type SetupForm = {
         name?: string;
         email?: string;
         username?: string;
         errorMsg?: string;
+        successMsg?: string;
     };
     
     export let form: SetupForm = {};
-    export let data: { setupRequired?: boolean } = {};
+    export let data: { setupRequired?: boolean; schemaError?: string } = {};
     
     let isSubmitting = false;
     let showPassword = false;
@@ -92,6 +94,12 @@
         </p>
       </div>
 
+      {#if data.schemaError}
+        <div class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+          {data.schemaError}
+        </div>
+      {/if}
+
       <!-- Form -->
       <form 
         method="POST" 
@@ -102,13 +110,31 @@
             isSubmitting = false;
             
             if (result.type === 'redirect') {
-              goto(result.location);
+              setupToast.show('Administrator account created successfully. You can now log in.');
+              await goto(result.location);
             } else {
               await update();
             }
           };
         }}
       >
+        {#if form?.successMsg}
+          <div class="space-y-4 text-center" role="status" aria-live="polite">
+            <div class="rounded-md border border-green-200 bg-green-50 px-4 py-5 text-green-800">
+              <h3 class="font-semibold">Administrator account created</h3>
+              <p class="mt-1 text-sm">{form.successMsg}</p>
+              {#if form.email}
+                <p class="mt-2 text-sm">Account: {form.email}</p>
+              {/if}
+            </div>
+            <a
+              href="/login"
+              class="inline-flex w-full justify-center rounded-md bg-[#0D5C29] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0D5C29]/90"
+            >
+              Continue to Login
+            </a>
+          </div>
+        {:else}
         <div class="space-y-3">
           <!-- Full Name -->
           <div>
@@ -288,6 +314,7 @@
         <p class="text-xs text-gray-500 text-center pt-2">
           By creating an account, you agree to the library's terms and policies.
         </p>
+        {/if}
       </form>
     </div>
   </div>
