@@ -282,44 +282,48 @@ export const POST: RequestHandler = async ({ request }) => {
         const baseCallNumber = itemData.location || `${newBookId}`;
         const totalCopies    = itemData.totalCopies || 1;
 
-        const [book] = await db
-            .insert(tbl_book)
-            .values({
-                bookId:        newBookId,
-                title:         itemData.title,
-                author:        itemData.author,
-                isbn:          incomingIsbn || null,
-                publisher:     itemData.publisher,
-                publishedYear: itemData.publishedYear,
-                edition:       itemData.edition,
-                language:      itemData.language || 'English',
-                pages:         itemData.pages,
-                categoryId:    itemData.categoryId,
-                location:      itemData.location,
-                totalCopies:   totalCopies,
-                availableCopies: totalCopies,
-                description:   itemData.description,
-                coverImage:    itemData.coverImage,
-                isActive:      true
-            })
-            .returning();
+        const book = await db.transaction(async (tx) => {
+            const [createdBook] = await tx
+                .insert(tbl_book)
+                .values({
+                    bookId:        newBookId,
+                    title:         itemData.title,
+                    author:        itemData.author,
+                    isbn:          incomingIsbn || null,
+                    publisher:     itemData.publisher,
+                    publishedYear: itemData.publishedYear,
+                    edition:       itemData.edition,
+                    language:      itemData.language || 'English',
+                    pages:         itemData.pages,
+                    categoryId:    itemData.categoryId,
+                    location:      itemData.location,
+                    totalCopies:   totalCopies,
+                    availableCopies: totalCopies,
+                    description:   itemData.description,
+                    coverImage:    itemData.coverImage,
+                    isActive:      true
+                })
+                .returning();
 
-        if (totalCopies >= 1) {
-            const copiesData = [];
-            for (let copyNum = 1; copyNum <= totalCopies; copyNum++) {
-                copiesData.push({
-                    bookId:     book.id,
-                    copyNumber: copyNum,
-                    callNumber: generateCallNumberVariation(baseCallNumber, copyNum),
-                    qrCode:     generateQRCode(),
-                    status:     'available',
-                    isActive:   true
-                });
+            if (totalCopies >= 1) {
+                const copiesData = [];
+                for (let copyNum = 1; copyNum <= totalCopies; copyNum++) {
+                    copiesData.push({
+                        bookId:     createdBook.id,
+                        copyNumber: copyNum,
+                        callNumber: generateCallNumberVariation(baseCallNumber, copyNum),
+                        qrCode:     generateQRCode(),
+                        status:     'available',
+                        isActive:   true
+                    });
+                }
+                if (copiesData.length > 0) {
+                    await tx.insert(tbl_book_copy).values(copiesData);
+                }
             }
-            if (copiesData.length > 0) {
-                await db.insert(tbl_book_copy).values(copiesData);
-            }
-        }
+
+            return createdBook;
+        });
 
         try {
             publishBookEvent('book-created', { id: book.id, bookId: newBookId, totalCopies });

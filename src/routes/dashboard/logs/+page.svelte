@@ -322,7 +322,7 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <span class={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getEventTypeColor(log.eventType)}`}>
-                    {log.eventType.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                    {log.eventType.split('_').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">

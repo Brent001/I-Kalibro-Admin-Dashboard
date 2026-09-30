@@ -4,7 +4,8 @@ import bcrypt from 'bcrypt';
 import { db } from '$lib/server/db/index.js';
 import { tbl_user, tbl_staff, tbl_admin, tbl_super_admin, tbl_security_log } from '$lib/server/db/schema/schema.js';
 import { eq, and } from 'drizzle-orm';
-import { revokeAllUserSessions, verifyToken } from '$lib/server/db/auth.js';
+import jwt from 'jsonwebtoken';
+import { revokeOtherUserSessions, verifyToken, type JWTPayload } from '$lib/server/db/auth.js';
 
 const PASSWORD_POLICY = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 
@@ -14,6 +15,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         const token = cookies.get('token') || (bearer?.startsWith('Bearer ') ? bearer.slice(7) : null);
         const auth = token ? await verifyToken(token) : null;
         if (!auth) return json({ success: false, message: 'Unauthorized' }, { status: 401 });
+        const sessionId = token ? (jwt.decode(token) as JWTPayload | null)?.sessionId : undefined;
 
         const body = await request.json();
         const { currentPassword, newPassword, confirmPassword } = body || {};
@@ -54,8 +56,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         } catch (logError) {
             console.warn('Failed to record password change security log:', logError);
         }
-        await revokeAllUserSessions(auth.id);
-        return json({ success: true, message: 'Password changed. Please sign in again.' });
+        if (sessionId) await revokeOtherUserSessions(auth.id, auth.userType, sessionId);
+        return json({ success: true, message: 'Password changed successfully. You can stay signed in.' });
     } catch (err: any) {
         console.error('POST /api/settings/change_pass error:', err);
         return json({ success: false, message: 'Failed to change password.' }, { status: 500 });

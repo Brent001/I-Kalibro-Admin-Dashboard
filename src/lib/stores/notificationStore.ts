@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { playNotificationSound } from '$lib/utils/notificationSound.js';
 
 export interface Notification {
   id: string;
@@ -17,6 +18,7 @@ function createNotificationStore() {
   return {
     subscribe,
     show: (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info', duration: number = 5000, options?: { title?: string; actionUrl?: string; actionText?: string }) => {
+      playNotificationSound(type);
       const id = Date.now().toString();
       const notification: Notification = {
         id,

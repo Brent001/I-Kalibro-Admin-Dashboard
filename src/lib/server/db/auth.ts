@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { randomBytes, createHash } from 'crypto';
 import { db } from '$lib/server/db/index.js';
 import { tbl_super_admin, tbl_admin, tbl_staff, tbl_staff_permission, tbl_user, tbl_staff_session } from '$lib/server/db/schema/schema.js';
-import { eq, and, gte, lte } from 'drizzle-orm';
+import { eq, and, gte, lte, ne } from 'drizzle-orm';
 import { redisClient, isRedisConfigured } from '$lib/server/db/cache.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
@@ -797,4 +797,37 @@ export function generateToken(user: AuthUser): string {
         JWT_SECRET,
         { expiresIn: '7d', issuer: 'kalibro-library', subject: user.id.toString() }
     );
+}
+
+export async function revokeOtherUserSessions(userId: number, userType: string, currentSessionId: string): Promise<void> {
+    const otherSessions = await db.select({ sessionId: tbl_staff_session.sessionId })
+        .from(tbl_staff_session)
+        .where(and(
+            eq(tbl_staff_session.actorId, userId),
+            eq(tbl_staff_session.actorType, userType),
+            ne(tbl_staff_session.sessionId, currentSessionId),
+            eq(tbl_staff_session.isActive, true),
+        ));
+
+    if (otherSessions.length === 0) return;
+
+    await db.update(tbl_staff_session)
+        .set({ isActive: false })
+        .where(and(
+            eq(tbl_staff_session.actorId, userId),
+            eq(tbl_staff_session.actorType, userType),
+            ne(tbl_staff_session.sessionId, currentSessionId),
+            eq(tbl_staff_session.isActive, true),
+        ));
+
+    if (!isRedisConfigured()) return;
+
+    await Promise.all(otherSessions.map(async ({ sessionId }) => {
+        await safeRedisDel(`session:${sessionId}`);
+        await safeRedisSetex(`revoked:session:${sessionId}`, Math.ceil(SESSION_TTL_MS / 1000), 'password_changed');
+        try {
+            await redisClient.srem(`user:${userId}:sessions`, sessionId);
+        } catch { /* ignore cache cleanup failures */ }
+        sessionLastTouched.delete(sessionId);
+    }));
 }

@@ -3,6 +3,7 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { fetchAuthSession } from '$lib/utils/authSessionClient.js';
   import AddJournal from "$lib/components/ui/inventory/journals/add_journals.svelte";
   import AddCategory from "$lib/components/ui/inventory/journals/add_category.svelte";
   import JournalDetails from "$lib/components/ui/inventory/journals/journal_details.svelte";
@@ -138,7 +139,7 @@
       });
       if (!response.ok) {
         if (response.status === 401 && retry) {
-          const sessionResponse = await fetch('/api/auth/session', { credentials: 'include' });
+          const sessionResponse = await fetchAuthSession();
           if (sessionResponse.ok) {
             await fetchJournals(page, search, category, language, false);
             return;

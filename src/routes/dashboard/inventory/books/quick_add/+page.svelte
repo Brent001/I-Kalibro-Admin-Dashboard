@@ -30,13 +30,13 @@
   
   // Column headers aligned with database schema
   const columnHeaders = [
-    { key: 'bookId', label: 'Book ID', required: true, width: 120 },
+    { key: 'bookId', label: 'Book ID (optional)', required: false, width: 150 },
     { key: 'title', label: 'Title', required: true, width: 200 },
     { key: 'author', label: 'Author', required: true, width: 150 },
     { key: 'isbn', label: 'ISBN', required: false, width: 130 },
     { key: 'categoryId', label: 'Category', required: true, width: 140 },
-    { key: 'publisher', label: 'Publisher', required: true, width: 150 },
-    { key: 'publishedYear', label: 'Year', required: true, width: 80 },
+    { key: 'publisher', label: 'Publisher', required: false, width: 150 },
+    { key: 'publishedYear', label: 'Year', required: false, width: 80 },
     { key: 'edition', label: 'Edition', required: false, width: 100 },
     { key: 'language', label: 'Language', required: false, width: 110 },
     { key: 'pages', label: 'Pages', required: false, width: 80 },
@@ -46,8 +46,10 @@
     { key: 'coverImage', label: 'Cover Photo', required: false, width: 180 }
   ];
 
-  let rows: BookRow[] = Array.from({ length: 30 }, () => createEmptyRow());
+  let rows: BookRow[] = [createEmptyRow()];
   let categories: { id: number; name: string }[] = [];
+  let categoriesLoading = true;
+  let categoriesError = '';
   let isSubmitting = false;
   let successMessage = '';
   let errorMessage = '';
@@ -175,6 +177,9 @@
         submitBooks();
         return;
       }
+      if (e.target instanceof HTMLElement && e.target.closest('input, select, textarea, [contenteditable="true"]')) {
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'i' || e.key === 'I')) {
         e.preventDefault();
         addRows(10);
@@ -198,16 +203,26 @@
   });
 
   async function fetchCategories() {
+    categoriesLoading = true;
+    categoriesError = '';
     try {
-      const response = await fetch('/api/books/categories', {
+      const response = await fetch('/api/inventory/books/categories?itemType=book', {
         credentials: 'include'
       });
       const data = await response.json();
-      if (data.success) {
-        categories = data.data.categories;
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Could not load book categories.');
+      }
+      categories = data.data.categories;
+      if (categories.length === 0) {
+        categoriesError = 'No book categories are set up yet. Go back to Books and add a category before adding books.';
       }
     } catch (err) {
       console.error('Error fetching categories:', err);
+      categoriesError = 'Book categories could not be loaded. Check your connection and try again.';
+      categories = [];
+    } finally {
+      categoriesLoading = false;
     }
   }
 
@@ -215,29 +230,28 @@
     const errors: { [key: string]: string } = {};
 
     // Required fields per schema
-    if (!row.bookId.trim()) {
-      errors.bookId = 'Required';
-    } else if (!/^[A-Z0-9\-_]+$/i.test(row.bookId.trim())) {
+    if (row.bookId.trim() && !/^[A-Z0-9\\-_]+$/i.test(row.bookId.trim())) {
       errors.bookId = 'Invalid format';
     }
     
     if (!row.title.trim()) errors.title = 'Required';
     if (!row.author.trim()) errors.author = 'Required';
-    if (!row.categoryId) errors.categoryId = 'Required';
-    if (!row.publisher.trim()) errors.publisher = 'Required';
+    if (!row.categoryId) {
+      errors.categoryId = 'Choose a category';
+    } else if (!categories.some(category => String(category.id) === row.categoryId)) {
+      errors.categoryId = 'Choose a listed category';
+    }
     
-    if (!row.publishedYear) {
-      errors.publishedYear = 'Required';
-    } else {
-      const year = parseInt(row.publishedYear);
+    if (row.publishedYear) {
+      const year = Number(row.publishedYear);
       const currentYear = new Date().getFullYear();
-      if (year < 1000 || year > currentYear) {
-        errors.publishedYear = `Invalid`;
+      if (!Number.isInteger(year) || year < 1000 || year > currentYear) {
+        errors.publishedYear = 'Enter a valid year';
       }
     }
     
-    if (!row.totalCopies || parseInt(row.totalCopies) < 1) {
-      errors.totalCopies = 'Min 1';
+    if (!row.totalCopies || !Number.isInteger(Number(row.totalCopies)) || Number(row.totalCopies) < 1) {
+      errors.totalCopies = 'Enter at least 1';
     }
 
     // Optional field validations
@@ -248,15 +262,15 @@
       }
     }
 
-    if (row.pages && parseInt(row.pages) < 1) {
-      errors.pages = 'Invalid';
+    if (row.pages && (!Number.isInteger(Number(row.pages)) || Number(row.pages) < 1)) {
+      errors.pages = 'Enter a valid page count';
     }
 
     row.errors = errors;
     return Object.keys(errors).length === 0;
   }
 
-  function addRows(count: number = 10) {
+  function addRows(count: number = 1) {
     const newRows = Array.from({ length: count }, () => createEmptyRow());
     rows = [...rows, ...newRows];
   }
@@ -292,7 +306,7 @@
 
   function clearAllRows() {
     if (confirm('Clear all data? This cannot be undone.')) {
-      rows = Array.from({ length: 30 }, () => createEmptyRow());
+      rows = [createEmptyRow()];
       selectedRows.clear();
       successMessage = '';
       errorMessage = '';
@@ -303,10 +317,17 @@
     successMessage = '';
     errorMessage = '';
     
-    const filledRows = rows.filter(r => r.bookId.trim() || r.title.trim() || r.author.trim());
+    const filledRows = rows.filter(r => (r.bookId.trim() || r.title.trim() || r.author.trim()) && r.status !== 'success');
     
     if (filledRows.length === 0) {
-      errorMessage = 'No data to submit. Please fill in at least one row.';
+      errorMessage = rows.some(row => row.status === 'success')
+        ? 'All completed books have already been added. Add another row to continue.'
+        : 'Start by entering a book title, then complete the required fields.';
+      return;
+    }
+
+    if (categories.length === 0) {
+      errorMessage = categoriesError || 'A book category is required before you can add books.';
       return;
     }
 
@@ -314,11 +335,14 @@
     filledRows.forEach(row => {
       if (!validateRow(row)) {
         hasErrors = true;
+        row.status = 'error';
+        row.message = 'Fix the marked fields';
       }
     });
 
     if (hasErrors) {
-      errorMessage = 'Please fix all validation errors before submitting.';
+      rows = rows;
+      errorMessage = 'Some books need attention. Look for the red marks in each row, correct them, then submit again.';
       return;
     }
 
@@ -326,9 +350,11 @@
     let successCount = 0;
     let failureCount = 0;
 
-    for (const row of filledRows) {
+    for (const [rowIndex, row] of filledRows.entries()) {
       row.status = 'submitted';
       row.message = 'Submitting...';
+      const bookId = row.bookId.trim() || `BK-${Date.now().toString(36).toUpperCase()}-${rowIndex + 1}`;
+      row.bookId = bookId;
 
       try {
         const response = await fetch('/api/inventory/books', {
@@ -336,7 +362,7 @@
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            bookId: row.bookId.trim(),
+            bookId,
             title: row.title.trim(),
             author: row.author.trim() || null,
             isbn: row.isbn?.trim() || null,
@@ -368,20 +394,18 @@
         }
       } catch (err) {
         row.status = 'error';
-        row.message = 'Network error';
+        row.message = 'Connection problem. Submit again to retry.';
         failureCount++;
       }
     }
 
+    rows = rows;
     isSubmitting = false;
 
     if (failureCount === 0) {
-      successMessage = `Successfully added ${successCount} book(s)!`;
-      setTimeout(() => {
-        goto('/dashboard/inventory/books?page=1');
-      }, 2000);
+      successMessage = `Added ${successCount} book${successCount === 1 ? '' : 's'}. You can add more below.`;
     } else {
-      errorMessage = `${successCount} succeeded, ${failureCount} failed.`;
+      errorMessage = `Added ${successCount}; ${failureCount} need attention. Correct the failed rows and submit again. Added books will not be duplicated.`;
     }
   }
 
@@ -413,7 +437,15 @@
         if (fieldIndex < fields.length) {
           const fieldName = fields[fieldIndex] as keyof BookRow;
           if (fieldName !== 'errors' && fieldName !== 'id' && fieldName !== 'status' && fieldName !== 'message') {
-            (rows[rowIndex] as any)[fieldName] = value.trim();
+            const pastedValue = value.trim();
+            if (fieldName === 'categoryId') {
+              const category = categories.find(item =>
+                String(item.id) === pastedValue || item.name.toLowerCase() === pastedValue.toLowerCase()
+              );
+              rows[rowIndex].categoryId = category ? String(category.id) : pastedValue;
+            } else {
+              (rows[rowIndex] as any)[fieldName] = pastedValue;
+            }
           }
         }
       });
@@ -468,11 +500,11 @@
     <div class="toolbar-actions">
       <button class="toolbar-btn" on:click={exportTemplate} disabled={isSubmitting}>
         <i class="fas fa-download"></i>
-        <span>Template</span>
+        <span>Download Template</span>
       </button>
-      <button class="toolbar-btn" on:click={() => addRows(10)} disabled={isSubmitting}>
+      <button class="toolbar-btn" on:click={() => addRows()} disabled={isSubmitting}>
         <i class="fas fa-plus"></i>
-        <span>Add 10 Rows</span>
+        <span>Add a Book</span>
       </button>
       <button class="toolbar-btn danger" on:click={deleteSelectedRows} disabled={isSubmitting || selectedRows.size === 0}>
         <i class="fas fa-trash"></i>
@@ -488,6 +520,18 @@
       </button>
     </div>
   </div>
+
+  <section class="help-panel" aria-label="How to add books">
+    <h1>Quick Add Books</h1>
+    <p>Enter one book on each row. Fields marked <strong>*</strong> are required. Leave Book ID blank and one will be created for you.</p>
+    <p>To add many books, download the template, fill it in, then copy the rows and paste them into the first row below. Category names can be pasted as written.</p>
+    {#if categoriesLoading}
+      <p class="category-notice" role="status">Loading book categories...</p>
+    {:else if categoriesError}
+      <p class="category-notice" role="alert">{categoriesError}</p>
+      <button class="category-retry" on:click={fetchCategories} disabled={categoriesLoading}>Try loading categories again</button>
+    {/if}
+  </section>
 
   <!-- Messages -->
   {#if successMessage || errorMessage}
@@ -696,13 +740,11 @@
   <div class="quick-actions">
     <button class="quick-btn" on:click={() => addRows(10)} disabled={isSubmitting}>
       <i class="fas fa-plus"></i>
-      +10 Rows
-      <span class="shortcut">Ctrl+I</span>
+      Add 10 Books
     </button>
     <button class="quick-btn primary" on:click={submitBooks} disabled={isSubmitting}>
       <i class="fas fa-paper-plane"></i>
-      Submit
-      <span class="shortcut">Ctrl+Enter</span>
+      {isSubmitting ? 'Adding...' : 'Add Books'}
     </button>
   </div>
 </div>
@@ -719,6 +761,43 @@
     width: 100%;
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  }
+
+  .help-panel {
+    padding: 16px 20px;
+    background: #f0fdf4;
+    border-bottom: 1px solid #bbf7d0;
+    color: #14532d;
+  }
+
+  .help-panel h1 {
+    margin: 0 0 6px;
+    font-size: 18px;
+    font-weight: 700;
+  }
+
+  .help-panel p {
+    margin: 4px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .help-panel .category-notice {
+    color: #9a3412;
+    font-weight: 600;
+  }
+
+  .category-retry {
+    margin-top: 6px;
+    color: #166534;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: underline;
+  }
+
+  .category-retry:disabled {
+    opacity: 0.6;
+    cursor: wait;
   }
 
   /* Toolbar */
@@ -1359,6 +1438,14 @@
   }
 
   @media (max-width: 768px) {
+    .spreadsheet-wrapper {
+      height: 100dvh;
+    }
+
+    .help-panel {
+      padding: 12px 16px;
+    }
+
     .quick-actions {
       bottom: 16px;
       right: 16px;
@@ -1371,6 +1458,11 @@
     .badge {
       font-size: 11px;
       padding: 3px 8px;
+    }
+
+    .quick-btn {
+      padding: 10px 14px;
+      font-size: 13px;
     }
   }
 </style>

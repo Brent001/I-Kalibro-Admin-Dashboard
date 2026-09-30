@@ -66,6 +66,7 @@
 		"chart.js": "^4.5.0",
 		"drizzle-kit": "^0.31.5",
 		"drizzle-orm": "^0.40.0",
+		"exceljs": "^4.4.0",
 		"html5-qrcode": "^2.3.8",
 		"jsonwebtoken": "^9.0.2",
 		"lucide-svelte": "^0.562.0",
@@ -75,7 +76,6 @@
 		"postgres": "^3.4.7",
 		"qrcode": "^1.5.4",
 		"resend": "^6.1.2",
-		"xlsx": "^0.18.5",
 		"zod": "^4.0.17"
 	}
 }

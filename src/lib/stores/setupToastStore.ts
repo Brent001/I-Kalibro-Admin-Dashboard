@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { playNotificationSound } from '$lib/utils/notificationSound.js';
 
 function createSetupToastStore() {
   const { subscribe, set } = writable<string | null>(null);
@@ -9,6 +10,7 @@ function createSetupToastStore() {
     show: (message: string) => {
       clearTimeout(timeout);
       set(message);
+      playNotificationSound('success');
       timeout = setTimeout(() => set(null), 6000);
     },
     dismiss: () => {

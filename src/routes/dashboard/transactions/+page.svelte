@@ -8,6 +8,7 @@
 
   import { writable } from 'svelte/store';
   import { tweened } from 'svelte/motion';
+  import { fetchAuthSession } from '$lib/utils/authSessionClient.js';
 
   // pagination constant used by server/clientside helpers
   const ROWS_PER_PAGE = 100;
@@ -562,7 +563,7 @@
     // Mark initialized so reactive updates will push changes to the URL
     initializedFromUrl = true;
 
-    const res = await fetch('/api/auth/session', { credentials: 'include' });
+    const res = await fetchAuthSession();
     if (!res.ok) { alert("Session expired. Please log in again."); window.location.href = '/'; }
   });
 

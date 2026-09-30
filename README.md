@@ -47,6 +47,18 @@ src/
   app.css        # Global styles (Tailwind + custom)
 ```
 
+## Deployment
+
+Set `DATABASE_URL` in the deployment provider's server/build environment before deploying. Keep it as a server-side secret; do not expose it to browser code or commit it to the repository.
+
+Netlify runs the database preparation step before the build. For Vercel or AWS, use the equivalent build command:
+
+```bash
+npm run db:prepare && npm run build
+```
+
+The preparation step creates missing tables in a fresh database and is a no-op when the schema is current. Review production schema changes and use an appropriate migration process before deploying changes to an existing production database.
+
 ---
 
 ## 📝 License

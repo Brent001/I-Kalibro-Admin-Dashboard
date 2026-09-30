@@ -1,11 +1,11 @@
 import type { PageServerLoad } from './$types.js';
-import { redirect } from '@sveltejs/kit';
+import { isRedirect, redirect } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
-export const load: PageServerLoad = async ({ cookies, url }) => {
+export const load: PageServerLoad = async ({ cookies }) => {
     const token = cookies.get('token');
     
     if (!token) {
@@ -48,6 +48,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
         };
 
     } catch (error) {
+        if (isRedirect(error)) throw error;
         cookies.delete('token', { path: '/' });
         throw redirect(302, '/');
     }

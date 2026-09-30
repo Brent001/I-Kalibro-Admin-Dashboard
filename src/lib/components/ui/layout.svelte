@@ -7,6 +7,8 @@
   import { slide } from "svelte/transition";
   import NotificationContainer from "./notificationContainer.svelte";
   import { notifications } from "$lib/stores/notificationStore.js";
+  import { playNotificationSound } from "$lib/utils/notificationSound.js";
+  import { fetchAuthSession } from "$lib/utils/authSessionClient.js";
   import * as Lucide from "lucide-svelte";
   const Icons: any = Lucide;
 
@@ -60,7 +62,7 @@
   let unreadCount = 0;
   let notifPollInterval: any = null;
   let prevUnreadCount = 0;
-  let notifAudio: HTMLAudioElement | null = null;
+  let sessionRequest: Promise<boolean> | null = null;
 
   async function fetchUnreadCount() {
     try {
@@ -71,7 +73,8 @@
           // session might be invalid — try refreshing session then retry once
           unreadCount = 0;
           try {
-            await fetchUserSession(true);
+            const sessionValid = await fetchUserSession(true);
+            if (!sessionValid) return;
             // retry once
             const retry = await fetch('/api/fetch_nof?unread=true', { credentials: 'include' });
             console.debug('fetchUnreadCount: retry status', retry.status);
@@ -124,24 +127,10 @@
           actionText: r.actionText || null
         }));
 
-        // compute unread counts and play sound when new unread notifications arrive
+        // Play a sound when unread notifications arrive.
         const newUnread = newList.filter((n: any) => !n.isRead).length;
-        try {
-          if (newUnread > prevUnreadCount && newUnread > 0) {
-            if (notifAudio) {
-              // attempt to play; ignore errors (autoplay policy may block until user interacts)
-              notifAudio.currentTime = 0;
-              notifAudio.play().catch((e) => console.debug('notifAudio play failed', e));
-            }
-          } else if (prevUnreadCount === 0 && newUnread > 0) {
-            // first load and we have unread items - try once more
-            if (notifAudio) {
-              notifAudio.currentTime = 0;
-              notifAudio.play().catch((e) => console.debug('notifAudio play failed on initial load', e));
-            }
-          }
-        } catch (e) {
-          console.debug('notification sound play error', e);
+        if (newUnread > prevUnreadCount && newUnread > 0) {
+          playNotificationSound('info');
         }
 
         serverNotifications = newList;
@@ -308,38 +297,49 @@
     expandedMenus[activeSubmenuParent] = true;
   }
 
-  async function fetchUserSession(force = false) {
-    if (!browser) return;
+  async function fetchUserSession(force = false): Promise<boolean> {
+    if (!browser) return false;
     if (!force && get(userStore) !== null) {
       isLoadingStore.set(false);
-      return;
+      return true;
     }
-    try {
-      isLoadingStore.set(true);
-      sessionErrorStore.set(false);
-      const response = await fetch('/api/auth/session', {
-        method: 'GET',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.data?.user) {
-          userStore.set(result.data.user);
-          sessionTimeoutMinutes = Number(result.data.sessionInfo?.sessionTimeoutMinutes) || 30;
+    if (sessionRequest) return sessionRequest;
+
+    sessionRequest = (async () => {
+      try {
+        isLoadingStore.set(true);
+        sessionErrorStore.set(false);
+        const { ok, status, body: result } = await fetchAuthSession();
+        if (ok) {
+          if (result.success && result.data?.user) {
+            userStore.set(result.data.user);
+            sessionTimeoutMinutes = Number(result.data.sessionInfo?.sessionTimeoutMinutes) || 30;
+            return true;
+          }
+          sessionErrorStore.set(true);
+          return false;
+        }
+
+        if (status === 401) {
+          userStore.set(null);
+          await goto('/', { replaceState: true, noScroll: true });
+          return false;
         } else {
           sessionErrorStore.set(true);
+          return false;
         }
-      } else if (response.status === 401) {
-        userStore.set(null);
-        if (browser) await goto('/', { replaceState: true, noScroll: true });
-      } else {
+      } catch (error) {
         sessionErrorStore.set(true);
+        return false;
+      } finally {
+        isLoadingStore.set(false);
       }
-    } catch (error) {
-      sessionErrorStore.set(true);
+    })();
+
+    try {
+      return await sessionRequest;
     } finally {
-      isLoadingStore.set(false);
+      sessionRequest = null;
     }
   }
 
@@ -472,21 +472,9 @@
         }
         try {
           isCheckPending = true;
-          const response = await fetch('/api/auth/session', {
-            method: 'GET',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          if (response.status === 401) {
-            userStore.set(null);
+          const sessionValid = await fetchUserSession(true);
+          if (!sessionValid && !$userStore && !get(sessionErrorStore)) {
             notifications.show('Your session has been revoked. Please log in again.', 'error');
-            if (browser) await goto('/', { replaceState: true, noScroll: true });
-          } else if (response.ok) {
-            const result = await response.json();
-            sessionTimeoutMinutes = Number(result.data?.sessionInfo?.sessionTimeoutMinutes) || sessionTimeoutMinutes;
-          } else {
-            // A transient API failure must not be treated as an expired session.
-            sessionErrorStore.set(true);
           }
         } catch (error) {
           console.error('Session check failed:', error);

@@ -3,6 +3,7 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { fetchAuthSession } from '$lib/utils/authSessionClient.js';
   import AddBooks from "$lib/components/ui/inventory/books/add_books.svelte";
   import AddCategory from "$lib/components/ui/inventory/books/add_category.svelte";
   import ViewBook from "$lib/components/ui/inventory/books/view_book.svelte";
@@ -139,7 +140,7 @@
       });
       if (!response.ok) {
         if (response.status === 401 && retry) {
-          const sessionResponse = await fetch('/api/auth/session', { credentials: 'include' });
+          const sessionResponse = await fetchAuthSession();
           if (sessionResponse.ok) {
             await fetchBooks(page, search, category, language, false);
             return;

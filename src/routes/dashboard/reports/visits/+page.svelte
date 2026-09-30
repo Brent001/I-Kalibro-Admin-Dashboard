@@ -110,12 +110,24 @@
   async function handleExport() {
     try {
       const format = $selectedExportFormat;
-      const res  = await fetch(`/api/reports/visits/export?format=${format}`);
+      const params = new URLSearchParams({
+        format,
+        period: selectedPeriod,
+        status: activeTab,
+        visitorType: selectedVisitorType,
+        search: searchTerm.trim(),
+      });
+      if (selectedDate) params.set("date", selectedDate);
+      if (selectedTime) params.set("time", selectedTime);
+
+      const res  = await fetch(`/api/reports/visits/export?${params}`);
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `visits_${new Date().toISOString().split("T")[0]}.${format === "excel" ? "xlsx" : "pdf"}`;
+      const periodLabel = periodOptions.find((option) => option.value === selectedPeriod)?.label ?? "Visits";
+      const rangeLabel = selectedDate ? `date_${selectedDate}` : periodLabel.toLowerCase().replace(/\s+/g, "_");
+      link.download = `visits_${rangeLabel}_${new Date().toISOString().split("T")[0]}.${format === "excel" ? "xlsx" : "pdf"}`;
       link.click();
     } catch {
       alert("Export failed.");

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { goto, replaceState } from "$app/navigation";
+  import { replaceState } from "$app/navigation";
   import FileText from 'lucide-svelte/icons/file-text';
   import BookOpen from 'lucide-svelte/icons/book-open';
   import CircleDollarSign from 'lucide-svelte/icons/circle-dollar-sign';
@@ -222,11 +222,10 @@
       }
 
       passwordMessageType = 'success';
-      passwordMessage = result.message || 'Password changed successfully. Please sign in again.';
+      passwordMessage = result.message || 'Password changed successfully. You can stay signed in.';
       currentPassword = '';
       newPassword = '';
       confirmPassword = '';
-      window.setTimeout(() => goto('/', { replaceState: true }), 1800);
     } catch {
       passwordMessageType = 'error';
       passwordMessage = 'Network error. Please try again.';

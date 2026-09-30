@@ -161,7 +161,7 @@
           { label: 'Total Journals',        value: dashboardData.totalJournals,  color: 'from-orange-400 to-orange-600',icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253', link: '/dashboard/inventory/journals' },
         ] as stat}
           <a href="{stat.link}" class="block">
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
               {#if loading}
                 <div class="animate-pulse flex flex-col items-center gap-2">
                   <div class="h-10 w-10 bg-gray-200 rounded-lg"></div>
@@ -193,7 +193,7 @@
           { label: 'Pending Reservations', value: dashboardData.totalPendingReservations, color: 'from-indigo-400 to-indigo-600', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', link: '/dashboard/transactions?tab=reserve' },
         ] as stat}
           <a href="{stat.link}" class="block">
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
               {#if loading}
                 <div class="animate-pulse flex flex-col items-center gap-2">
                   <div class="h-10 w-10 bg-gray-200 rounded-lg"></div>
