@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let isOpen: boolean = false;
   export let itemType: string = 'book';
@@ -29,8 +30,12 @@
   let isSubmitting = false;
   let coverImageFile: File | null = null;
   let coverImagePreview: string = '';
+  let coverSourceUrl = '';
   let uploadingCoverImage = false;
   let generatingCallNumber = false;
+  let lookingUpMetadata = false;
+  let lookupMessage = '';
+  let lookupMessageType: 'error' | 'info' = 'info';
 
   let categories: { id: number, name: string, ddc?: string }[] = [];
   let categoriesLoading = false;
@@ -89,7 +94,7 @@
   }
 
   async function generateCallNumberFromAPI() {
-    if (!formData.author.trim() || !formData.categoryId) return;
+    if (!formData.title.trim() || !formData.author.trim() || !formData.categoryId) return;
 
     const categoryName = categories.find(c => c.id.toString() === formData.categoryId.toString())?.name || '';
     if (!categoryName) return;
@@ -101,9 +106,13 @@
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
+          title: formData.title.trim(),
           authorLastName: formData.author.trim(),
           category: categoryName.toLowerCase().replace(/\s+/g, '_'),
           year: formData.publishedYear ? parseInt(formData.publishedYear) : undefined,
+          edition: formData.edition.trim() || undefined,
+          isbn: formData.isbn.trim() || undefined,
+          publisher: formData.publisher.trim() || undefined,
           copy: formData.totalCopies,
         }),
       });
@@ -124,6 +133,75 @@
     }
   }
 
+  async function lookupBookMetadata() {
+    const isbn = formData.isbn.trim();
+    if (!isbn) {
+      lookupMessageType = 'error';
+      lookupMessage = 'Enter an ISBN first.';
+      return;
+    }
+
+    lookingUpMetadata = true;
+    lookupMessage = '';
+    try {
+      const response = await fetch(`/api/inventory/books/lookup?isbn=${encodeURIComponent(isbn)}`, {
+        credentials: 'include'
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        lookupMessageType = 'error';
+        lookupMessage = result.code === 'INVALID_INPUT'
+          ? 'Enter a valid ISBN-10 or ISBN-13.'
+          : result.code === 'NOT_FOUND'
+            ? 'No book metadata was found for this ISBN.'
+            : result.code === 'UPSTREAM'
+              ? 'Metadata providers are temporarily unavailable.'
+              : result.error || 'Book lookup failed.';
+        return;
+      }
+
+      const data = result.data;
+      const next = { ...formData };
+      const fill = (field: keyof typeof next, value: unknown) => {
+        if (!String(next[field] ?? '').trim() && value !== null && value !== undefined) {
+          next[field] = String(value) as never;
+        }
+      };
+
+      fill('isbn', data.isbn);
+      fill('title', data.title);
+      fill('author', data.author);
+      fill('publisher', data.publisher);
+      fill('publishedYear', data.publishedYear);
+      fill('language', data.language);
+      fill('pages', data.pages);
+      fill('description', data.description);
+
+      if (!next.categoryId && data.suggestedCategory) {
+        const match = categories.find((category) =>
+          category.name.trim().toLowerCase() === String(data.suggestedCategory).trim().toLowerCase()
+        );
+        if (match) next.categoryId = String(match.id);
+      }
+
+      if (!next.coverImage && data.coverImage) next.coverImage = data.coverImage;
+      formData = next;
+      if (!coverImageFile) {
+        coverSourceUrl = data.coverUrl || '';
+        coverImagePreview = data.coverUrl || '';
+      }
+      lookupMessageType = 'info';
+      lookupMessage = data.coverStatus === 'not_found' || data.coverStatus === 'storage_not_configured'
+        ? 'Book details found. No stored cover is available; review the fields before saving.'
+        : 'Book details found. Review the fields before saving.';
+    } catch {
+      lookupMessageType = 'error';
+      lookupMessage = 'Network error while looking up the ISBN.';
+    } finally {
+      lookingUpMetadata = false;
+    }
+  }
+
   function handleCoverImageChange(event: Event) {
     const target = event.target as HTMLInputElement;
     const file = target.files?.[0];
@@ -141,6 +219,7 @@
   function removeCoverImage() {
     coverImageFile = null;
     coverImagePreview = '';
+    coverSourceUrl = '';
     formData.coverImage = '';
     errors.coverImage = '';
   }
@@ -215,6 +294,7 @@
         totalCopies: formData.totalCopies,
         description: formData.description.trim() || undefined,
         coverImage: coverImageUrl || undefined,
+          coverSourceUrl: coverSourceUrl || undefined,
       };
       const response = await fetch('/api/inventory/books', {
         method: 'POST',
@@ -230,9 +310,11 @@
         resetForm();
       } else {
         errors.submit = result.message || 'Failed to add book';
+        toast.error(errors.submit);
       }
     } catch (error) {
       errors.submit = 'Network error. Please try again.';
+      toast.error(errors.submit);
     } finally {
       isSubmitting = false;
     }
@@ -247,6 +329,8 @@
     errors = {};
     coverImageFile = null;
     coverImagePreview = '';
+    coverSourceUrl = '';
+    lookupMessage = '';
   }
 
   function handleClose() {
@@ -436,13 +520,25 @@
 
                     <!-- ISBN -->
                     <div>
-                      <span class="block text-xs font-medium text-gray-500 mb-1">ISBN</span>
+                      <div class="flex items-center justify-between gap-2 mb-1">
+                        <span class="block text-xs font-medium text-gray-500">ISBN</span>
+                        <button
+                          type="button"
+                          on:click={lookupBookMetadata}
+                          disabled={isSubmitting || uploadingCoverImage || lookingUpMetadata}
+                          class="text-xs font-semibold text-[#0D5C29] hover:text-[#4A7C59] disabled:opacity-50"
+                        >{lookingUpMetadata ? 'Looking up…' : 'Lookup'}</button>
+                      </div>
                       <input
-                        type="text" bind:value={formData.isbn} disabled={isSubmitting || uploadingCoverImage}
+                        type="text" bind:value={formData.isbn} disabled={isSubmitting || uploadingCoverImage || lookingUpMetadata}
                         placeholder="e.g., 978-0-123456-78-9"
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
                       />
                     </div>
+
+                    {#if lookupMessage}
+                      <p class="sm:col-span-2 text-xs {lookupMessageType === 'error' ? 'text-red-600' : 'text-[#4A7C59]'}">{lookupMessage}</p>
+                    {/if}
 
                   </div>
                 </div>

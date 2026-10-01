@@ -3,6 +3,7 @@
   import EditStaff from "$lib/components/ui/staff/edit_staff.svelte";
   import { onMount } from "svelte";
   import { page } from '$app/stores';
+  import { toast } from '$lib/stores/toastStore.js';
 
   let searchTerm = "";
   let selectedStatus = "all";
@@ -72,8 +73,10 @@
       if (!res.ok || !data.success) throw new Error(data.message || 'Failed to add staff.');
       await fetchStaff();
       isAddStaffOpen = false;
+      toast.success('Staff member added successfully.');
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : 'Failed to add staff.';
+      toast.error(errorMsg);
     } finally {
       loading = false;
     }
@@ -106,6 +109,7 @@
         if (!updateRes.ok) {
           const data = await updateRes.json();
           errorMsg = data.message || "Failed to update staff.";
+          toast.error(errorMsg);
           loading = false;
           return;
         }
@@ -122,6 +126,7 @@
         if (!permRes.ok) {
           const data = await permRes.json();
           errorMsg = data.message || "Failed to update permissions.";
+          toast.error(errorMsg);
           loading = false;
           return;
         }
@@ -130,9 +135,11 @@
       await fetchStaff();
       isEditStaffOpen = false;
       selectedStaff = null;
+      toast.success('Staff member updated successfully.');
     } catch (err) {
       console.error('Error updating staff:', err);
       errorMsg = "Failed to update staff.";
+      toast.error(errorMsg);
     } finally {
       loading = false;
     }
@@ -155,16 +162,19 @@
         body: JSON.stringify({ id: selectedStaff.id, role: selectedStaff.role || 'staff' })
       });
       
-      if (res.ok) {
+      const result = await res.json();
+      if (res.ok && result.success) {
         await fetchStaff();
         isDeleteStaffOpen = false;
         selectedStaff = null;
+        toast.success(result.message || 'Staff member deleted.');
       } else {
-        const data = await res.json();
-        errorMsg = data.message || "Failed to delete staff.";
+        errorMsg = result.message || "Failed to delete staff.";
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = "Failed to delete staff.";
+      toast.error(errorMsg);
       console.error(err);
     } finally {
       loading = false;
@@ -184,12 +194,15 @@
       
       if (res.ok) {
         await fetchStaff();
+        toast.success(`Staff member ${staffMember.isActive ? 'deactivated' : 'activated'}.`);
       } else {
         const data = await res.json();
         errorMsg = data.message || "Failed to update status.";
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = "Failed to update status.";
+      toast.error(errorMsg);
       console.error(err);
     } finally {
       loading = false;

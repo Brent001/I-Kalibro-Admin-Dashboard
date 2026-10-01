@@ -54,7 +54,7 @@ export const GET: RequestHandler = async ({ request }) => {
         const rows = await db.select().from(tbl_library_settings).where(eq(tbl_library_settings.settingKey, 'visitScanMethod')).limit(1);
         if (!rows || rows.length === 0) return json({ success: true, visitScanMethod: 'qrcode' }); // default
         const r = rows[0];
-        let val: string = r.settingValue;
+        const val = r.settingValue === 'barcode' ? 'barcode' : 'qrcode';
         return json({ success: true, visitScanMethod: val });
     } catch (err: any) {
         console.error('GET /api/settings/scan-method error:', err);
@@ -69,7 +69,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     try {
         const body = await request.json();
-        if (!body || typeof body.visitScanMethod !== 'string') return error(400, 'Invalid payload');
+        if (!body || !['qrcode', 'barcode'].includes(body.visitScanMethod)) return error(400, 'Scan method must be qrcode or barcode');
 
         const value = body.visitScanMethod;
 

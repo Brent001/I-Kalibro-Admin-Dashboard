@@ -51,6 +51,8 @@ src/
 
 Set `DATABASE_URL` in the deployment provider's server/build environment before deploying. Keep it as a server-side secret; do not expose it to browser code or commit it to the repository.
 
+Metadata lookup cover storage reuses the existing `VITE_BACKBLAZE_KEY_ID`, `VITE_BACKBLAZE_APPLICATION_KEY`, `VITE_BACKBLAZE_BUCKET_NAME`, and `VITE_BACKBLAZE_REGION` variables. Covers are served through the existing `/api/images/cover/...` proxy. `GOOGLE_BOOKS_API_KEY` is optional and only provides a steadier Google Books quota; lookup works without it. A Crossref contact email is optional and is not required by this integration.
+
 Netlify runs the database preparation step before the build. For Vercel or AWS, use the equivalent build command:
 
 ```bash

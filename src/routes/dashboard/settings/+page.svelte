@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toast } from '$lib/stores/toastStore.js';
   import { onMount } from "svelte";
   import { replaceState } from "$app/navigation";
   import FileText from 'lucide-svelte/icons/file-text';
@@ -25,6 +26,10 @@
   let currentPassword = $state('');
   let newPassword = $state('');
   let confirmPassword = $state('');
+  let passwordOtp = $state('');
+  let passwordOtpSent = $state(false);
+  let passwordOtpEmail = $state('');
+  let isSendingPasswordOtp = $state(false);
   let showCurrentPassword = $state(false);
   let showNewPassword = $state(false);
   let showConfirmPassword = $state(false);
@@ -45,14 +50,14 @@
   type PermKey = 'canManageBooks'|'canManageUsers'|'canManageBorrowing'|'canManageReservations'|'canViewReports'|'canManageFines';
 
   const defaultSettings = {
+    bulkAddEnabled: false,
     libraryName: 'Metro Dagupan Colleges Library',
     libraryCode: 'MDC-LIB',
     address: 'National Highway, Barangay Salay, Mangaldan, 2432 Pangasinan',
     phone: '+63 75 522 4567',
     email: 'library@mdc.edu.ph',
     website: 'https://mdc.edu.ph/library',
-
-    visitScanMethod: 'qrcode' as 'qrcode' | 'barcode' | 'both',
+    visitScanMethod: 'qrcode' as 'qrcode' | 'barcode',
 
     defaultLoanPeriodStudent: 7,
     defaultLoanPeriodFaculty: 14,
@@ -103,7 +108,7 @@
   });
 
   const defaultStaffPermissionValues: Record<PermKey, boolean> = {
-    canManageBooks: false,
+    canManageBooks: true,
     canManageUsers: false,
     canManageBorrowing: true,
     canManageReservations: true,
@@ -153,16 +158,27 @@
     isSaving = true;
     saveSuccess = false;
     saveError = '';
+    let partialSave = false;
     try {
-      const [settingsResponse, fineResponse] = await Promise.all([
+      const [settingsResponse, fineResponse, scanMethodResponse] = await Promise.all([
         fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...settings, defaultStaffPermissions }), credentials:'same-origin' }),
-        fetch('/api/settings/finecal', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(settings.fineCalculation), credentials:'same-origin' })
+        fetch('/api/settings/finecal', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(settings.fineCalculation), credentials:'same-origin' }),
+        fetch('/api/settings/scan-method', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ visitScanMethod: settings.visitScanMethod }), credentials:'same-origin' })
       ]);
-      if (!settingsResponse.ok || !fineResponse.ok) throw new Error('Settings could not be saved. Please try again.');
+      const responses = [settingsResponse, fineResponse, scanMethodResponse];
+      if (responses.some(response => !response.ok)) {
+        if (responses.some(response => response.ok) && responses.some(response => !response.ok)) {
+          partialSave = true;
+          toast.warning('Some settings saved, but another settings request failed. Review the form and save again.');
+        }
+        throw new Error('Settings could not be saved. Please try again.');
+      }
       saveSuccess = true;
+      toast.success('Settings saved successfully.');
       setTimeout(() => saveSuccess = false, 3000);
     } catch (err) {
       saveError = err instanceof Error ? err.message : 'Settings could not be saved.';
+      if (!partialSave) toast.error(saveError);
     } finally {
       isSaving = false;
     }
@@ -180,20 +196,7 @@
     { id:'system',        name:'System',               icon:SettingsIcon },
   ];
 
-  const tabDescriptions: Record<string, string> = {
-    general: 'Library profile, contact details, and visitor scan method',
-    borrowing: 'Loan periods, copy limits, and reservation rules',
-    fines: 'Fine rates, penalties, and return requests',
-    finecalc: 'Calendar exemptions used when calculating fines',
-    notifications: 'Notification events and delivery channels',
-    permissions: 'Default permissions for new staff accounts',
-    security: 'Sessions, authentication, and backup policy',
-    system: 'Service health, storage, and maintenance tasks',
-    account: 'Manage your own sign-in password'
-  };
-
   const visibleTabs = $derived(isStaff ? tabs.filter(tab => tab.id === 'account') : tabs);
-  let activeTabData = $derived(visibleTabs.find(tab => tab.id === activeTab) ?? visibleTabs[0]);
 
   function selectTab(id: string) {
     if (!isAdmin && id !== 'account') return;
@@ -204,6 +207,12 @@
   async function submitPasswordChange() {
     passwordMessage = '';
     passwordMessageType = '';
+    if (!passwordOtpSent || passwordOtp.trim().length !== 6) {
+      passwordMessageType = 'error';
+      passwordMessage = 'Request and enter the 6-digit verification code before changing your password.';
+      toast.warning(passwordMessage);
+      return;
+    }
     isSubmittingPassword = true;
 
     try {
@@ -211,27 +220,66 @@
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword, confirmPassword })
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword, otp: passwordOtp.trim() })
       });
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         passwordMessageType = 'error';
         passwordMessage = result.message || 'Password could not be changed.';
+        toast.error(passwordMessage);
         return;
       }
 
       passwordMessageType = 'success';
       passwordMessage = result.message || 'Password changed successfully. You can stay signed in.';
+      toast.success(passwordMessage);
       currentPassword = '';
       newPassword = '';
       confirmPassword = '';
+      passwordOtp = '';
+      passwordOtpSent = false;
+      passwordOtpEmail = '';
     } catch {
       passwordMessageType = 'error';
       passwordMessage = 'Network error. Please try again.';
+      toast.error(passwordMessage);
     } finally {
       isSubmittingPassword = false;
     }
+  }
+
+  async function sendPasswordChangeOtp() {
+    isSendingPasswordOtp = true;
+    passwordMessage = '';
+    passwordMessageType = '';
+    try {
+      const response = await fetch('/api/settings/change_pass/send_otp', {
+        method: 'POST',
+        credentials: 'same-origin'
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || 'Could not send verification code.');
+      passwordOtpSent = true;
+      passwordOtp = '';
+      passwordOtpEmail = result.maskedEmail || 'your registered email';
+      passwordMessageType = 'success';
+      passwordMessage = `Verification code sent to ${passwordOtpEmail}.`;
+      toast.success(passwordMessage);
+    } catch (error) {
+      passwordOtpSent = false;
+      passwordMessageType = 'error';
+      passwordMessage = error instanceof Error ? error.message : 'Could not send verification code.';
+      toast.error(passwordMessage);
+    } finally {
+      isSendingPasswordOtp = false;
+    }
+  }
+
+  function handlePasswordOtpInput(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    passwordOtp = input.value.replace(/\D/g, '').slice(0, 6);
+    input.value = passwordOtp;
   }
 
   const inp = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#0D5C29] focus:border-transparent outline-none transition-all bg-white";
@@ -259,8 +307,10 @@
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'Test email could not be sent.');
       testEmailStatus = 'Test email sent.';
+      toast.success(testEmailStatus);
     } catch (err) {
       testEmailStatus = err instanceof Error ? err.message : 'Test email could not be sent.';
+      toast.error(testEmailStatus);
     } finally {
       testingEmail = false;
     }
@@ -297,13 +347,16 @@
         link.click();
         URL.revokeObjectURL(url);
         maintenanceStatus = 'Security logs exported.';
+        toast.success(maintenanceStatus);
       } else {
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || 'Maintenance task failed.');
         maintenanceStatus = result.message || `${task} completed.`;
+        toast.success(maintenanceStatus);
       }
     } catch (err) {
       maintenanceStatus = err instanceof Error ? err.message : `${task} failed.`;
+      toast.error(maintenanceStatus);
     } finally {
       maintenanceTask = '';
     }
@@ -336,6 +389,13 @@
     try {
       const res = await fetch('/api/settings/finecal', { credentials:'same-origin' });
       if (res.ok) { const d = await res.json(); if (d?.fineCalculation) settings.fineCalculation = d.fineCalculation; }
+    } catch {}
+    try {
+      const res = await fetch('/api/settings/scan-method', { credentials:'same-origin' });
+      if (res.ok) {
+        const d = await res.json();
+        if (d?.visitScanMethod === 'qrcode' || d?.visitScanMethod === 'barcode') settings.visitScanMethod = d.visitScanMethod;
+      }
     } catch {}
     try {
       const res = await fetch('/api/settings/storage', { credentials:'same-origin' });
@@ -376,7 +436,7 @@
 {/snippet}
 
 {#snippet toggleRow(label: string, desc: string, checked: boolean, onchange: (v: boolean) => void)}
-  <div class="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
+  <div class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 px-3.5 py-3 hover:border-gray-300 transition-colors">
     <div>
       <div class="text-sm font-medium text-slate-800">{label}</div>
       <div class="text-xs text-slate-400 mt-0.5">{desc}</div>
@@ -385,10 +445,10 @@
   </div>
 {/snippet}
 
-<div class="min-h-screen">
+<div>
   <!-- Header -->
-  <div class="mb-5">
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+  <div class="mb-3">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
       <div>
         <h2 class="text-2xl font-bold text-slate-900">Settings</h2>
         <p class="text-slate-500 text-sm">Manage library configuration, policies, and system preferences</p>
@@ -414,7 +474,7 @@
   </div>
 
   <!-- Settings navigation -->
-  <div class="bg-white border border-gray-200 rounded-xl p-1 mb-1 overflow-hidden">
+  <div class="bg-white border border-gray-200 rounded-lg p-1 mb-3 overflow-hidden">
     <div class="flex gap-0.5 overflow-x-auto" role="tablist" aria-label="Settings sections"
       style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
       {#each visibleTabs as tab}
@@ -424,7 +484,7 @@
           role="tab"
           aria-selected={activeTab === tab.id}
           onclick={() => selectTab(tab.id)}
-          class="flex items-center gap-1.5 px-3.5 py-[7px] rounded-lg text-[13px] font-medium whitespace-nowrap flex-shrink-0 transition-all duration-150
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium whitespace-nowrap flex-shrink-0 transition-all duration-150
             {activeTab === tab.id
               ? 'bg-[#0D5C29] text-white shadow-sm'
               : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}">
@@ -435,145 +495,204 @@
     </div>
   </div>
 
-  {#if activeTabData}
-    {@const ActiveTabIcon = activeTabData.icon}
-    <div class="flex items-center gap-2 px-1 py-2.5 mb-3">
-      <div class="flex items-center justify-center w-6 h-6 rounded-md bg-[#0D5C29]/10 shrink-0">
-        <ActiveTabIcon size={14} class="text-[#0D5C29]" />
-      </div>
-      <span class="text-sm font-semibold text-slate-700">{activeTabData.name}</span>
-      <span class="text-slate-300 select-none">·</span>
-      <span class="text-xs text-slate-400 truncate">{tabDescriptions[activeTab]}</span>
-    </div>
-  {/if}
-
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+  <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
 
         <!-- ACCOUNT -->
         {#if activeTab === 'account'}
-          <div class="p-5 sm:p-8 lg:p-10 animate-in">
-            <div class="mb-7">
-              <h3 class="text-base font-semibold text-slate-900">Change password</h3>
-              <p class="text-xs text-slate-400 mt-1">Confirm your current password before choosing a new one.</p>
-            </div>
-            <form class="max-w-xl space-y-4" onsubmit={(event) => { event.preventDefault(); submitPasswordChange(); }}>
-              {#each [
-                { label: 'Current password', name: 'currentPassword', value: currentPassword, shown: showCurrentPassword, set: (value: string) => currentPassword = value, toggle: () => showCurrentPassword = !showCurrentPassword },
-                { label: 'New password', name: 'newPassword', value: newPassword, shown: showNewPassword, set: (value: string) => newPassword = value, toggle: () => showNewPassword = !showNewPassword },
-                { label: 'Confirm new password', name: 'confirmPassword', value: confirmPassword, shown: showConfirmPassword, set: (value: string) => confirmPassword = value, toggle: () => showConfirmPassword = !showConfirmPassword }
-              ] as field}
+          <div class="animate-in grid grid-cols-1 lg:grid-cols-[minmax(230px,0.75fr)_minmax(0,1.5fr)]">
+            <section class="border-b border-gray-100 p-5 sm:p-7 lg:border-b-0 lg:border-r lg:p-8">
+              <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Signed-in account</p>
+              <div class="mt-5 flex items-center gap-3">
+                <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#0D5C29] text-lg font-semibold text-white">
+                  {(data.user?.name || data.user?.username || '?').slice(0, 1).toUpperCase()}
+                </div>
+                <div class="min-w-0">
+                  <h3 class="truncate text-base font-semibold text-slate-900">{data.user?.name || data.user?.username || 'Account'}</h3>
+                  <p class="truncate text-sm text-slate-500">{data.user?.email || 'No email on file'}</p>
+                </div>
+              </div>
+              <dl class="mt-6 divide-y divide-gray-100 border-y border-gray-100">
+                <div class="flex items-center justify-between gap-3 py-3">
+                  <dt class="text-sm text-slate-500">Username</dt>
+                  <dd class="truncate text-sm font-medium text-slate-800">{data.user?.username || 'Not available'}</dd>
+                </div>
+                <div class="flex items-center justify-between gap-3 py-3">
+                  <dt class="text-sm text-slate-500">Account type</dt>
+                  <dd class="text-sm font-medium capitalize text-slate-800">{(data.user?.userType || 'staff').replace('_', ' ')}</dd>
+                </div>
+                <div class="flex items-center justify-between gap-3 py-3">
+                  <dt class="text-sm text-slate-500">Status</dt>
+                  <dd class="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Active</dd>
+                </div>
+              </dl>
+              <div class="mt-5 flex items-start gap-2 text-xs leading-5 text-slate-500">
+                <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-[#0D5C29]" />
+                <p>Your account is protected by the library’s authenticated staff session.</p>
+              </div>
+            </section>
+
+            <section class="p-5 sm:p-7 lg:p-8">
+              <div class="mb-6 flex items-start gap-3">
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#0D5C29]/10 text-[#0D5C29]"><LockKeyhole class="h-4 w-4" /></div>
                 <div>
-                  <label class="mb-1.5 block text-sm font-medium text-gray-700" for={field.name}>{field.label}</label>
-                  <div class="relative">
-                    <input id={field.name} name={field.name} type={field.shown ? 'text' : 'password'} value={field.value}
-                      oninput={(event) => field.set(event.currentTarget.value)} autocomplete={field.name === 'currentPassword' ? 'current-password' : 'new-password'} required class="{inp} pr-11" />
-                    <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-[#0D5C29]" aria-label={field.shown ? `Hide ${field.label.toLowerCase()}` : `Show ${field.label.toLowerCase()}`} onclick={field.toggle}>
-                      {#if field.shown}<EyeOff class="h-4 w-4" />{:else}<Eye class="h-4 w-4" />{/if}
+                  <h3 class="text-base font-semibold text-slate-900">Change password</h3>
+                  <p class="mt-1 text-sm text-slate-500">Confirm your current password before choosing a new one.</p>
+                </div>
+              </div>
+              <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); submitPasswordChange(); }}>
+                <div class="flex flex-col gap-3 rounded-md border border-gray-200 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <label for="passwordOtp" class="block text-sm font-medium text-gray-700">Email verification code</label>
+                    <p class="mt-0.5 text-xs text-slate-500">Send a one-time code to {passwordOtpEmail || data.user?.email || 'your registered email'}.</p>
+                  </div>
+                  <div class="flex shrink-0 items-center gap-2">
+                    {#if passwordOtpSent}
+                      <input id="passwordOtp" value={passwordOtp} oninput={handlePasswordOtpInput} inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6-digit code" class="{inp} w-32 text-center font-mono tracking-widest" required />
+                    {/if}
+                    <button type="button" onclick={sendPasswordChangeOtp} disabled={isSendingPasswordOtp || isSubmittingPassword} class="shrink-0 rounded-lg border border-[#0D5C29] px-3 py-2 text-sm font-semibold text-[#0D5C29] transition hover:bg-emerald-50 disabled:opacity-50">
+                      {isSendingPasswordOtp ? 'Sending…' : passwordOtpSent ? 'Resend code' : 'Send code'}
                     </button>
                   </div>
                 </div>
-              {/each}
-              <p class="text-xs leading-5 text-gray-500">Use at least 8 characters with uppercase, lowercase, a number, and a special character.</p>
-              {#if passwordMessage}
-                <div class="rounded-lg border px-3 py-2.5 text-sm {passwordMessageType === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}" role="status">{passwordMessage}</div>
-              {/if}
-              <button type="submit" disabled={isSubmittingPassword} class="flex items-center justify-center gap-2 rounded-lg bg-[#0D5C29] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#08401c] disabled:cursor-not-allowed disabled:opacity-60">
-                <LockKeyhole class="h-4 w-4" />
-                {isSubmittingPassword ? 'Updating password...' : 'Update password'}
-              </button>
-            </form>
+                <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {#each [
+                    { label: 'Current password', name: 'currentPassword', value: currentPassword, shown: showCurrentPassword, set: (value: string) => currentPassword = value, toggle: () => showCurrentPassword = !showCurrentPassword },
+                    { label: 'New password', name: 'newPassword', value: newPassword, shown: showNewPassword, set: (value: string) => newPassword = value, toggle: () => showNewPassword = !showNewPassword },
+                    { label: 'Confirm new password', name: 'confirmPassword', value: confirmPassword, shown: showConfirmPassword, set: (value: string) => confirmPassword = value, toggle: () => showConfirmPassword = !showConfirmPassword }
+                  ] as field}
+                    <div class={field.name === 'currentPassword' ? 'xl:col-span-2' : ''}>
+                      <label class="mb-1.5 block text-sm font-medium text-gray-700" for={field.name}>{field.label}</label>
+                      <div class="relative">
+                        <input id={field.name} name={field.name} type={field.shown ? 'text' : 'password'} value={field.value}
+                          oninput={(event) => field.set(event.currentTarget.value)} autocomplete={field.name === 'currentPassword' ? 'current-password' : 'new-password'} required class="{inp} pr-11" />
+                        <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-[#0D5C29]" aria-label={field.shown ? `Hide ${field.label.toLowerCase()}` : `Show ${field.label.toLowerCase()}`} onclick={field.toggle}>
+                          {#if field.shown}<EyeOff class="h-4 w-4" />{:else}<Eye class="h-4 w-4" />{/if}
+                        </button>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+                <p class="text-xs leading-5 text-gray-500">Use at least 8 characters with uppercase, lowercase, a number, and a special character.</p>
+                {#if passwordMessage}
+                  <div class="rounded-lg border px-3 py-2.5 text-sm {passwordMessageType === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}" role="status">{passwordMessage}</div>
+                {/if}
+                <div class="flex justify-end border-t border-gray-100 pt-4">
+                  <button type="submit" disabled={isSubmittingPassword} class="flex items-center justify-center gap-2 rounded-lg bg-[#0D5C29] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#08401c] disabled:cursor-not-allowed disabled:opacity-60">
+                    <LockKeyhole class="h-4 w-4" />
+                    {isSubmittingPassword ? 'Updating password...' : 'Update password'}
+                  </button>
+                </div>
+              </form>
+            </section>
           </div>
 
         <!-- GENERAL -->
         {:else if activeTab === 'general'}
-          <div class="p-5 sm:p-8 lg:p-10 animate-in">
-            <div class="mb-7">
-              <h3 class="text-base font-semibold text-slate-900">Library Information</h3>
-              <p class="text-xs text-slate-400 mt-1">Contact details and identifying codes stored in tbl_library_settings</p>
+          <div class="p-5 sm:p-7 lg:p-8 animate-in">
+            <div class="mb-6">
+              <h3 class="text-base font-semibold text-slate-900">General Configuration</h3>
+              <p class="mt-1 text-sm text-slate-500">Manage experimental inventory tools and visitor scanning behavior.</p>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-5xl">
-              <div class="space-y-1.5">
-                <label for="lName" class="block text-sm font-medium text-slate-700">Library Name</label>
-                <input id="lName" type="text" bind:value={settings.libraryName} class={inp}/>
-              </div>
-              <div class="space-y-1.5">
-                <label for="lCode" class="block text-sm font-medium text-slate-700">Library Code</label>
-                <input id="lCode" type="text" bind:value={settings.libraryCode} class={inp}/>
-              </div>
-              <div class="md:col-span-2 space-y-1.5">
-                <label for="lAddr" class="block text-sm font-medium text-slate-700">Address</label>
-                <textarea id="lAddr" bind:value={settings.address} rows="2" class="{inp} resize-none"></textarea>
-              </div>
-              <div class="space-y-1.5">
-                <label for="lPhone" class="block text-sm font-medium text-slate-700">Phone</label>
-                <input id="lPhone" type="tel" bind:value={settings.phone} class={inp}/>
-              </div>
-              <div class="space-y-1.5">
-                <label for="lEmail" class="block text-sm font-medium text-slate-700">Email</label>
-                <input id="lEmail" type="email" bind:value={settings.email} class={inp}/>
-              </div>
-              <div class="md:col-span-2 space-y-1.5">
-                <label for="lWeb" class="block text-sm font-medium text-slate-700">Website URL</label>
-                <input id="lWeb" type="url" bind:value={settings.website} class={inp}/>
-              </div>
-            </div>
-
-            <hr class="border-gray-100 max-w-5xl mt-8 mb-7"/>
-
-            <div class="max-w-5xl">
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <h3 class="text-base font-semibold text-slate-900">Visit Scan Method</h3>
-                  <p class="text-xs text-slate-400 mt-0.5">How the visit kiosk identifies visitors — tbl_library_settings.visitScanMethod</p>
+            <div class="grid max-w-5xl grid-cols-1 gap-6 xl:grid-cols-2">
+              <section class="xl:col-span-2">
+                <div class="mb-4">
+                  <h4 class="text-sm font-semibold text-slate-900">Library Profile</h4>
+                  <p class="mt-1 text-sm text-slate-500">Contact details used by client-facing library screens.</p>
                 </div>
-                <div class="flex items-center bg-gray-100 rounded-lg p-1 shrink-0">
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <div class="space-y-1.5">
+                    <label for="lName" class="block text-sm font-medium text-slate-700">Library Name</label>
+                    <input id="lName" type="text" bind:value={settings.libraryName} class={inp}/>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label for="lCode" class="block text-sm font-medium text-slate-700">Library Code</label>
+                    <input id="lCode" type="text" bind:value={settings.libraryCode} class={inp}/>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label for="lPhone" class="block text-sm font-medium text-slate-700">Phone</label>
+                    <input id="lPhone" type="tel" bind:value={settings.phone} class={inp}/>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label for="lEmail" class="block text-sm font-medium text-slate-700">Email</label>
+                    <input id="lEmail" type="email" bind:value={settings.email} class={inp}/>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label for="lWeb" class="block text-sm font-medium text-slate-700">Website</label>
+                    <input id="lWeb" type="url" bind:value={settings.website} class={inp}/>
+                  </div>
+                  <div class="space-y-1.5 md:col-span-2 xl:col-span-1">
+                    <label for="lAddr" class="block text-sm font-medium text-slate-700">Address</label>
+                    <textarea id="lAddr" bind:value={settings.address} rows="2" class="{inp} resize-none"></textarea>
+                  </div>
+                </div>
+                <hr class="mt-6 border-gray-100" />
+              </section>
+
+              {#if isAdmin}
+                <section class="rounded-lg border border-amber-200 bg-amber-50 p-5">
+                  <div class="flex items-start justify-between gap-4">
+                    <div>
+                      <h4 class="text-sm font-semibold text-slate-900">Experimental Bulk Add</h4>
+                      <p class="mt-1 text-sm leading-5 text-slate-600">Enables bulk entry for books, journals, magazines, and research. Staff access also requires Manage Books permission.</p>
+                      <span class="mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold {settings.bulkAddEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}">
+                        {settings.bulkAddEnabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </div>
+                    {@render toggle(settings.bulkAddEnabled, value => { settings.bulkAddEnabled = value; })}
+                  </div>
+                </section>
+              {/if}
+
+              <section class="{isAdmin ? 'xl:border-l xl:border-gray-100 xl:pl-6' : ''}">
+                <div class="mb-4">
+                  <h4 class="text-sm font-semibold text-slate-900">Visit Scan Method</h4>
+                  <p class="mt-1 text-sm leading-5 text-slate-500">Choose which code types the visitor kiosk accepts.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onclick={() => settings.visitScanMethod = 'qrcode'}
-                    class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all
+                    class="flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all border
                       {settings.visitScanMethod === 'qrcode'
-                        ? 'bg-white text-[#0D5C29] shadow-sm ring-1 ring-gray-200'
-                        : 'text-slate-500 hover:text-slate-700'}">
+                        ? 'bg-[#0D5C29] border-[#0D5C29] text-white'
+                        : 'bg-white border-gray-200 text-slate-600 hover:border-gray-300'}">
                     <QrCode class="w-4 h-4" />
                     QR Code
                   </button>
                   <button
                     type="button"
                     onclick={() => settings.visitScanMethod = 'barcode'}
-                    class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all
+                    class="flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all border
                       {settings.visitScanMethod === 'barcode'
-                        ? 'bg-white text-[#0D5C29] shadow-sm ring-1 ring-gray-200'
-                        : 'text-slate-500 hover:text-slate-700'}">
+                        ? 'bg-[#0D5C29] border-[#0D5C29] text-white'
+                        : 'bg-white border-gray-200 text-slate-600 hover:border-gray-300'}">
                     <Barcode class="w-4 h-4" />
                     Barcode
                   </button>
                 </div>
-              </div>
-              <p class="text-xs text-slate-500 mt-4 flex items-start gap-2 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-4 py-3">
-                <svg class="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                {#if settings.visitScanMethod === 'qrcode'}
-                  The visit kiosk camera will read <span class="font-medium text-slate-700">QR codes</span> printed on student and faculty ID cards or on generated visit passes.
-                {:else}
-                  The visit kiosk scanner will read <span class="font-medium text-slate-700">1D barcodes</span> (Code 128 / EAN-13) on physical ID cards.
-                {/if}
-              </p>
+                <p class="mt-4 flex items-start gap-2 border-t border-gray-100 pt-4 text-xs leading-5 text-slate-500">
+                  <span class="font-semibold text-slate-700">Active:</span>
+                  {#if settings.visitScanMethod === 'qrcode'}
+                    The visitor kiosk accepts QR codes.
+                  {:else}
+                    The visitor kiosk accepts 1D barcodes.
+                  {/if}
+                </p>
             </div>
           </div>
 
         <!-- BORROWING -->
         {:else if activeTab === 'borrowing'}
-          <div class="p-5 sm:p-8 lg:p-10 animate-in">
-            <div class="mb-7">
+          <div class="p-4 sm:p-6 lg:p-7 animate-in">
+            <div class="mb-5">
               <h3 class="text-base font-semibold text-slate-900">Borrowing Policies</h3>
-              <p class="text-xs text-slate-400 mt-1">Controls loan periods, copy limits, and reservation windows (tbl_*_borrowing, tbl_*_reservation)</p>
+              <p class="text-sm text-slate-500 mt-1">Set loan durations, item limits, and reservation timing.</p>
             </div>
-            <div class="space-y-8 max-w-5xl">
+            <div class="max-w-5xl space-y-5">
 
               <div>
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Loan Periods</h4>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div class="space-y-1.5">
                     <label for="lpS" class="block text-sm font-medium text-slate-700">Student Loan Period (days)</label>
                     <input id="lpS" type="number" min="1" bind:value={settings.defaultLoanPeriodStudent} class={inp}/>
@@ -595,7 +714,7 @@
 
               <div>
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Borrow Limits per User</h4>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {#each borrowLimits as item}
                     <div class="space-y-1.5">
                       <label for="borrow-limit-{item.key}" class="block text-sm font-medium text-slate-700">{item.label}</label>
@@ -608,11 +727,8 @@
               <hr class="border-gray-100"/>
 
               <div>
-                <div class="flex items-baseline gap-2 mb-4">
-                  <h4 class="text-sm font-semibold text-slate-700">Reservations</h4>
-                  <span class="text-xs text-slate-400">tbl_*_reservation — expiryDate and approval flow</span>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <h4 class="text-sm font-semibold text-slate-700 mb-4">Reservations</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div class="space-y-1.5">
                     <label for="resExp" class="block text-sm font-medium text-slate-700">Reservation Expiry (days)</label>
                     <input id="resExp" type="number" min="1" bind:value={settings.reservationExpiryDays} class={inp}/>
@@ -631,19 +747,16 @@
 
         <!-- FINES & RETURNS -->
         {:else if activeTab === 'fines'}
-          <div class="p-5 sm:p-8 lg:p-10 animate-in">
-            <div class="mb-7">
+          <div class="p-4 sm:p-6 lg:p-7 animate-in">
+            <div class="mb-5">
               <h3 class="text-base font-semibold text-slate-900">Fines & Return Policies</h3>
-              <p class="text-xs text-slate-400 mt-1">Configure overdue fine rates, damage/loss penalties, and return request rules (tbl_fine, tbl_*_return_request)</p>
+              <p class="text-sm text-slate-500 mt-1">Configure overdue charges, item penalties, and member return requests.</p>
             </div>
-            <div class="space-y-8 max-w-5xl">
+            <div class="max-w-5xl space-y-5">
 
               <div>
-                <div class="flex items-baseline gap-2 mb-4">
-                  <h4 class="text-sm font-semibold text-slate-700">Overdue Fines</h4>
-                  <span class="text-xs text-slate-400">tbl_fine — fineAmount = daysOverdue × rate</span>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <h4 class="text-sm font-semibold text-slate-700 mb-4">Overdue Fines</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                   <div class="space-y-1.5">
                     <label for="fDay" class="block text-sm font-medium text-slate-700">Fine Rate per Day (₱)</label>
                     <input id="fDay" type="number" min="0" step="0.50" bind:value={settings.overdueFinePerDay} class={inp}/>
@@ -674,11 +787,8 @@
               <hr class="border-gray-100"/>
 
               <div>
-                <div class="flex items-baseline gap-2 mb-4">
-                  <h4 class="text-sm font-semibold text-slate-700">Damage & Loss Penalties</h4>
-                  <span class="text-xs text-slate-400">tbl_*_return_request condition: damaged | lost</span>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <h4 class="text-sm font-semibold text-slate-700 mb-4">Damage & Loss Penalties</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div class="space-y-1.5">
                     <label for="dmg" class="block text-sm font-medium text-slate-700">Damage Fine (% of item value)</label>
                     <input id="dmg" type="number" min="0" max="100" bind:value={settings.damageFinePct} class={inp}/>
@@ -693,10 +803,7 @@
               <hr class="border-gray-100"/>
 
               <div>
-                <div class="flex items-baseline gap-2 mb-4">
-                  <h4 class="text-sm font-semibold text-slate-700">Return Requests</h4>
-                  <span class="text-xs text-slate-400">tbl_*_return_request</span>
-                </div>
+                <h4 class="text-sm font-semibold text-slate-700 mb-4">Return Requests</h4>
                 <div class="space-y-4 max-w-sm">
                   <div class="space-y-1.5">
                     <label for="retWin" class="block text-sm font-medium text-slate-700">Return Request Window (days post-due)</label>
@@ -715,14 +822,14 @@
 
         <!-- FINE EXEMPTIONS -->
         {:else if activeTab === 'finecalc'}
-          <div class="p-5 sm:p-8 lg:p-10 animate-in">
-            <div class="mb-7">
+          <div class="p-4 sm:p-6 lg:p-7 animate-in">
+            <div class="mb-5">
               <h3 class="text-base font-semibold text-slate-900">Fine Calculation Exemptions</h3>
-              <p class="text-xs text-slate-400 mt-1">Days excluded when computing daysOverdue in tbl_fine</p>
+              <p class="text-sm text-slate-500 mt-1">Choose recurring closures and one-time dates excluded from overdue calculations.</p>
             </div>
-            <div class="max-w-5xl space-y-7">
+            <div class="max-w-5xl space-y-5">
 
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label class="flex items-center gap-3 cursor-pointer">
                   <input type="checkbox" bind:checked={settings.fineCalculation.excludeSundays} class="h-4 w-4 rounded border-gray-300"/>
                   <span class="text-sm text-slate-700">Exclude Sundays</span>
@@ -745,6 +852,8 @@
                   {/each}
                 </div>
               </div>
+
+              <hr class="border-gray-100"/>
 
               <div class="space-y-3">
                 <p class="text-sm font-medium text-slate-700">Holidays & One-time Closures</p>
@@ -795,17 +904,18 @@
 
         <!-- NOTIFICATIONS -->
         {:else if activeTab === 'notifications'}
-          <div class="p-5 sm:p-8 lg:p-10 animate-in">
-            <div class="mb-7">
-              <h3 class="text-base font-semibold text-slate-900">Notifications</h3>
-              <p class="text-xs text-slate-400 mt-1">Controls tbl_notification type values and delivery channels</p>
+          <div class="p-4 sm:p-6 lg:p-7 animate-in">
+            <div class="mb-5">
+              <div>
+                <h3 class="text-base font-semibold text-slate-900">Notifications</h3>
+                <p class="text-sm text-slate-500 mt-1">Choose which library events send notifications and where they are delivered.</p>
+              </div>
             </div>
-            <div class="max-w-2xl space-y-7">
+            <div class="max-w-4xl space-y-5">
 
               <div>
                 <div class="flex items-baseline gap-2 mb-4">
                   <h4 class="text-sm font-semibold text-slate-700">Notification Types</h4>
-                  <span class="text-xs text-slate-400">Which tbl_notification.type events are sent</span>
                 </div>
                 <div class="space-y-3">
                   {#each notifRows as n}
@@ -815,7 +925,7 @@
                     )}
                   {/each}
                 </div>
-                <div class="mt-5 space-y-1.5 max-w-xs">
+                <div class="mt-5 max-w-sm space-y-1.5 rounded-lg border border-gray-200 bg-gray-50 p-4">
                   <label for="remDays" class="block text-sm font-medium text-slate-700">Due Reminder — Days Before</label>
                   <input id="remDays" type="number" min="1" max="14" bind:value={settings.notifDueReminderDaysBefore} class={inp}/>
                   <p class="text-xs text-slate-400">How many days before dueDate the reminder fires</p>
@@ -850,37 +960,37 @@
 
         <!-- DEFAULT PERMISSIONS -->
         {:else if activeTab === 'permissions'}
-          <div class="p-5 sm:p-8 lg:p-10 animate-in">
-            <div class="mb-7">
+          <div class="p-4 sm:p-6 lg:p-7 animate-in">
+            <div class="mb-5">
               <h3 class="text-base font-semibold text-slate-900">Default Staff Permissions</h3>
-              <p class="text-xs text-slate-400 mt-1">Applied when a new staff account is created (tbl_staff_permission). Individual records can be overridden per-staff.</p>
+              <p class="text-sm text-slate-500 mt-1">Applied to new staff accounts. Existing staff permissions remain individually configurable.</p>
             </div>
-            <div class="max-w-2xl space-y-3">
+            <div class="max-w-4xl space-y-2.5">
               {#each permRows as p}
-                <div class="flex items-center justify-between px-4 py-3.5 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
+                <div class="flex items-center justify-between gap-4 rounded-md border border-gray-200 px-3.5 py-2.5 transition-colors hover:border-gray-300">
                   <div>
                     <div class="text-sm font-medium text-slate-800">{p.label}</div>
-                    <div class="text-xs text-slate-400 mt-0.5">{p.desc}</div>
+                    <div class="mt-0.5 text-xs text-slate-400">{p.desc}</div>
                   </div>
                   {@render toggle(defaultStaffPermissions[p.key], v => { defaultStaffPermissions[p.key] = v; })}
                 </div>
               {/each}
-              <p class="text-xs text-slate-400 pt-1">Note: Admin accounts (tbl_admin) have all permissions and are not affected by these settings.</p>
+              <p class="pt-1 text-xs text-slate-500">Admin and super admin accounts retain full access and are not affected by staff permission defaults.</p>
             </div>
           </div>
 
         <!-- SECURITY -->
         {:else if activeTab === 'security'}
-          <div class="p-5 sm:p-8 lg:p-10 animate-in">
-            <div class="mb-7">
+          <div class="p-4 sm:p-6 lg:p-7 animate-in">
+            <div class="mb-5">
               <h3 class="text-base font-semibold text-slate-900">Security Settings</h3>
-              <p class="text-xs text-slate-400 mt-1">Session management (tbl_user_session, tbl_staff_session) and access control</p>
+              <p class="text-sm text-slate-500 mt-1">Configure session lifetime and account access protections.</p>
             </div>
-            <div class="max-w-5xl space-y-8">
+            <div class="max-w-5xl space-y-5">
 
               <div>
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Session & Authentication</h4>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div class="space-y-1.5">
                     <label for="sessTo" class="block text-sm font-medium text-slate-700">Session Timeout (minutes)</label>
                     <input id="sessTo" type="number" min="5" bind:value={settings.sessionTimeoutMinutes} class={inp}/>
@@ -910,7 +1020,7 @@
 
               <div>
                 <h4 class="text-sm font-semibold text-slate-700 mb-4">Access Controls</h4>
-                <div class="max-w-2xl">
+                <div>
                   {@render toggleRow(
                     'Two-Factor Authentication',
                     'Require 2FA for tbl_admin and tbl_super_admin logins',

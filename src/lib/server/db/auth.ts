@@ -2,7 +2,7 @@
 import jwt from 'jsonwebtoken';
 import { randomBytes, createHash } from 'crypto';
 import { db } from '$lib/server/db/index.js';
-import { tbl_super_admin, tbl_admin, tbl_staff, tbl_staff_permission, tbl_user, tbl_staff_session } from '$lib/server/db/schema/schema.js';
+import { tbl_super_admin, tbl_admin, tbl_staff, tbl_staff_permission, tbl_user, tbl_staff_session, tbl_security_log } from '$lib/server/db/schema/schema.js';
 import { eq, and, gte, lte, ne } from 'drizzle-orm';
 import { redisClient, isRedisConfigured } from '$lib/server/db/cache.js';
 
@@ -70,6 +70,7 @@ export interface UserSession {
 export interface SecurityEvent {
     type: 'login' | 'logout' | 'logout_error' | 'token_refresh' | 'unauthorized_access' | 'suspicious_activity';
     userId: string | number;
+    userType?: string;
     sessionId?: string;
     ip: string;
     userAgent: string;
@@ -133,6 +134,7 @@ async function getActiveDbSession(sessionId: string) {
     const [row] = await db
         .select({
             sessionId: tbl_staff_session.sessionId,
+            actorType: tbl_staff_session.actorType,
             actorId: tbl_staff_session.actorId,
             tokenHash: tbl_staff_session.tokenHash,
             refreshTokenHash: tbl_staff_session.refreshTokenHash,
@@ -188,7 +190,7 @@ export async function verifyToken(token: string, tokenType: 'access' | 'refresh'
                 return null;
             }
 
-            if (!sessionRow) return null; // missing, inactive, or expired
+            if (!sessionRow || sessionRow.actorType !== decoded.userType) return null; // missing, mismatched, inactive, or expired
 
             // Validate the token hash so a stolen-then-rotated token can't be reused
             const providedHash = hashToken(token);
@@ -576,11 +578,14 @@ export async function getUserSessions(userId: number): Promise<UserSession[]> {
 
 // ─── revokeAllUserSessions ────────────────────────────────────────────────────
 
-export async function revokeAllUserSessions(userId: number): Promise<void> {
+export async function revokeAllUserSessions(userId: number, userType?: string): Promise<void> {
     try {
+        const sessionFilter = userType
+            ? and(eq(tbl_staff_session.actorId, userId), eq(tbl_staff_session.actorType, userType))
+            : eq(tbl_staff_session.actorId, userId);
         await db.update(tbl_staff_session)
             .set({ isActive: false })
-            .where(eq(tbl_staff_session.actorId, userId));
+            .where(sessionFilter);
 
         if (isRedisConfigured()) {
             try {
@@ -620,6 +625,21 @@ export async function logSecurityEvent(event: SecurityEvent): Promise<void> {
         timestamp: event.timestamp,
         reason: event.reason,
     });
+
+    if (Number.isInteger(Number(event.userId)) && event.userType) {
+        try {
+            await db.insert(tbl_security_log).values({
+                userId: Number(event.userId),
+                userType: event.userType,
+                eventType: event.type,
+                ipAddress: event.ip,
+                userAgent: event.userAgent,
+                timestamp: event.timestamp
+            });
+        } catch (error) {
+            console.warn('[auth] Failed to persist security event:', error);
+        }
+    }
 
     if (!isRedisConfigured()) return;
 
@@ -710,9 +730,10 @@ export function hasPermission(user: AuthUser, permission: string): boolean {
 
 export async function requireAuth(
     request: Request,
-    requiredRole?: 'admin' | 'staff'
+    requiredRole?: 'admin' | 'staff',
+    cookieToken?: string | null
 ): Promise<{ user: AuthUser } | { error: Response }> {
-    const token = extractToken(request);
+    const token = cookieToken || extractToken(request);
     if (!token) {
         return { error: new Response(JSON.stringify({ success: false, message: 'Authentication required' }), { status: 401, headers: { 'Content-Type': 'application/json' } }) };
     }
@@ -729,6 +750,26 @@ export async function requireAuth(
     return { user };
 }
 
+export async function requirePermission(
+    request: Request,
+    permission: string,
+    cookieToken?: string | null
+): Promise<{ user: AuthUser } | { error: Response }> {
+    const authenticated = await requireAuth(request, 'staff', cookieToken);
+    if ('error' in authenticated) return authenticated;
+
+    if (!hasPermission(authenticated.user, permission)) {
+        return {
+            error: new Response(JSON.stringify({ success: false, message: 'Insufficient permissions' }), {
+                status: 403,
+                headers: { 'Content-Type': 'application/json' }
+            })
+        };
+    }
+
+    return authenticated;
+}
+
 // ─── Internal: fetch helpers ──────────────────────────────────────────────────
 
 /**
@@ -736,22 +777,43 @@ export async function requireAuth(
  * Returns { user, userType } or { user: null, userType: '' }.
  */
 async function fetchUser(userId: number, hintUserType?: string): Promise<{ user: any; userType: string }> {
-    // Check super_admin
+    if (hintUserType === 'super_admin') {
+        const [user] = await db.select({ id: tbl_super_admin.id, name: tbl_super_admin.name, username: tbl_super_admin.username, email: tbl_super_admin.email, isActive: tbl_super_admin.isActive, uniqueId: tbl_super_admin.uniqueId })
+            .from(tbl_super_admin).where(eq(tbl_super_admin.id, userId)).limit(1);
+        return user ? { user, userType: 'super_admin' } : { user: null, userType: '' };
+    }
+
+    if (hintUserType === 'admin') {
+        const [user] = await db.select({ id: tbl_admin.id, name: tbl_admin.name, username: tbl_admin.username, email: tbl_admin.email, isActive: tbl_admin.isActive, uniqueId: tbl_admin.uniqueId })
+            .from(tbl_admin).where(eq(tbl_admin.id, userId)).limit(1);
+        return user ? { user, userType: 'admin' } : { user: null, userType: '' };
+    }
+
+    if (hintUserType === 'staff') {
+        const [user] = await db.select({ id: tbl_staff.id, name: tbl_staff.name, username: tbl_staff.username, email: tbl_staff.email, isActive: tbl_staff.isActive, uniqueId: tbl_staff.uniqueId })
+            .from(tbl_staff).where(eq(tbl_staff.id, userId)).limit(1);
+        return user ? { user, userType: 'staff' } : { user: null, userType: '' };
+    }
+
+    if (hintUserType === 'user') {
+        const [user] = await db.select({ id: tbl_user.id, name: tbl_user.name, username: tbl_user.username, email: tbl_user.email, isActive: tbl_user.isActive, uniqueId: tbl_user.uniqueId, userType: tbl_user.userType })
+            .from(tbl_user).where(eq(tbl_user.id, userId)).limit(1);
+        return user ? { user, userType: 'user' } : { user: null, userType: '' };
+    }
+
+    // Legacy tokens without a type retain the old lookup order.
     const [superAdmin] = await db.select({ id: tbl_super_admin.id, name: tbl_super_admin.name, username: tbl_super_admin.username, email: tbl_super_admin.email, isActive: tbl_super_admin.isActive, uniqueId: tbl_super_admin.uniqueId })
         .from(tbl_super_admin).where(eq(tbl_super_admin.id, userId)).limit(1);
     if (superAdmin) return { user: superAdmin, userType: 'super_admin' };
 
-    // Check admin
     const [admin] = await db.select({ id: tbl_admin.id, name: tbl_admin.name, username: tbl_admin.username, email: tbl_admin.email, isActive: tbl_admin.isActive, uniqueId: tbl_admin.uniqueId })
         .from(tbl_admin).where(eq(tbl_admin.id, userId)).limit(1);
     if (admin) return { user: admin, userType: 'admin' };
 
-    // Check staff
     const [staff] = await db.select({ id: tbl_staff.id, name: tbl_staff.name, username: tbl_staff.username, email: tbl_staff.email, isActive: tbl_staff.isActive, uniqueId: tbl_staff.uniqueId })
         .from(tbl_staff).where(eq(tbl_staff.id, userId)).limit(1);
     if (staff) return { user: staff, userType: 'staff' };
 
-    // Check regular user
     const [regularUser] = await db.select({ id: tbl_user.id, name: tbl_user.name, username: tbl_user.username, email: tbl_user.email, isActive: tbl_user.isActive, uniqueId: tbl_user.uniqueId, userType: tbl_user.userType })
         .from(tbl_user).where(eq(tbl_user.id, userId)).limit(1);
     if (regularUser) return { user: regularUser, userType: regularUser.userType || 'user' };

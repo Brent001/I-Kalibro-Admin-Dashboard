@@ -4,9 +4,12 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { fetchAuthSession } from '$lib/utils/authSessionClient.js';
+  import { toast } from '$lib/stores/toastStore.js';
   import AddBooks from "$lib/components/ui/inventory/books/add_books.svelte";
   import AddCategory from "$lib/components/ui/inventory/books/add_category.svelte";
   import ViewBook from "$lib/components/ui/inventory/books/view_book.svelte";
+
+  export let data: { bulkAddEnabled?: boolean } = {};
 
   let searchTerm = "";
   let committedSearchTerm = ""; // For active filters display - only set on Enter
@@ -423,6 +426,7 @@
       const data = await response.json();
       
       if (response.ok && data.success) {
+        toast.success('Book deleted.');
         // Refresh data with current pagination and filters
         await Promise.all([
           fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
@@ -434,23 +438,26 @@
     } catch (err) {
       console.error('Error deleting book:', err);
       error = err instanceof Error ? err.message : 'An error occurred while deleting the book';
+      toast.error(error);
     }
   }
 
   // Event handlers for the modal
   async function handleAddBookSuccess(event: CustomEvent) {
     console.log('Book added successfully:', event.detail);
+    toast.success('Book added successfully.');
     // Close modal, go to first page and refresh list and stats
     showAddModal = false;
     pagination.currentPage = 1;
     await fetchBooks(1, committedSearchTerm, selectedCategory, selectedLanguage);
     await fetchStats();
-    goto(`/dashboard/inventorybooks?page=1`, { replaceState: true });
+    goto(`/dashboard/inventory/books?page=1`, { replaceState: true });
   }
 
   function handleAddBookError(event: CustomEvent) {
     console.error('Error adding book:', event.detail);
     error = event.detail.message;
+    toast.error(error || 'Could not add the book.');
   }
 
   function handleModalClose() {
@@ -471,26 +478,30 @@
     categoryLoading = true;
     categoryError = "";
     try {
-      const response = await fetch('/api/books/categories', {
+      const response = await fetch('/api/inventory/books/categories', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newCategoryName.trim(),
-          description: newCategoryDescription.trim()
+          description: newCategoryDescription.trim(),
+          itemType: 'book'
         })
       });
       const data = await response.json();
       if (response.ok && data.success) {
+        toast.success('Book category added.');
         showAddCategoryModal = false;
         newCategoryName = "";
         newCategoryDescription = "";
         await fetchCategories();
       } else {
         categoryError = data.message || "Failed to add category.";
+        toast.error(categoryError);
       }
     } catch (err) {
       categoryError = "Network error. Please try again.";
+      toast.error(categoryError);
     } finally {
       categoryLoading = false;
     }
@@ -573,7 +584,7 @@
     (async () => {
       const updatedData = event.detail;
       try {
-        const response = await fetch('/api/books', {
+        const response = await fetch('/api/inventory/books', {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -581,6 +592,7 @@
         });
         const data = await response.json();
         if (response.ok && data.success) {
+          toast.success('Book updated successfully.');
           closeBookModal();
           await Promise.all([
             fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
@@ -592,6 +604,7 @@
       } catch (err) {
         console.error('Error updating book:', err);
         error = err instanceof Error ? err.message : 'An error occurred while updating the book';
+        toast.error(error);
       }
     })();
   }
@@ -669,16 +682,18 @@
           </svg>
           Add Category
         </button>
+        {#if data.bulkAddEnabled}
         <button
-          on:click={() => goto('/dashboard/inventory/books/quick_add')}
+          on:click={() => goto('/dashboard/inventory/books/bulk_add')}
           class="inline-flex items-center justify-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-lg text-slate-900 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
-          title="Quick Add Books"
+          title="Bulk Add Books"
         >
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
           </svg>
-          Quick Add
+          Bulk Add
         </button>
+        {/if}
       </div>
     </div>
 
@@ -1333,7 +1348,6 @@
       isOpen={showAddModal}
       on:close={handleModalClose}
       on:success={handleAddBookSuccess}
-      on:bookAdded={handleAddBookSuccess}
       on:error={handleAddBookError}
     />
 

@@ -1,18 +1,25 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { createRequire } from 'node:module';
 import type { pushSchema as PushSchema } from 'drizzle-kit/api';
-import { Pool } from 'pg';
+import { Pool, type PoolConfig } from 'pg';
 import * as schema from './schema/schema.js';
 import { env } from '$env/dynamic/private';
 
 if (!env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
 
-const pool = new Pool({
+const poolConfig: PoolConfig & { maxLifetimeSeconds: number } = {
   connectionString: env.DATABASE_URL,
-  // Pool tuning: increased max connections for dashboard queries, avoid long waits when DB is unreachable
-  max: parseInt(env.DB_POOL_MAX || '20', 10), // Increased from 10 to 20
-  idleTimeoutMillis: parseInt(env.DB_IDLE_TIMEOUT_MS || '30000', 10),
+  // Retire idle and long-lived clients before serverless database connections go stale.
+  max: parseInt(env.DB_POOL_MAX || '10', 10),
+  idleTimeoutMillis: parseInt(env.DB_IDLE_TIMEOUT_MS || '10000', 10),
+  maxLifetimeSeconds: parseInt(env.DB_CONN_MAX_LIFETIME_SECONDS || '300', 10),
   connectionTimeoutMillis: parseInt(env.DB_CONN_TIMEOUT_MS || '10000', 10), // Increased timeout from 5s to 10s
+};
+
+const pool = new Pool(poolConfig);
+
+pool.on('error', (error: Error) => {
+  console.error('Unexpected error on idle PostgreSQL client:', error.message);
 });
 
 export const db = drizzle(pool, { schema });

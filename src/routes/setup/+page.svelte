@@ -2,7 +2,7 @@
     import { enhance } from '$app/forms';
     import { goto } from '$app/navigation';
     import { onMount } from 'svelte';
-    import { setupToast } from '$lib/stores/setupToastStore.js';
+    import { toast } from '$lib/stores/toastStore.js';
     
     type SetupForm = {
         name?: string;
@@ -110,7 +110,7 @@
             isSubmitting = false;
             
             if (result.type === 'redirect') {
-              setupToast.show('Administrator account created successfully. You can now log in.');
+              toast.success('Administrator account created successfully. You can now log in.');
               await goto(result.location);
             } else {
               await update();

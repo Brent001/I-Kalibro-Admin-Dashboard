@@ -2,6 +2,7 @@
   import { onMount, onDestroy, tick } from "svelte";
   import { afterNavigate } from '$app/navigation';
   import type { PageData } from './$types.js';
+  import { toast } from '$lib/stores/toastStore.js';
   
   export let data: PageData;
   
@@ -345,6 +346,7 @@
       );
       if (recentScan) {
         errorMsg = "This QR code was already scanned recently for this action.";
+        toast.warning(errorMsg);
         isProcessing = false; processingQrCode = null;
         setTimeout(() => { errorMsg = ""; isProcessing = false; processingQrCode = null; }, 10000);
         return;
@@ -356,6 +358,7 @@
       const validateData = await validateRes.json();
       if (!validateRes.ok || !validateData.success) {
         errorMsg = validateData.error || validateData.message || "Invalid QR code";
+        toast.error(errorMsg);
         isProcessing = false; processingQrCode = null;
         setTimeout(() => { errorMsg = ""; isProcessing = false; processingQrCode = null; }, 10000);
         return;
@@ -383,12 +386,14 @@
       const saveData = await saveRes.json();
       if (!saveRes.ok || !saveData.success) {
         errorMsg = saveData.error || saveData.message || `Failed to save ${selectedAction}`;
+        toast.error(errorMsg);
         isProcessing = false; processingQrCode = null;
         setTimeout(() => { errorMsg = ""; isProcessing = false; processingQrCode = null; }, 10000);
         return;
       }
       scanResult = content;
       scanHistory = [{ text: content, timestamp: now, action: selectedAction! }, ...scanHistory];
+      toast.success(`QR ${selectedAction === 'time_in' ? 'check-in' : 'check-out'} recorded.`);
       // Refresh recent visits after a successful scan
       setTimeout(async () => {
         scanResult = null; isProcessing = false; processingQrCode = null;
@@ -398,6 +403,7 @@
     } catch (error) {
       console.error('Error in processQRCode:', error);
       errorMsg = "An error occurred while processing the QR code";
+      toast.error(errorMsg);
       isProcessing = false; processingQrCode = null;
     }
   }

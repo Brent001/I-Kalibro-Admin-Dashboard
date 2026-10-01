@@ -34,6 +34,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         const refreshToken = cookies.get('refresh_token');
 
         let userId: string | null = null;
+        let userType: string | null = null;
         let sessionId: string | null = null;
 
         // Extract user info from token if available (don't verify for speed)
@@ -42,7 +43,8 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
                 const decoded = jwt.decode(token) as any; // Use decode instead of verify for speed
                 userId = decoded?.userId?.toString() || decoded?.sub;
-                sessionId = decoded?.sessionId || decoded?.jti;
+                userType = decoded?.userType || null;
+                sessionId = decoded?.sessionId || null;
             } catch (error) {
                 console.warn('Token decode failed during logout:', error);
             }
@@ -81,7 +83,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
             // Handle logout from all devices - THIS IS CRITICAL
             if (logoutAllDevices && userId) {
                 criticalOps.push(
-                    revokeAllUserSessions(parseInt(userId))
+                    revokeAllUserSessions(parseInt(userId), userType || undefined)
                 );
             }
 
@@ -119,6 +121,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 await logSecurityEvent({
                     type: 'logout',
                     userId: userId || 'anonymous',
+                    userType: userType || undefined,
                     sessionId: sessionId || 'unknown',
                     ip: clientIP,
                     userAgent,

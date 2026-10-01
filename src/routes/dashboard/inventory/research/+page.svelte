@@ -6,6 +6,9 @@
   import AddResearch from "$lib/components/ui/inventory/research/add_research.svelte";
   import AddCategory from "$lib/components/ui/inventory/research/add_category.svelte";
   import ViewResearch from "$lib/components/ui/inventory/research/view_research.svelte";
+  import { toast } from '$lib/stores/toastStore.js';
+
+  export let data: { bulkAddEnabled?: boolean } = {};
 
   let searchTerm = "";
   let committedSearchTerm = "";
@@ -34,9 +37,14 @@
 
   interface ApiBook {
     id: number;
+    thesisId: string;
     bookId: string;
     title: string;
     author: string;
+    advisor?: string | null;
+    department?: string | null;
+    publicationYear: number;
+    abstract?: string | null;
     isbn?: string;
     publishedYear: number;
     copiesAvailable?: number;
@@ -72,7 +80,7 @@
   interface ApiResponse {
     success: boolean;
     data: {
-      journals: ApiBook[];
+      research: ApiBook[];
       pagination: {
         currentPage: number;
         totalPages: number;
@@ -96,7 +104,7 @@
   };
 
   $: if (browser && initialPage) {
-    fetchBooks(initialPage, initialSearch, initialCategory, initialLanguage);
+    fetchBooks(initialPage, initialSearch, initialCategory);
   }
 
   let categories: { id: number, name: string }[] = [];
@@ -116,23 +124,38 @@
     availability: 0
   };
 
-  // NOTE: This page is Research, not Journals. Intentionally NOT calling
-  // /api/inventory/journals* here — the list stays empty until a dedicated
-  // research API endpoint exists.
   async function fetchBooks(page = 1, search = "", category = "", language = "") {
     if (!browser) return;
     loading = true;
     error = "";
-    books = [];
-    pagination = {
-      currentPage: 1,
-      totalPages: 1,
-      totalCount: 0,
-      limit: 10,
-      hasNextPage: false,
-      hasPrevPage: false
-    };
-    loading = false;
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: String(pagination.limit) });
+      if (search) params.set('q', search);
+      if (category && category !== 'all') params.set('category', category);
+      const response = await fetch(`/api/inventory/research?${params}`, { credentials: 'include' });
+      const result: ApiResponse = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not load research records.');
+      books = result.data.research.map((record) => ({
+        id: record.id,
+        bookId: record.thesisId,
+        title: record.title,
+        author: record.author,
+        isbn: record.thesisId,
+        publishedYear: record.publicationYear,
+        totalCopies: record.totalCopies,
+        copiesAvailable: record.availableCopies,
+        availableCopies: record.availableCopies,
+        categoryId: record.categoryId,
+        category: record.category || '',
+        description: record.abstract || ''
+      }));
+      pagination = result.data.pagination;
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not load research records.';
+      books = [];
+    } finally {
+      loading = false;
+    }
   }
 
   function debouncedSearch(immediate = false) {
@@ -147,17 +170,15 @@
     params.set('page', '1');
     if (committedSearchTerm) params.set('q', committedSearchTerm);
     if (selectedCategory && selectedCategory !== 'all') params.set('category', selectedCategory);
-    if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
 
     const queryString = params.toString();
-    await goto(`/dashboard/inventory/journals${queryString ? '?' + queryString : ''}`);
+    await goto(`/dashboard/inventory/research${queryString ? '?' + queryString : ''}`);
   }
 
   onMount(() => {
     (async () => {
       await Promise.all([
         fetchCategories(),
-        fetchLanguages(),
         fetchStats()
       ]);
     })();
@@ -181,7 +202,7 @@
       if (typeof window === 'undefined') return;
       if (es) { es.close(); es = null; }
       try {
-        es = new EventSource('/api/inventory/journals/updates');
+        es = new EventSource('/api/inventory/research/updates');
         es.onopen = () => { 
           retryMs = 1000;
           console.debug('SSE connected');
@@ -194,16 +215,18 @@
             console.debug('SSE message handled:', e);
           }
         };
-        es.addEventListener('journal-created', async (ev: MessageEvent) => {
+        const refreshResearch = async () => {
           try {
             await fetchStats();
-            if (pagination.currentPage === 1) {
-              await fetchBooks(1, committedSearchTerm, selectedCategory, selectedLanguage);
-            }
+            await fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage);
           } catch (e) {
-            console.debug('Journal created event handled:', e);
+            console.debug('Research event handled:', e);
           }
-        });
+        };
+        for (const eventName of ['research-created', 'research-updated', 'research-deactivated']) {
+          es.addEventListener(eventName, refreshResearch);
+        }
+        es.onmessage = refreshResearch;
         es.onerror = (err) => {
           console.debug('SSE error:', err);
           if (es) { es.close(); es = null; }
@@ -252,40 +275,42 @@
     }
   }
 
-  // Intentionally not calling /api/inventory/journals/categories — kept empty for Research.
   async function fetchCategories() {
     if (!browser) return;
-    categories = [];
-    categoryMap = {};
+    try {
+      const response = await fetch('/api/inventory/research/categories', { credentials: 'include' });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not load research categories.');
+      categories = result.data.categories || [];
+      categoryMap = Object.fromEntries(categories.map((category) => [category.id, category.name]));
+    } catch (cause) {
+      categories = [];
+      categoryMap = {};
+      error = cause instanceof Error ? cause.message : 'Could not load research categories.';
+    }
   }
 
-  // Intentionally not calling /api/inventory/journals/languages — kept empty for Research.
   async function fetchLanguages() {
     if (!browser) return;
     languages = [];
   }
 
-  // Intentionally not calling /api/inventory/journals/stats — kept empty for Research.
   async function fetchStats() {
     if (!browser) return;
-    stats = {
-      totalBooks: 0,
-      totalJournals: 0,
-      availableCopies: 0,
-      borrowedBooks: 0,
-      borrowedJournals: 0,
-      categoriesCount: 0,
-      lowStock: 0,
-      outOfStock: 0,
-      utilization: 0,
-      availability: 0
-    };
+    try {
+      const response = await fetch('/api/inventory/research/stats', { credentials: 'include' });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not load research statistics.');
+      stats = { ...stats, ...result.data };
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not load research statistics.';
+    }
   }
 
   async function deleteBook(bookId: number, bookTitle: string) {
     if (!confirm(`Are you sure you want to delete "${bookTitle}"?`)) return;
     try {
-      const response = await fetch('/api/inventory/journals', {
+      const response = await fetch('/api/inventory/research', {
         method: 'DELETE',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -293,6 +318,7 @@
       });
       const data = await response.json();
       if (response.ok && data.success) {
+        toast.success('Research record deactivated.');
         await Promise.all([
           fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
           fetchStats()
@@ -303,6 +329,7 @@
     } catch (err) {
       console.error('Error deleting research:', err);
       error = err instanceof Error ? err.message : 'An error occurred while deleting the research';
+      toast.error(error);
     }
   }
 
@@ -310,12 +337,12 @@
     showAddModal = false;
     pagination.currentPage = 1;
     await fetchBooks(1, committedSearchTerm, selectedCategory, selectedLanguage);
-    await fetchStats();
-    goto(`/dashboard/inventory/journals?page=1`, { replaceState: true });
+    toast.success('Research record added successfully.');
   }
 
   function handleAddBookError(event: CustomEvent) {
     error = event.detail.message;
+    toast.error(error || 'Could not add the research record.');
   }
 
   function handleModalClose() { showAddModal = false; }
@@ -330,23 +357,26 @@
     categoryLoading = true;
     categoryError = "";
     try {
-      const response = await fetch('/api/inventory/journals/categories', {
+      const response = await fetch('/api/inventory/research/categories', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newCategoryName.trim(), description: newCategoryDescription.trim(), itemType: 'journal' })
+        body: JSON.stringify({ name: newCategoryName.trim(), description: newCategoryDescription.trim() })
       });
       const data = await response.json();
       if (response.ok && data.success) {
+        toast.success('Research category added.');
         showAddCategoryModal = false;
         newCategoryName = "";
         newCategoryDescription = "";
         await fetchCategories();
       } else {
         categoryError = data.message || "Failed to add category.";
+        toast.error(categoryError);
       }
     } catch (err) {
       categoryError = "Network error. Please try again.";
+      toast.error(categoryError);
     } finally {
       categoryLoading = false;
     }
@@ -369,7 +399,7 @@
       if (selectedCategory && selectedCategory !== 'all') params.set('category', selectedCategory);
       if (selectedLanguage.trim()) params.set('lang', selectedLanguage.trim());
       const queryString = params.toString();
-      goto(`/dashboard/inventory/journals${queryString ? '?' + queryString : ''}`);
+      goto(`/dashboard/inventory/research${queryString ? '?' + queryString : ''}`);
     }
   }
 
@@ -392,7 +422,7 @@
     (async () => {
       const updatedData = event.detail;
       try {
-        const response = await fetch('/api/inventory/journals', {
+      const response = await fetch('/api/inventory/research', {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -400,6 +430,7 @@
         });
         const data = await response.json();
         if (response.ok && data.success) {
+          toast.success('Research record updated successfully.');
           closeBookModal();
           await Promise.all([
             fetchBooks(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
@@ -411,6 +442,7 @@
       } catch (err) {
         console.error('Error updating research:', err);
         error = err instanceof Error ? err.message : 'An error occurred while updating the research';
+        toast.error(error);
       }
     })();
   }
@@ -468,16 +500,18 @@
           </svg>
           Add Category
         </button>
+        {#if data.bulkAddEnabled}
         <button
-          on:click={() => goto('/dashboard/inventory/journals/quick_add')}
+          on:click={() => goto('/dashboard/inventory/research/bulk_add')}
           class="inline-flex items-center justify-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-lg text-slate-900 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
-          title="Quick Add Research"
+          title="Bulk Add Research"
         >
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
           </svg>
-          Quick Add
+          Bulk Add
         </button>
+        {/if}
       </div>
     </div>
 
@@ -621,20 +655,6 @@
                   </button>
                 </span>
               {/if}
-              {#if selectedLanguage}
-                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
-                  Language: {selectedLanguage}
-                  <button 
-                    on:click={() => { selectedLanguage = ''; performSearch(); }}
-                    class="ml-2 text-blue-600 hover:text-blue-800"
-                    aria-label="Remove language filter"
-                  >
-                    <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                  </button>
-                </span>
-              {/if}
             </div>
           </div>
           <div class="flex items-center gap-2">
@@ -660,7 +680,7 @@
             </svg>
             <input
               type="text"
-              placeholder="Search by title, author, or ISBN..."
+              placeholder="Search by title, authors, or research ID..."
               bind:value={searchTerm}
               on:keydown={(e) => { if (e.key === 'Enter') debouncedSearch(true); }}
               class="pl-10 pr-4 py-3 w-full border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 transition-colors duration-200 {committedSearchTerm ? 'border-green-500 bg-green-50' : ''}"
@@ -708,41 +728,6 @@
               {/if}
             </div>
             {#if selectedCategory !== 'all'}
-              <div class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center">
-                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
-              </div>
-            {/if}
-          </div>
-
-          <!-- Language Dropdown -->
-          <div class="relative language-dropdown">
-            <div class="relative">
-              <button
-                on:click={() => languageDropdownOpen = !languageDropdownOpen}
-                class="px-4 py-3 w-full sm:w-48 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white text-slate-700 transition-colors duration-200 {selectedLanguage ? 'border-green-500 bg-green-50' : ''} flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={loading}
-              >
-                <span class="truncate">{selectedLanguage || 'All Languages'}</span>
-                <svg class="h-4 w-4 ml-2 transition-transform duration-200 {languageDropdownOpen ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-                </svg>
-              </button>
-              {#if languageDropdownOpen}
-                <div class="absolute z-10 mt-1 w-full sm:w-48 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                  <button type="button" on:click={() => { selectedLanguage = ''; languageDropdownOpen = false; performSearch(); }}
-                    class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {!selectedLanguage ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}">
-                    All Languages
-                  </button>
-                  {#each languages as language}
-                    <button type="button" on:click={() => { selectedLanguage = language; languageDropdownOpen = false; performSearch(); }}
-                      class="w-full text-left px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors duration-200 {selectedLanguage === language ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}">
-                      {language}
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-            {#if selectedLanguage}
               <div class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center">
                 <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
               </div>
@@ -826,7 +811,7 @@
                     <td class="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div class="text-sm font-semibold text-slate-900">{book.title}</div>
-                        <div class="text-sm text-slate-600">by {book.author}</div>
+                        <div class="text-sm text-slate-600">Authors: {book.author}</div>
                         <div class="text-xs text-slate-400">ISBN: {book.isbn} • {book.published}</div>
                       </div>
                     </td>
@@ -889,7 +874,7 @@
               <div class="flex items-start justify-between mb-3">
                 <div class="flex-1 min-w-0">
                   <h3 class="text-base font-semibold text-slate-900 truncate">{book.title}</h3>
-                  <p class="text-sm text-slate-600">by {book.author}</p>
+                  <p class="text-sm text-slate-600">Authors: {book.author}</p>
                   <p class="text-xs text-slate-400">ISBN: {book.isbn} • {book.published}</p>
                 </div>
                 <span class={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(book.status || 'Unknown')} ml-3`}>
@@ -1009,6 +994,7 @@
         isOpen={showViewBookModal || showEditBookModal}
         book={selectedBook}
         isEditMode={showEditBookModal}
+        categories={categories}
         on:close={closeBookModal}
         on:save={handleBookSave}
         on:edit={() => {

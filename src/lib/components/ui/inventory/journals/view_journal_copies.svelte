@@ -68,7 +68,7 @@
     if (!itemId) return;
     loading = true; error = '';
     try {
-      const res = await fetch(`/api/inventory/${itemType}s/copies?itemType=${itemType}&itemId=${itemId}`, { credentials: 'include' });
+      const res = await fetch(`/api/inventory/journals/copies?journalId=${itemId}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch copies');
       const data = await res.json();
       if (data.success) { copies = data.copies; await generateQrCodes(copies); }
@@ -86,7 +86,7 @@
   async function saveCallNumber(copyId: number) {
     loading = true; error = '';
     try {
-      const res = await fetch('/api/inventory/books/copies', {
+      const res = await fetch('/api/inventory/journals/copies', {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemType, copyId, callNumber: editingCallNumber || null }),
@@ -116,7 +116,7 @@
     if (!confirm('Delete this copy? This cannot be undone.')) return;
     deletingCopyId = copyId; error = '';
     try {
-      const res = await fetch('/api/inventory/books/copies', {
+      const res = await fetch('/api/inventory/journals/copies', {
         method: 'DELETE', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ copyId }),

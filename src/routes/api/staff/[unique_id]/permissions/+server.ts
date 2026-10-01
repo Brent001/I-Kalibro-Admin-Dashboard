@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 // PATCH: Update staff permissions
 export const PATCH: RequestHandler = async ({ request, params }) => {
   try {
-    const { uniqueId } = params;
+    const uniqueId = params.unique_id;
     const body = await request.json();
     const { canManageBooks, canManageUsers, canManageBorrowing, canManageReservations, canViewReports, canManageFines, customPermissions } = body;
 
@@ -55,7 +55,7 @@ export const PATCH: RequestHandler = async ({ request, params }) => {
     } else {
       await db.insert(tbl_staff_permission).values({
         staffUniqueId: uniqueId,
-        canManageBooks: canManageBooks ?? false,
+        canManageBooks: canManageBooks ?? true,
         canManageUsers: canManageUsers ?? false,
         canManageBorrowing: canManageBorrowing ?? false,
         canManageReservations: canManageReservations ?? false,
@@ -78,7 +78,7 @@ export const PATCH: RequestHandler = async ({ request, params }) => {
 // GET: Fetch permissions for a specific staff member
 export const GET: RequestHandler = async ({ params }) => {
   try {
-    const { uniqueId } = params;
+    const uniqueId = params.unique_id;
 
     if (!uniqueId) {
       return json(
@@ -97,7 +97,7 @@ export const GET: RequestHandler = async ({ params }) => {
         success: true,
         data: {
           staffUniqueId: uniqueId,
-          canManageBooks: false,
+          canManageBooks: true,
           canManageUsers: false,
           canManageBorrowing: false,
           canManageReservations: false,

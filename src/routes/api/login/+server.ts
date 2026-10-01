@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { tbl_super_admin, tbl_admin, tbl_staff, tbl_user, tbl_security_log, tbl_staff_session, tbl_staff_permission } from '$lib/server/db/schema/schema.js';
+import { tbl_super_admin, tbl_admin, tbl_staff, tbl_security_log, tbl_staff_session, tbl_staff_permission } from '$lib/server/db/schema/schema.js';
 import { eq, or } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import jwt, { type Secret } from 'jsonwebtoken';
@@ -78,7 +78,7 @@ async function findUserByUsernameOrEmail(usernameOrEmail: string): Promise<{
     email: string;
     password: string;
     isActive: boolean;
-    userType: 'super_admin' | 'admin' | 'staff' | 'user';
+    userType: 'super_admin' | 'admin' | 'staff';
 } | null> {
     // Try super_admin
     const [superAdmin] = await db
@@ -111,17 +111,6 @@ async function findUserByUsernameOrEmail(usernameOrEmail: string): Promise<{
     
     if (staff && staff.isActive) {
         return { id: staff.id, uniqueId: staff.uniqueId!, name: staff.name, username: staff.username, email: staff.email, password: staff.password, isActive: staff.isActive || false, userType: 'staff' as const };
-    }
-
-    // Try user (student/faculty)
-    const [user] = await db
-        .select()
-        .from(tbl_user)
-        .where(or(eq(tbl_user.username, usernameOrEmail), eq(tbl_user.email, usernameOrEmail)))
-        .limit(1);
-    
-    if (user && user.isActive && user.email) {
-        return { id: user.id, uniqueId: user.uniqueId!, name: user.name, username: user.username, email: user.email || '', password: user.password, isActive: user.isActive || false, userType: 'user' as const };
     }
 
     return null;
@@ -267,6 +256,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
                 await logSecurityEvent({
                     type: 'login',
                     userId: foundUser.id,
+                    userType: foundUser.userType,
                     sessionId,
                     ip: clientIP,
                     userAgent: browserType,
@@ -368,6 +358,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
         await logSecurityEvent({
             type: 'login',
             userId: foundUser.id,
+            userType: foundUser.userType,
             sessionId,
             ip: clientIP,
             userAgent: browserType,

@@ -17,6 +17,7 @@ import {
 import { publish as publishMagazineEvent } from '$lib/server/events/magazinesEvents.js';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
 import { convertToProxyUrl } from '$lib/server/utils/backblazeUpload.js';
+import { saveCoverFromCandidates } from '$lib/server/services/coverStorageService.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -222,8 +223,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
         const newMagazineId = incomingMagazineId || `MG-${Date.now()}`;
         const totalCopies = itemData.totalCopies || 1;
+        const baseCallNumber = String(itemData.location || newMagazineId).trim();
 
-        const [magazine] = await db.insert(tbl_magazine).values({
+        let [magazine] = await db.insert(tbl_magazine).values({
             magazineId: newMagazineId,
             title: itemData.title,
             publisher: itemData.publisher,
@@ -245,7 +247,7 @@ export const POST: RequestHandler = async ({ request }) => {
         if (totalCopies >= 1) {
             const copiesData: any[] = [];
             for (let copyNum = 1; copyNum <= totalCopies; copyNum++) {
-                const callNumber = `${newMagazineId}-C${copyNum}`;
+                const callNumber = `${baseCallNumber}-C${copyNum}`;
                 const qrCode = generateQRCode();
                 copiesData.push({
                     magazineId: magazine.id,
@@ -257,6 +259,18 @@ export const POST: RequestHandler = async ({ request }) => {
                 });
             }
             if (copiesData.length > 0) await db.insert(tbl_magazine_copy).values(copiesData);
+        }
+
+        if (!itemData.coverImage && itemData.coverSourceUrl) {
+            const cover = await saveCoverFromCandidates('magazines', newMagazineId, [String(itemData.coverSourceUrl)]);
+            if (cover.key) {
+                const [updatedMagazine] = await db
+                    .update(tbl_magazine)
+                    .set({ coverImage: cover.key })
+                    .where(eq(tbl_magazine.id, magazine.id))
+                    .returning();
+                if (updatedMagazine) magazine = updatedMagazine;
+            }
         }
 
         try {
@@ -286,6 +300,7 @@ export const PUT: RequestHandler = async ({ request }) => {
         if (itemType !== 'magazine') return json({ success: false, message: 'This endpoint only updates magazines' }, { status: 400 });
 
         const [magazine] = await db.update(tbl_magazine).set(updateData).where(eq(tbl_magazine.id, id)).returning();
+        if (magazine) publishMagazineEvent('magazine-updated', { id: magazine.id, magazineId: magazine.magazineId });
         return json({ success: true, message: 'Magazine updated successfully', data: magazine });
     } catch (err: any) {
         console.error('PUT /api/magazines error:', err);
@@ -306,7 +321,8 @@ export const DELETE: RequestHandler = async ({ request }) => {
         if (!id) throw error(400, { message: 'ID is required' });
         if (itemType !== 'magazine') return json({ success: false, message: 'This endpoint only deletes magazines' }, { status: 400 });
 
-        await db.update(tbl_magazine).set({ isActive: false }).where(eq(tbl_magazine.id, id));
+        const [magazine] = await db.update(tbl_magazine).set({ isActive: false }).where(eq(tbl_magazine.id, id)).returning({ id: tbl_magazine.id, magazineId: tbl_magazine.magazineId });
+        if (magazine) publishMagazineEvent('magazine-deactivated', magazine);
         return json({ success: true, message: 'Magazine deleted successfully' });
     } catch (err: any) {
         console.error('DELETE /api/magazines error:', err);

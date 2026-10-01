@@ -1,13 +1,15 @@
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { env } from '$env/dynamic/private';
 
 let s3Client: S3Client | null = null;
 
 function initializeS3Client(): S3Client {
     if (s3Client) return s3Client;
 
-    const region = (process.env.BACKBLAZE_REGION || import.meta.env.VITE_BACKBLAZE_REGION as string) || 'us-east-005';
-    const keyId = (process.env.BACKBLAZE_KEY_ID || import.meta.env.VITE_BACKBLAZE_KEY_ID as string) || '';
-    const appKey = (process.env.BACKBLAZE_APPLICATION_KEY || import.meta.env.VITE_BACKBLAZE_APPLICATION_KEY as string) || '';
+    const region = process.env.BACKBLAZE_REGION || import.meta.env.VITE_BACKBLAZE_REGION || env.B2_REGION || 'us-east-005';
+    const keyId = process.env.BACKBLAZE_KEY_ID || import.meta.env.VITE_BACKBLAZE_KEY_ID || env.B2_KEY_ID || '';
+    const appKey = process.env.BACKBLAZE_APPLICATION_KEY || import.meta.env.VITE_BACKBLAZE_APPLICATION_KEY || env.B2_APP_KEY || '';
+    const endpoint = env.B2_ENDPOINT || `https://s3.${region}.backblazeb2.com`;
 
     console.log('Initializing S3Client for download:', {
         region,
@@ -23,7 +25,7 @@ function initializeS3Client(): S3Client {
 
     s3Client = new S3Client({
         region,
-        endpoint: `https://s3.${region}.backblazeb2.com`,
+        endpoint,
         credentials: {
             accessKeyId: keyId,
             secretAccessKey: appKey
@@ -45,7 +47,7 @@ export async function downloadFileFromB2(fileName: string): Promise<{
     contentLength?: number;
     lastModified?: Date;
 }> {
-    const bucketName = (process.env.BACKBLAZE_BUCKET_NAME || import.meta.env.VITE_BACKBLAZE_BUCKET_NAME as string) || 'E-kalibro';
+    const bucketName = process.env.BACKBLAZE_BUCKET_NAME || import.meta.env.VITE_BACKBLAZE_BUCKET_NAME || env.B2_BUCKET || 'E-kalibro';
 
     console.log('downloadFileFromB2:', {
         fileName,
@@ -133,7 +135,7 @@ export async function getFileMetadataFromB2(fileName: string): Promise<{
     contentLength?: number;
     lastModified?: Date;
 }> {
-    const bucketName = (process.env.BACKBLAZE_BUCKET_NAME || import.meta.env.VITE_BACKBLAZE_BUCKET_NAME as string) || 'E-kalibro';
+    const bucketName = process.env.BACKBLAZE_BUCKET_NAME || import.meta.env.VITE_BACKBLAZE_BUCKET_NAME || env.B2_BUCKET || 'E-kalibro';
 
     console.log('getFileMetadataFromB2:', {
         fileName,

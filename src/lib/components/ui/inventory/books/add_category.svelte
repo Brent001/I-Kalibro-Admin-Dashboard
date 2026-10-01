@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let isOpen: boolean = false;
   export let itemType: string = 'book';
@@ -75,15 +76,18 @@
       const data = await response.json();
       if (response.ok && data.success) {
         dispatch('success', { category: data.data?.category, message: data.message });
+        toast.success(`${capitalizedItemType} category added.`);
         handleClose();
         fetchCategories(); // Refresh list after adding
       } else {
         categoryError = data.message || "Failed to add category.";
         dispatch('error', { message: categoryError });
+        toast.error(categoryError);
       }
     } catch (err) {
       categoryError = "Network error. Please try again.";
       dispatch('error', { message: categoryError });
+      toast.error(categoryError);
     } finally {
       categoryLoading = false;
     }
@@ -145,13 +149,16 @@
       });
       const data = await response.json();
       if (response.ok && data.success) {
+        toast.success(`${capitalizedItemType} category updated.`);
         resetEdit();
         fetchCategories();
       } else {
         editError = data.message || "Failed to update category.";
+        toast.error(editError);
       }
     } catch (err) {
       editError = "Network error. Please try again.";
+      toast.error(editError);
     } finally {
       editLoading = false;
     }
@@ -170,14 +177,15 @@
       });
       const data = await response.json();
       if (response.ok && data.success) {
+        toast.success(`${capitalizedItemType} category deleted.`);
         fetchCategories();
         // If editing deleted category, reset edit
         if (editingCategoryId === id) resetEdit();
       } else {
-        alert(data.message || "Failed to delete category.");
+        toast.error(data.message || "Failed to delete category.");
       }
     } catch (err) {
-      alert("Network error. Please try again.");
+      toast.error("Network error. Please try again.");
     } finally {
       deleteLoadingId = null;
     }

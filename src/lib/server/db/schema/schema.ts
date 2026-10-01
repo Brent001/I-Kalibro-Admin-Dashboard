@@ -78,7 +78,7 @@ export const tbl_staff = pgTable('tbl_staff', {
 export const tbl_staff_permission = pgTable('tbl_staff_permission', {
     id: serial('id').primaryKey(),
     staffUniqueId: varchar('staff_unique_id', { length: 36 }).references(() => tbl_staff.uniqueId).unique().notNull(),
-    canManageBooks: boolean('can_manage_books').default(false),
+    canManageBooks: boolean('can_manage_books').default(true),
     canManageUsers: boolean('can_manage_users').default(false),
     canManageBorrowing: boolean('can_manage_borrowing').default(true),
     canManageReservations: boolean('can_manage_reservations').default(true),

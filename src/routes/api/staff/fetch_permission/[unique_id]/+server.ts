@@ -33,7 +33,7 @@ export const GET: RequestHandler = async ({ params }) => {
     return json({
       success: true,
       data: {
-        canManageBooks: false,
+        canManageBooks: true,
         canManageUsers: false,
         canManageBorrowing: false,
         canManageReservations: false,

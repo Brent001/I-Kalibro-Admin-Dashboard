@@ -1,11 +1,13 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import bcrypt from 'bcrypt';
+import { createHash } from 'node:crypto';
 import { db } from '$lib/server/db/index.js';
 import { tbl_user, tbl_staff, tbl_admin, tbl_super_admin, tbl_security_log } from '$lib/server/db/schema/schema.js';
 import { eq, and } from 'drizzle-orm';
 import jwt from 'jsonwebtoken';
 import { revokeOtherUserSessions, verifyToken, type JWTPayload } from '$lib/server/db/auth.js';
+import { redisClient } from '$lib/server/db/cache.js';
 
 const PASSWORD_POLICY = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 
@@ -18,9 +20,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         const sessionId = token ? (jwt.decode(token) as JWTPayload | null)?.sessionId : undefined;
 
         const body = await request.json();
-        const { currentPassword, newPassword, confirmPassword } = body || {};
-        if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || typeof confirmPassword !== 'string' || !currentPassword || !newPassword || !confirmPassword) {
-            return json({ success: false, message: 'All password fields are required.' }, { status: 400 });
+        const { currentPassword, newPassword, confirmPassword, otp } = body || {};
+        if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || typeof confirmPassword !== 'string' || typeof otp !== 'string' || !currentPassword || !newPassword || !confirmPassword || !otp) {
+            return json({ success: false, message: 'Current password, new password, confirmation, and verification code are required.' }, { status: 400 });
         }
         if (newPassword !== confirmPassword) return json({ success: false, message: 'Passwords do not match.' }, { status: 400 });
         if (!PASSWORD_POLICY.test(newPassword)) {
@@ -49,6 +51,40 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
         if (!password) return json({ success: false, message: 'User not found.' }, { status: 404 });
         if (!(await bcrypt.compare(currentPassword, password))) return json({ success: false, message: 'Current password is incorrect.' }, { status: 400 });
+
+        if (!sessionId) return json({ success: false, message: 'A valid session is required to change your password.' }, { status: 401 });
+        const otpKey = `change_password_otp:${sessionId}`;
+        const storedOtpRaw = await redisClient.get(otpKey);
+        if (!storedOtpRaw) return json({ success: false, message: 'Verification code is missing or expired. Request a new code.' }, { status: 400 });
+
+        let storedOtp: { otpHash: string; expiresAt: number; attempts: number; userId: number; userType: string; sessionId: string };
+        try {
+            storedOtp = JSON.parse(storedOtpRaw);
+        } catch {
+            await redisClient.del(otpKey);
+            return json({ success: false, message: 'Verification code is invalid. Request a new code.' }, { status: 400 });
+        }
+
+        if (storedOtp.sessionId !== sessionId || storedOtp.userId !== auth.id || storedOtp.userType !== auth.userType || Date.now() > storedOtp.expiresAt) {
+            await redisClient.del(otpKey);
+            return json({ success: false, message: 'Verification code is invalid or expired. Request a new code.' }, { status: 400 });
+        }
+
+        const suppliedOtpHash = createHash('sha256').update(`${sessionId}:${otp.trim()}`).digest('hex');
+        if (suppliedOtpHash !== storedOtp.otpHash) {
+            storedOtp.attempts += 1;
+            if (storedOtp.attempts >= 5) {
+                await redisClient.del(otpKey);
+                return json({ success: false, message: 'Too many incorrect codes. Request a new code.' }, { status: 429 });
+            }
+            const ttl = Math.ceil((storedOtp.expiresAt - Date.now()) / 1000);
+            if (ttl > 0) await redisClient.setex(otpKey, ttl, JSON.stringify(storedOtp));
+            return json({ success: false, message: `Incorrect verification code. ${5 - storedOtp.attempts} attempts remaining.` }, { status: 400 });
+        }
+
+        if (!(await redisClient.del(otpKey))) {
+            return json({ success: false, message: 'Could not verify the code right now. Try again.' }, { status: 503 });
+        }
 
         await updatePassword(await bcrypt.hash(newPassword, 10));
         try {

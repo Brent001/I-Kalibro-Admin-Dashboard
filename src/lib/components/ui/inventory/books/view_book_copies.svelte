@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
   import QRCode from 'qrcode';
 
   interface BookCopy {
@@ -98,9 +99,14 @@
         if (idx !== -1) copies[idx] = { ...copies[idx], callNumber: editingCallNumber || undefined };
         copies = [...copies];
         editingCopyId = null; editingCallNumber = '';
-      } else error = data.message || 'Failed to update call number';
+        toast.success('Copy call number updated.');
+      } else {
+        error = data.message || 'Failed to update call number';
+        toast.error(error);
+      }
     } catch (err) {
       error = err instanceof Error ? err.message : 'An error occurred';
+      toast.error(error);
     } finally { loading = false; }
   }
 
@@ -127,9 +133,11 @@
         copies = copies.filter(c => c.id !== copyId);
         const { [copyId]: _, ...rest } = qrDataUrls;
         qrDataUrls = rest;
+        toast.success('Copy deleted successfully.');
       } else throw new Error(data.message || 'Failed to delete copy');
     } catch (err) {
       error = err instanceof Error ? err.message : 'An error occurred';
+      toast.error(error);
     } finally { deletingCopyId = null; }
   }
 

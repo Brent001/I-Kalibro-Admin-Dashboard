@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { toast } from '$lib/stores/toastStore.js';
+
   let step = 1;
   let identifier = '';
   let actualEmail = '';
@@ -46,12 +48,14 @@
 
     if (parseInt(captchaAnswer) !== correctAnswer) {
       errorMsg = 'Incorrect answer to the math problem. Please try again.';
+      toast.warning(errorMsg);
       generateMathProblem();
       return;
     }
 
     if (!identifier || identifier.trim().length === 0) {
       errorMsg = 'Please enter your email or username.';
+      toast.warning(errorMsg);
       return;
     }
 
@@ -69,12 +73,15 @@
         step = 2;
         startResendTimer();
         successMsg = `OTP has been sent to ${data.maskedEmail}`;
+        toast.success(successMsg);
       } else {
         errorMsg = data.message || 'Failed to send OTP.';
+        toast.error(errorMsg);
         generateMathProblem();
       }
     } catch (err) {
       errorMsg = 'Network error. Please try again.';
+      toast.error(errorMsg);
       generateMathProblem();
     } finally {
       isLoading = false;
@@ -88,6 +95,7 @@
 
     if (otp.length !== 6) {
       errorMsg = 'Please enter a valid 6-digit OTP.';
+      toast.warning(errorMsg);
       return;
     }
 
@@ -102,11 +110,14 @@
       if (data.success) {
         step = 3;
         successMsg = 'OTP verified. Please set your new password.';
+        toast.success(successMsg);
       } else {
         errorMsg = data.message || 'Invalid OTP. Please try again.';
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = 'Network error. Please try again.';
+      toast.error(errorMsg);
     } finally {
       isLoading = false;
     }
@@ -129,11 +140,14 @@
       if (data.success) {
         startResendTimer();
         successMsg = 'New OTP has been sent to your email.';
+        toast.success(successMsg);
       } else {
         errorMsg = data.message || 'Failed to resend OTP.';
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = 'Network error. Please try again.';
+      toast.error(errorMsg);
     } finally {
       isLoading = false;
     }
@@ -146,11 +160,13 @@
 
     if (newPassword.length < 8) {
       errorMsg = 'Password must be at least 8 characters long.';
+      toast.warning(errorMsg);
       return;
     }
 
     if (newPassword !== confirmPassword) {
       errorMsg = 'Passwords do not match.';
+      toast.warning(errorMsg);
       return;
     }
 
@@ -164,14 +180,17 @@
       const data = await res.json();
       if (data.success) {
         successMsg = 'Password reset successful! Redirecting to login...';
+        toast.success(successMsg);
         setTimeout(() => {
           window.location.href = '/';
         }, 2000);
       } else {
         errorMsg = data.message || 'Failed to reset password.';
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = 'Network error. Please try again.';
+      toast.error(errorMsg);
     } finally {
       isLoading = false;
     }

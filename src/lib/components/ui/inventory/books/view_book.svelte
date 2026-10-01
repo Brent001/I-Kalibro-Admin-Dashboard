@@ -2,6 +2,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { ensureProxiedUrl } from '$lib/utils/b2ImageProxy.js';
   import ViewBookCopies from './view_book_copies.svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let isOpen = false;
   export let itemType: string = 'book';
@@ -122,11 +123,16 @@
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         errors.coverImage = err.message || 'Upload failed';
+        toast.error(errors.coverImage);
         return null;
       }
       const result = await resp.json();
       return result.photoUrl || result.coverImage || null;
-    } catch { errors.coverImage = 'Network error while uploading image'; return null; }
+    } catch {
+      errors.coverImage = 'Network error while uploading image';
+      toast.error(errors.coverImage);
+      return null;
+    }
     finally { uploadingCoverImage = false; }
   }
 

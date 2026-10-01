@@ -4,11 +4,13 @@
   import CustomDateRangeModal from "$lib/components/ui/transaction/CustomDateRangeModal.svelte";
   import TransactionViewModal from "$lib/components/ui/transaction/TransactionViewModal.svelte";
   import { onMount } from "svelte";
+  import { replaceState } from '$app/navigation';
   export let data: any = {};
 
   import { writable } from 'svelte/store';
   import { tweened } from 'svelte/motion';
   import { fetchAuthSession } from '$lib/utils/authSessionClient.js';
+  import { toast } from '$lib/stores/toastStore.js';
 
   // pagination constant used by server/clientside helpers
   const ROWS_PER_PAGE = 100;
@@ -65,8 +67,9 @@
       link.href = URL.createObjectURL(blob);
       link.download = `transactions_${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
       link.click();
+      toast.success('Transactions exported successfully.');
     } catch (err) {
-      alert('Export failed.');
+      toast.error('Transaction export failed.');
     }
   }
 
@@ -292,7 +295,7 @@
       if (customDays) params.set('days', customDays);
       if (searchTerm) params.set('q', searchTerm);
       const newUrl = `${location.pathname}${params.toString() ? '?' + params.toString() : ''}${location.hash || ''}`;
-      history.replaceState(null, '', newUrl);
+      replaceState(newUrl, {});
     } catch (err) {
       // ignore URL update errors in non-browser contexts
     }
@@ -369,11 +372,11 @@
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || 'Failed to revert');
-      alert('Return successfully reverted.');
+      toast.success('Return successfully reverted.');
       // reload to refresh transactions
       location.reload();
     } catch (err: any) {
-      alert(err.message || 'Unable to revert return.');
+      toast.error(err.message || 'Unable to revert return.');
     }
   }
 
@@ -430,9 +433,16 @@
     if (!confirm("Are you sure you want to delete this transaction?")) return;
     try {
       const res = await fetch(`/api/transactions/${transactionId}`, { method: "DELETE", credentials: 'include' });
-      if (res.ok) { alert("Transaction deleted successfully!"); location.reload(); }
-      else alert("Failed to delete transaction.");
-    } catch (err) { alert("Error deleting transaction."); }
+      const result = await res.json();
+      if (res.ok && result.success) {
+        toast.success(result.message || 'Transaction deleted successfully.');
+        location.reload();
+      } else {
+        toast.error(result.message || 'Failed to delete transaction.');
+      }
+    } catch (err) {
+      toast.error('Error deleting transaction.');
+    }
   }
 
   function openReturnModal(transaction: Transaction) {
@@ -489,7 +499,7 @@
         });
       }
       const resData = await res.json();
-      if (res.ok) {
+      if (res.ok && resData.success) {
         let msg = "Book returned successfully!";
         if (resData.data?.callNumber) {
           msg += `\n\nCall No: ${resData.data.callNumber}`;
@@ -497,14 +507,21 @@
         if (resData.data?.fine > 0) {
           msg += `\n\nOverdue Fine: ₱${resData.data.fine}\n\nPlease collect the fine from the member.`;
         }
-        alert(msg);
+        toast.success(msg.replace(/\n+/g, ' '), 6500);
         closeReturnModal();
         location.reload();
       } else {
-        if (res.status === 401) { alert("Session expired or not authenticated. Please log in again."); window.location.href = '/'; return; }
-        alert(resData.message || "Failed to return book.");
+        if (res.status === 401) {
+          toast.error("Session expired or not authenticated. Please log in again.");
+          window.location.href = '/';
+          return;
+        }
+        toast.error(resData.message || "Failed to return book.");
       }
-    } catch (err) { console.error('Return error:', err); alert("Error returning book. Please try again."); }
+    } catch (err) {
+      console.error('Return error:', err);
+      toast.error("Error returning book. Please try again.");
+    }
   }
 
   function openConfirmBorrowModal(transaction: Transaction) {
@@ -530,9 +547,17 @@
         body: JSON.stringify({ dueDate: customDueDate }),
         credentials: 'include'
       });
-      if (res.ok) { alert("Reservation confirmed as borrow!"); closeConfirmBorrowModal(); location.reload(); }
-      else { const d = await res.json(); alert(d.message || "Failed to confirm borrow."); }
-    } catch (err) { alert("Error confirming borrow."); }
+      const result = await res.json();
+      if (res.ok && result.success) {
+        toast.success(result.message || "Reservation confirmed as borrow!");
+        closeConfirmBorrowModal();
+        location.reload();
+      } else {
+        toast.error(result.message || "Failed to confirm borrow.");
+      }
+    } catch (err) {
+      toast.error("Error confirming borrow.");
+    }
   }
 
   onMount(async () => {
@@ -564,7 +589,7 @@
     initializedFromUrl = true;
 
     const res = await fetchAuthSession();
-    if (!res.ok) { alert("Session expired. Please log in again."); window.location.href = '/'; }
+    if (!res.ok) { toast.error("Session expired. Please log in again."); window.location.href = '/'; }
   });
 
   // Update the URL whenever filter/tab/search state changes after initial read

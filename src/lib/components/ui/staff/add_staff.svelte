@@ -104,18 +104,30 @@
   }
 
   async function loadDefaultPermissions() {
+    const fallbackDefaults: Record<string, boolean> = {
+      canManageBooks: true,
+      canManageUsers: false,
+      canManageBorrowing: true,
+      canManageReservations: true,
+      canViewReports: false,
+      canManageFines: true
+    };
+
     try {
       const response = await fetch('/api/settings', { credentials: 'include' });
       const result = await response.json();
       const saved = result?.defaultStaffPermissions;
+      const source = saved && typeof saved === 'object'
+        ? { ...fallbackDefaults, ...saved }
+        : fallbackDefaults;
       defaultPermissions = permissionsList.reduce((defaults, permission) => {
-        defaults[permission.key] = Boolean(saved?.[permission.key]);
+        defaults[permission.key] = Boolean(source[permission.key]);
         return defaults;
       }, {} as Record<string, boolean>);
       selectedPermissions = { ...defaultPermissions };
     } catch {
       defaultPermissions = permissionsList.reduce((defaults, permission) => {
-        defaults[permission.key] = false;
+        defaults[permission.key] = Boolean(fallbackDefaults[permission.key]);
         return defaults;
       }, {} as Record<string, boolean>);
       selectedPermissions = { ...defaultPermissions };

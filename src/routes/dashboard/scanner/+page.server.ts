@@ -96,7 +96,7 @@ function checkBrowserCapabilities(userAgent: string) {
  * Fetch the scan method configured in tbl_library_settings.
  * Defaults to 'qrcode' if the setting is missing or the query fails.
  */
-async function getVisitScanMethod(): Promise<'qrcode' | 'barcode' | 'both'> {
+async function getVisitScanMethod(): Promise<'qrcode' | 'barcode'> {
     try {
         const [row] = await db
             .select({ settingValue: tbl_library_settings.settingValue })
@@ -104,7 +104,7 @@ async function getVisitScanMethod(): Promise<'qrcode' | 'barcode' | 'both'> {
             .where(eq(tbl_library_settings.settingKey, 'visitScanMethod'))
             .limit(1);
         const method = row?.settingValue;
-        if (method === 'barcode' || method === 'both') return method;
+        if (method === 'barcode') return 'barcode';
     } catch (err) {
         console.warn('[qr_scanner] Could not read visitScanMethod from DB (non-fatal):', (err as any)?.message);
     }

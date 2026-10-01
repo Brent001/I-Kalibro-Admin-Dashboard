@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
+  import { toast } from '$lib/stores/toastStore.js';
   import type { PageData } from './$types.js';
   import { scannerStore, updateScannerState, setScanSuccess, setScanError } from '$lib/stores/scannerStore.js';
   import type { ScannerState } from '$lib/stores/scannerStore.js';
@@ -95,6 +96,7 @@
           result.memberType || '',
           result.department || ''
         );
+        toast.success(`${result.memberName || 'Member'} scan recorded.`);
         playSuccessSound();
         lastScanBarcode = barcode;
         hardwareScanCount++;
@@ -104,10 +106,13 @@
         });
         await refreshScans();
       } else {
-        setScanError(result.message || 'Failed to process scan');
+        const message = result.message || 'Failed to process scan';
+        setScanError(message);
+        toast.error(message);
       }
     } catch (err) {
       setScanError('Error processing barcode. Please try again.');
+      toast.error('Error processing barcode. Please try again.');
       console.error('Scan error:', err);
     } finally {
       updateScannerState({ scanning: false });
@@ -451,11 +456,12 @@
               const env = checkScannerEnvironment();
               const cameraResult = await testCameraAccess();
               const cameras = await listCameras();
-              alert(
+              toast.info(
                 `Environment: ${env.ready ? 'Ready' : 'Issues found'}\n` +
                 `Camera: ${cameraResult.success ? 'Available' : cameraResult.error}\n` +
                 `Cameras found: ${cameras.length}\n` +
-                `Hardware scans captured: ${hardwareScanCount}`
+                `Hardware scans captured: ${hardwareScanCount}`,
+                6500
               );
             }}
             class="inline-flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition-colors"

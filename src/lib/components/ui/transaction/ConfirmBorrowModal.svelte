@@ -22,6 +22,7 @@
   export let customDueDate: string = "";
 
   import { createEventDispatcher } from "svelte";
+  import { toast } from '$lib/stores/toastStore.js';
   const dispatch = createEventDispatcher();
 
   let password = "";
@@ -95,6 +96,7 @@
     const adminUser = user && (user.role === 'admin' || user.role === 'super_admin');
     if (!adminUser && !password.trim()) {
       errorMessage = "Password is required";
+      toast.warning(errorMessage);
       return;
     }
     isSubmitting = true;
@@ -115,7 +117,7 @@
       });
       const data = await res.json();
       if (res.ok) {
-        alert("Book borrowed successfully!");
+        toast.success(data.message || 'Borrow confirmed successfully.');
         close();
         location.reload();
       } else {
@@ -125,10 +127,12 @@
         } else {
           errorMessage = data.message || "Failed to confirm borrow.";
         }
+        toast.error(errorMessage);
         isSubmitting = false;
       }
     } catch (err: any) {
       errorMessage = "Network error. Please try again.";
+      toast.error(errorMessage);
       isSubmitting = false;
     }
   }

@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { toast } from '$lib/stores/toastStore.js';
   import { onMount, onDestroy, tick } from 'svelte';
+  import { replaceState } from '$app/navigation';
   import { writable, derived } from 'svelte/store';
   import * as Lucide from 'lucide-svelte';
   const Icons = Lucide as any;
@@ -303,7 +305,7 @@
     const u = new URL(window.location.href);
     const logsMap: Record<string, string> = { week: '7d', month: '30d', quarter: '90d', year: '365d' };
     u.searchParams.set('logs', logsMap[p] ?? '30d');
-    window.history.replaceState({}, '', u.toString());
+    replaceState(u.toString(), {});
     loadData();
   }
 
@@ -317,7 +319,11 @@
       link.download = `library_report_${$selectedPeriod}_${new Date().toISOString().split('T')[0]}.${$selectedExportFormat === 'excel' ? 'xlsx' : 'pdf'}`;
       document.body.appendChild(link); link.click();
       document.body.removeChild(link);
-    } catch { errorMsg.set('Export failed. Please try again.'); }
+      toast.success('Report exported successfully.');
+    } catch {
+      errorMsg.set('Export failed. Please try again.');
+      toast.error('Report export failed. Please try again.');
+    }
   }
 
   onMount(() => {

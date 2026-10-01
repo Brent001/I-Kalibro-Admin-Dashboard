@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toast } from '$lib/stores/toastStore.js';
   import { createEventDispatcher, onMount } from 'svelte';
 
   export let isOpen = false;
@@ -81,15 +82,17 @@
           })
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.message || 'Could not add restriction.');
+        if (!response.ok || result.success === false) throw new Error(result.message || 'Could not add restriction.');
         addedRestrictions.push(result.restriction);
       }
       restrictions = [...addedRestrictions, ...restrictions];
+      toast.success('Restriction added.');
       restrictionTypes = [];
       restrictionReason = '';
       restrictionEndDate = '';
     } catch (error) {
       restrictionError = error instanceof Error ? error.message : 'Could not add restriction.';
+      toast.error(restrictionError);
     } finally {
       restrictionSaving = false;
     }
@@ -106,10 +109,12 @@
         body: JSON.stringify({ restrictionId })
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.message || 'Could not remove restriction.');
+      if (!response.ok || result.success === false) throw new Error(result.message || 'Could not remove restriction.');
       restrictions = restrictions.filter(restriction => restriction.id !== restrictionId);
+      toast.success('Restriction removed.');
     } catch (error) {
       restrictionError = error instanceof Error ? error.message : 'Could not remove restriction.';
+      toast.error(restrictionError);
     } finally {
       restrictionSaving = false;
     }

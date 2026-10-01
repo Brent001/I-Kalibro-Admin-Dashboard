@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let isOpen = false;
   export let isEditMode = false;
@@ -42,9 +43,11 @@
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.message || 'Could not update magazine.');
+      toast.success('Magazine updated successfully.');
       dispatch('save', result.data);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Network error. Please try again.';
+      toast.error(error);
     } finally {
       submitting = false;
     }

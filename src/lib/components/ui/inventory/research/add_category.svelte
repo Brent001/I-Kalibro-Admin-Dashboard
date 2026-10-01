@@ -1,8 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let isOpen = false;
-  export let itemType = 'thesis';
   const dispatch = createEventDispatcher();
   let name = '';
   let description = '';
@@ -11,21 +11,27 @@
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (!name.trim()) { error = 'Category name is required.'; return; }
+    if (!name.trim()) {
+      error = 'Category name is required.';
+      toast.warning(error);
+      return;
+    }
     saving = true;
     error = '';
     try {
-      const response = await fetch('/api/inventory/books/categories', {
+      const response = await fetch('/api/inventory/research/categories', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), description: description.trim(), itemType })
+        body: JSON.stringify({ name: name.trim(), description: description.trim() })
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.message || 'Could not add category.');
       dispatch('success', result.data);
+      toast.success('Research category added.');
       name = ''; description = ''; dispatch('close');
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Network error. Please try again.';
       dispatch('error', { message: error });
+      toast.error(error);
     } finally { saving = false; }
   }
 </script>

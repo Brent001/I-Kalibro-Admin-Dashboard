@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let open = false;
   let customFromDate = "";
@@ -14,13 +15,13 @@
 
   function applyDateRange() {
     if (!customFromDate || !customToDate) {
-      alert("Please select both from and to dates");
+      toast.warning('Please select both from and to dates.');
       return;
     }
     const fromDate = new Date(customFromDate);
     const toDate = new Date(customToDate);
     if (fromDate > toDate) {
-      alert("From date must be before to date");
+      toast.warning('The start date must be before the end date.');
       return;
     }
     const daysCount = Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;

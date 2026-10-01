@@ -18,6 +18,7 @@ import {
 import { publish as publishBookEvent } from '$lib/server/events/booksEvents.js';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
 import { convertToProxyUrl } from '$lib/server/utils/backblazeUpload.js';
+import { saveCoverFromCandidates } from '$lib/server/services/coverStorageService.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -282,7 +283,7 @@ export const POST: RequestHandler = async ({ request }) => {
         const baseCallNumber = itemData.location || `${newBookId}`;
         const totalCopies    = itemData.totalCopies || 1;
 
-        const book = await db.transaction(async (tx) => {
+        let book = await db.transaction(async (tx) => {
             const [createdBook] = await tx
                 .insert(tbl_book)
                 .values({
@@ -324,6 +325,18 @@ export const POST: RequestHandler = async ({ request }) => {
 
             return createdBook;
         });
+
+        if (!itemData.coverImage && itemData.coverSourceUrl) {
+            const cover = await saveCoverFromCandidates('books', incomingIsbn || newBookId, [String(itemData.coverSourceUrl)]);
+            if (cover.key) {
+                const [updatedBook] = await db
+                    .update(tbl_book)
+                    .set({ coverImage: cover.key })
+                    .where(eq(tbl_book.id, book.id))
+                    .returning();
+                if (updatedBook) book = updatedBook;
+            }
+        }
 
         try {
             publishBookEvent('book-created', { id: book.id, bookId: newBookId, totalCopies });

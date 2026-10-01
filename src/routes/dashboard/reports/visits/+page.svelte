@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { writable } from "svelte/store";
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let data: { user?: { userType?: string } } = {};
   $: userType = data?.user?.userType || "";
@@ -129,8 +130,9 @@
       const rangeLabel = selectedDate ? `date_${selectedDate}` : periodLabel.toLowerCase().replace(/\s+/g, "_");
       link.download = `visits_${rangeLabel}_${new Date().toISOString().split("T")[0]}.${format === "excel" ? "xlsx" : "pdf"}`;
       link.click();
+      toast.success('Visit report exported successfully.');
     } catch {
-      alert("Export failed.");
+      toast.error("Visit report export failed.");
     }
   }
 

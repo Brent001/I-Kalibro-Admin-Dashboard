@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let isOpen: boolean = false;
   export let itemType: string = 'journal';
@@ -24,6 +25,7 @@
     totalCopies: 1,
     description: '',
     coverImage: '',
+    doi: '',
     // Serial/Journal fields
     volume: '',
     issue: '',
@@ -35,6 +37,9 @@
   let coverImagePreview: string = '';
   let uploadingCoverImage = false;
   let generatingCallNumber = false;
+  let lookingUpMetadata = false;
+  let lookupMessage = '';
+  let lookupMessageType: 'error' | 'info' = 'info';
 
   // Fetch categories from API
   let categories: { id: number, name: string, ddc?: string }[] = [];
@@ -60,6 +65,69 @@
       categories = [];
     } finally {
       categoriesLoading = false;
+    }
+  }
+
+  async function lookupJournalMetadata() {
+    const issn = formData.isbn.trim();
+    const doi = formData.doi.trim();
+    if (!issn && !doi) {
+      lookupMessageType = 'error';
+      lookupMessage = 'Enter an ISSN or DOI first.';
+      return;
+    }
+
+    lookingUpMetadata = true;
+    lookupMessage = '';
+    try {
+      const params = new URLSearchParams();
+      if (issn) params.set('issn', issn);
+      if (doi) params.set('doi', doi);
+      const response = await fetch(`/api/inventory/journals/lookup?${params}`, { credentials: 'include' });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        lookupMessageType = 'error';
+        lookupMessage = result.code === 'INVALID_INPUT'
+          ? 'Enter a valid ISSN or DOI.'
+          : result.code === 'NOT_FOUND'
+            ? 'No journal metadata was found.'
+            : result.code === 'UPSTREAM'
+              ? 'Metadata providers are temporarily unavailable.'
+              : result.error || 'Journal lookup failed.';
+        return;
+      }
+
+      const data = result.data;
+      const next = { ...formData };
+      const fill = (field: keyof typeof next, value: unknown) => {
+        if (!String(next[field] ?? '').trim() && value !== null && value !== undefined) {
+          next[field] = String(value) as never;
+        }
+      };
+
+      fill('title', data.title);
+      fill('publisher', data.publisher);
+      fill('isbn', data.issn);
+      fill('language', data.language);
+      fill('volume', data.volume);
+      fill('issue', data.issueNumber);
+      if (!next.publishedYear && data.publishedDate) next.publishedYear = String(data.publishedDate).slice(0, 4);
+
+      if (!next.categoryId && data.suggestedCategory) {
+        const match = categories.find((category) =>
+          category.name.trim().toLowerCase() === String(data.suggestedCategory).trim().toLowerCase()
+        );
+        if (match) next.categoryId = String(match.id);
+      }
+
+      formData = next;
+      lookupMessageType = 'info';
+      lookupMessage = 'Journal details loaded. Review the fields before saving. Journals do not receive an automatic cover.';
+    } catch {
+      lookupMessageType = 'error';
+      lookupMessage = 'Network error while looking up the journal.';
+    } finally {
+      lookingUpMetadata = false;
     }
   }
 
@@ -103,7 +171,7 @@
 
     generatingCallNumber = true;
     try {
-      const response = await fetch('/api/inventory/books/generate-call-number', {
+      const response = await fetch('/api/inventory/journals/generate-call-number', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -111,6 +179,8 @@
           authorLastName: formData.author.trim(),
           category: categoryName.toLowerCase().replace(/\s+/g, '_'),
           year: formData.publishedYear ? parseInt(formData.publishedYear) : undefined,
+          title: formData.title.trim(),
+          publisher: formData.publisher.trim(),
           isSerial: true,
           volume: formData.volume ? parseInt(formData.volume) : undefined,
           issue: formData.issue ? parseInt(formData.issue) : undefined,
@@ -121,14 +191,14 @@
       const data = await response.json();
 
       if (data.success && data.data) {
-        // Update bookId with the generated unique ID
+        // Use the journal-specific ID returned by the journal generator.
         if (!formData.bookId || formData.bookId.trim().length === 0) {
-          formData.bookId = data.data.bookId;
+          formData.bookId = data.data.journalId;
         }
 
         // Update location with the full call number
         if (!formData.location || formData.location.trim().length === 0) {
-          formData.location = data.data.display.full;
+          formData.location = data.data.display.compact;
         }
       }
     } catch (error) {
@@ -173,12 +243,14 @@
       if (!uploadResponse.ok) {
         const errorData = await uploadResponse.json();
         errors.coverImage = errorData.message || 'Upload failed';
+        toast.error(errors.coverImage);
         return null;
       }
       const result = await uploadResponse.json();
       return result.photoUrl;
     } catch (error) {
       errors.coverImage = 'Network error while uploading image';
+      toast.error(errors.coverImage);
       return null;
     } finally {
       uploadingCoverImage = false;
@@ -224,22 +296,17 @@
       }
       const submitData = {
         title: formData.title.trim(),
-        author: formData.author.trim(),
-        bookId: formData.bookId.trim() || undefined,
-        isbn: formData.isbn.trim() || undefined,
+        journalId: formData.bookId.trim() || undefined,
         publisher: formData.publisher.trim(),
-        publishedYear: parseInt(formData.publishedYear),
-        edition: formData.edition.trim() || undefined,
+        issn: formData.isbn.trim() || undefined,
         language: formData.language,
-        pages: formData.pages ? parseInt(formData.pages) : undefined,
         categoryId: parseInt(formData.categoryId),
         location: formData.location.trim(),
         totalCopies: formData.totalCopies,
         description: formData.description.trim() || undefined,
         coverImage: coverImageUrl || undefined,
-        isSerial: true,
         volume: formData.volume ? parseInt(formData.volume) : undefined,
-        issue: formData.issue ? parseInt(formData.issue) : undefined,
+        issueNumber: formData.issue || undefined,
       };
 
       // post to journals endpoint instead of books
@@ -258,6 +325,7 @@
         resetForm();
       } else {
         errors.submit = result.message || 'Failed to add journal';
+        toast.error(errors.submit);
       }
     } catch (error) {
       console.error('Error submitting form:', error);
@@ -271,7 +339,7 @@
     formData = {
       title: '', author: '', bookId: '', isbn: '', publisher: '',
       publishedYear: '', edition: '', language: 'English', pages: '',
-      categoryId: '', location: '', totalCopies: 1, description: '', coverImage: '',
+      categoryId: '', location: '', totalCopies: 1, description: '', coverImage: '', doi: '',
       volume: '', issue: '',
     };
     errors = {};
@@ -466,13 +534,34 @@
 
                     <!-- ISSN -->
                     <div>
-                      <span class="block text-xs font-medium text-gray-500 mb-1">ISSN</span>
+                      <div class="flex items-center justify-between gap-2 mb-1">
+                        <span class="block text-xs font-medium text-gray-500">ISSN</span>
+                        <button
+                          type="button"
+                          on:click={lookupJournalMetadata}
+                          disabled={isSubmitting || uploadingCoverImage || lookingUpMetadata}
+                          class="text-xs font-semibold text-[#0D5C29] hover:text-[#4A7C59] disabled:opacity-50"
+                        >{lookingUpMetadata ? 'Looking up…' : 'Lookup'}</button>
+                      </div>
                       <input
-                        type="text" bind:value={formData.isbn} disabled={isSubmitting || uploadingCoverImage}
+                        type="text" bind:value={formData.isbn} disabled={isSubmitting || uploadingCoverImage || lookingUpMetadata}
                         placeholder="e.g., 1234-5678"
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
                       />
                     </div>
+
+                    <div>
+                      <span class="block text-xs font-medium text-gray-500 mb-1">DOI</span>
+                      <input
+                        type="text" bind:value={formData.doi} disabled={isSubmitting || uploadingCoverImage || lookingUpMetadata}
+                        placeholder="e.g., 10.1000/xyz123"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
+                      />
+                    </div>
+
+                    {#if lookupMessage}
+                      <p class="sm:col-span-2 text-xs {lookupMessageType === 'error' ? 'text-red-600' : 'text-[#4A7C59]'}">{lookupMessage}</p>
+                    {/if}
 
                   </div>
                 </div>

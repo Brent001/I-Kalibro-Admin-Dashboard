@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let isOpen = false;
   export let member: {
@@ -78,15 +79,16 @@
 
       const data = await res.json();
       if (res.ok && data.success) {
+        toast.success('Restriction added.');
         dispatch('restrictionAdded', data.data);
         resetForm();
         await loadRestrictions();
       } else {
-        alert(data.message || 'Failed to add restriction');
+        toast.error(data.message || 'Failed to add restriction.');
       }
     } catch (err) {
       console.error('Failed to add restriction:', err);
-      alert('Network error. Please try again.');
+      toast.error('Network error. Please try again.');
     }
   }
 
@@ -102,13 +104,14 @@
 
       const data = await res.json();
       if (res.ok && data.success) {
+        toast.success('Restriction removed.');
         await loadRestrictions();
       } else {
-        alert(data.message || 'Failed to remove restriction');
+        toast.error(data.message || 'Failed to remove restriction.');
       }
     } catch (err) {
       console.error('Failed to remove restriction:', err);
-      alert('Network error. Please try again.');
+      toast.error('Network error. Please try again.');
     }
   }
 

@@ -130,12 +130,20 @@ export function generateProfilePhotoUrl(fileName: string): string {
  */
 export function convertToProxyUrl(url: string | null): string | null {
     if (!url) return null;
-    
-    // Already a proxy URL - return as is
+
     if (url.startsWith('/api/images/cover/') || url.startsWith('/api/images/profile/')) {
         return url;
     }
+
+    if (url.startsWith('/api/covers/')) {
+        return `/api/images/cover/${encodeURIComponent(url.slice('/api/covers/'.length))}`;
+    }
+
+    if (/^(covers|books|magazines|journals)\//.test(url)) {
+        return `/api/images/cover/${encodeURIComponent(url)}`;
+    }
     
+    // Already a proxy URL - return as is
     // Direct B2 URL - convert to proxy format
     if (url.includes('backblazeb2.com')) {
         try {

@@ -2,6 +2,7 @@
   import { onMount, onDestroy, tick } from "svelte";
   import { afterNavigate } from '$app/navigation';
   import type { PageData } from './$types.js';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let data: PageData;
 
@@ -351,6 +352,7 @@
       );
       if (recentScan) {
         errorMsg = "This QR code was already scanned recently for this action.";
+        toast.warning(errorMsg);
         // FIX: reset immediately, don't leave the scanner locked
         resetProcessingState();
         setTimeout(() => { errorMsg = ""; }, 10000);
@@ -369,6 +371,7 @@
       if (validateRes.status === 401) {
         // Auth failed (expired token / missing cookie). Redirect to login.
         errorMsg = "Session expired. Redirecting to login...";
+        toast.error(errorMsg);
         resetProcessingState();
         setTimeout(() => { window.location.href = '/'; }, 1200);
         return;
@@ -376,6 +379,7 @@
       const validateData = await validateRes.json();
       if (!validateRes.ok || !validateData.success) {
         errorMsg = validateData.error || validateData.message || "Invalid code";
+        toast.error(errorMsg);
         // FIX: reset so the scanner can try again after showing the error
         resetProcessingState();
         setTimeout(() => { errorMsg = ""; }, 10000);
@@ -412,6 +416,7 @@
       const saveData = await saveRes.json();
       if (!saveRes.ok || !saveData.success) {
         errorMsg = saveData.error || saveData.message || `Failed to save ${resolvedAction}`;
+        toast.error(errorMsg);
         // FIX: reset so the scanner can try again
         resetProcessingState();
         setTimeout(() => { errorMsg = ""; }, 10000);
@@ -421,6 +426,7 @@
       // SUCCESS — record in history, show result, then return to menu
       scanHistory = [{ text: content, timestamp: now, action: resolvedAction! }, ...scanHistory];
       scanResult = content;
+      toast.success(`QR ${resolvedAction === 'time_in' ? 'check-in' : 'check-out'} recorded.`);
 
       // FIX: load visits in parallel; reset state BEFORE navigating back so
       //      no lingering isProcessing=true blocks re-entry into scan mode.
@@ -434,6 +440,7 @@
     } catch (error) {
       console.error('processQRCode error:', error);
       errorMsg = "An error occurred while processing the QR code";
+      toast.error(errorMsg);
       // FIX: always reset on any thrown error
       resetProcessingState();
     }

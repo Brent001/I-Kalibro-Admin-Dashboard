@@ -1,10 +1,11 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   export let isOpen = false;
 
   const dispatch = createEventDispatcher();
-  const languages = ['English', 'Filipino', 'Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Other'];
+  let languages = ['English', 'Filipino', 'Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Other'];
 
   let categories: { id: number; name: string }[] = [];
   let categoriesLoading = false;
@@ -12,10 +13,19 @@
   let errors: { [key: string]: string } = {};
   let coverImageFile: File | null = null;
   let coverImagePreview = '';
+  let coverSourceUrl = '';
   let uploadingCoverImage = false;
+  let generatingCallNumber = false;
+  let lookingUpMetadata = false;
+  let lookupMessage = '';
+  let lookupMessageType: 'error' | 'info' = 'info';
+  let magazineSuggestions: { id: string; title: string; publisher: string | null }[] = [];
+  let loadingSuggestions = false;
+  let suggestionTimeout: ReturnType<typeof setTimeout>;
+  let suggestionRequestId = 0;
 
   let formData = {
-    journalId: '',
+    magazineId: '',
     title: '',
     publisher: '',
     issn: '',
@@ -32,18 +42,175 @@
 
   $: if (isOpen) {
     fetchCategories();
+    fetchLanguages();
   }
 
   async function fetchCategories() {
     categoriesLoading = true;
     try {
-      const response = await fetch('/api/inventory/journals/categories?itemType=journal', { credentials: 'include' });
+      const response = await fetch('/api/inventory/magazines/categories?itemType=magazine', { credentials: 'include' });
       const result = await response.json();
       categories = response.ok && result.success ? result.data.categories : [];
     } catch (err) {
       categories = [];
     } finally {
       categoriesLoading = false;
+    }
+  }
+
+  async function fetchLanguages() {
+    try {
+      const response = await fetch('/api/inventory/magazines/languages', { credentials: 'include' });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not load magazine languages.');
+      languages = result.data?.languages || ['English'];
+    } catch (cause) {
+      errors.language = cause instanceof Error ? cause.message : 'Could not load magazine languages.';
+      toast.error(errors.language);
+    }
+  }
+
+  async function lookupMagazineMetadata() {
+    const title = formData.title.trim();
+    const issn = formData.issn.trim();
+    if (!title && !issn) {
+      lookupMessageType = 'error';
+      lookupMessage = 'Enter a title or ISSN first.';
+      return;
+    }
+
+    lookingUpMetadata = true;
+    lookupMessage = '';
+    try {
+      const params = new URLSearchParams();
+      if (title) params.set('title', title);
+      if (issn) params.set('issn', issn);
+      const response = await fetch(`/api/inventory/magazines/lookup?${params}`, { credentials: 'include' });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        lookupMessageType = 'error';
+        lookupMessage = response.status === 401
+          ? 'Your session has expired. Please sign in again, then retry the lookup.'
+          : result.code === 'INVALID_INPUT'
+          ? 'Enter a valid magazine title or ISSN.'
+          : result.code === 'NOT_FOUND'
+            ? 'No magazine metadata was found.'
+            : result.code === 'UPSTREAM'
+              ? 'Metadata providers are temporarily unavailable.'
+              : result.error || 'Magazine lookup failed.';
+        return;
+      }
+
+      const data = result.data;
+      const next = { ...formData };
+      const fill = (field: keyof typeof next, value: unknown) => {
+        if (!String(next[field] ?? '').trim() && value !== null && value !== undefined) {
+          next[field] = String(value) as never;
+        }
+      };
+
+      fill('title', data.title);
+      fill('publisher', data.publisher);
+      fill('issn', data.issn);
+      fill('language', data.language);
+      fill('description', data.description);
+
+      if (!next.categoryId && data.suggestedCategory) {
+        const match = categories.find((category) =>
+          category.name.trim().toLowerCase() === String(data.suggestedCategory).trim().toLowerCase()
+        );
+        if (match) next.categoryId = String(match.id);
+      }
+
+      if (!next.coverImage && data.coverImage) next.coverImage = data.coverImage;
+      formData = next;
+      if (!coverImageFile) {
+        coverSourceUrl = data.coverUrl || '';
+        coverImagePreview = data.coverUrl || '';
+      }
+      lookupMessageType = 'info';
+      lookupMessage = data.coverStatus === 'not_found' || data.coverStatus === 'storage_not_configured'
+        ? 'Best-match details loaded. No stored cover is available; verify the issue before saving.'
+        : 'Best-match details and cover loaded. Verify the issue before saving.';
+    } catch {
+      lookupMessageType = 'error';
+      lookupMessage = 'Network error while looking up the magazine.';
+    } finally {
+      lookingUpMetadata = false;
+    }
+  }
+
+  function scheduleMagazineSuggestions() {
+    clearTimeout(suggestionTimeout);
+    magazineSuggestions = [];
+    const query = formData.title.trim();
+    if (query.length < 2) {
+      magazineSuggestions = [];
+      return;
+    }
+    suggestionTimeout = setTimeout(() => fetchMagazineSuggestions(query), 350);
+  }
+
+  function hideMagazineSuggestions() {
+    setTimeout(() => {
+      magazineSuggestions = [];
+    }, 150);
+  }
+
+  async function fetchMagazineSuggestions(query: string) {
+    const requestId = ++suggestionRequestId;
+    loadingSuggestions = true;
+    try {
+      const response = await fetch(`/api/inventory/magazines/suggestions?q=${encodeURIComponent(query)}`, {
+        credentials: 'include'
+      });
+      const result = await response.json();
+      if (requestId === suggestionRequestId && response.ok && result.success) {
+        magazineSuggestions = result.data;
+      }
+    } catch {
+      if (requestId === suggestionRequestId) magazineSuggestions = [];
+    } finally {
+      if (requestId === suggestionRequestId) loadingSuggestions = false;
+    }
+  }
+
+  function selectMagazineSuggestion(suggestion: { title: string; publisher: string | null }) {
+    formData = {
+      ...formData,
+      title: suggestion.title,
+      publisher: formData.publisher.trim() || suggestion.publisher || formData.publisher
+    };
+    magazineSuggestions = [];
+    lookupMagazineMetadata();
+  }
+
+  async function generateCallNumber() {
+    const categoryName = categories.find((category) => String(category.id) === String(formData.categoryId))?.name;
+    if (!formData.title.trim() || !categoryName) {
+      errors.location = 'Enter a title and select a category first.';
+      return;
+    }
+    generatingCallNumber = true;
+    try {
+      const response = await fetch('/api/inventory/magazines/generate-call-number', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: formData.title.trim(), publisher: formData.publisher.trim(), category: categoryName,
+          year: formData.publishedDate ? Number(formData.publishedDate.slice(0, 4)) : undefined,
+          volume: formData.volume ? Number(formData.volume) : undefined,
+          issue: formData.issueNumber ? Number(formData.issueNumber) : undefined
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || result.error || 'Could not generate a call number.');
+      formData.location = result.data.callNumber;
+      errors.location = '';
+    } catch (cause) {
+      errors.location = cause instanceof Error ? cause.message : 'Could not generate a call number.';
+      toast.error(errors.location);
+    } finally {
+      generatingCallNumber = false;
     }
   }
 
@@ -76,6 +243,7 @@
     if (!file.type.startsWith('image/')) { errors.coverImage = 'Please select an image file'; return; }
     if (file.size > 5 * 1024 * 1024) { errors.coverImage = 'Image size must be less than 5MB'; return; }
     coverImageFile = file;
+    coverSourceUrl = '';
     const reader = new FileReader();
     reader.onload = () => { coverImagePreview = String(reader.result || ''); };
     reader.readAsDataURL(file);
@@ -85,6 +253,7 @@
   function removeCoverImage() {
     coverImageFile = null;
     coverImagePreview = '';
+    coverSourceUrl = '';
     formData.coverImage = '';
     errors.coverImage = '';
   }
@@ -96,13 +265,14 @@
       const upload = new FormData();
       upload.append('file', coverImageFile);
       upload.append('itemId', '0');
-      upload.append('itemType', 'journal');
+      upload.append('itemType', 'magazine');
       const response = await fetch('/api/images/upload/', { method: 'POST', credentials: 'include', body: upload });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'Cover upload failed');
       return result.photoUrl || null;
     } catch (cause) {
       errors.coverImage = cause instanceof Error ? cause.message : 'Cover upload failed';
+      toast.error(errors.coverImage);
       return null;
     } finally {
       uploadingCoverImage = false;
@@ -121,7 +291,7 @@
         coverImageUrl = uploadedCoverImage;
       }
       const submitData = {
-        journalId: formData.journalId.trim() || undefined,
+        magazineId: formData.magazineId.trim() || undefined,
         title: formData.title.trim(),
         publisher: formData.publisher.trim() || undefined,
         issn: formData.issn.trim() || undefined,
@@ -134,10 +304,11 @@
         totalCopies: Number(formData.totalCopies),
         description: formData.description.trim() || undefined,
         coverImage: coverImageUrl || undefined,
-        itemType: 'journal',
+        coverSourceUrl: coverSourceUrl || undefined,
+        itemType: 'magazine',
       };
 
-      const response = await fetch('/api/inventory/journals', {
+      const response = await fetch('/api/inventory/magazines', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -150,7 +321,8 @@
         handleClose();
         resetForm();
       } else {
-        errors.submit = result.message || 'Failed to add journal';
+        errors.submit = result.message || 'Failed to add magazine';
+        dispatch('error', { message: errors.submit });
       }
     } catch (error) {
       errors.submit = 'Network error. Please try again.';
@@ -162,12 +334,15 @@
 
   function resetForm() {
     formData = {
-      journalId: '', title: '', publisher: '', issn: '', volume: '', issueNumber: '',
+      magazineId: '', title: '', publisher: '', issn: '', volume: '', issueNumber: '',
       publishedDate: '', language: 'English', categoryId: '', location: '', totalCopies: 1, description: '', coverImage: '',
     };
     errors = {};
     coverImageFile = null;
     coverImagePreview = '';
+    coverSourceUrl = '';
+    lookupMessage = '';
+    magazineSuggestions = [];
   }
 
   function handleClose() {
@@ -207,8 +382,8 @@
                   </svg>
                 </div>
                 <div class="min-w-0">
-                  <h3 class="text-lg sm:text-xl font-bold text-[#0D5C29] truncate">Add New Journal</h3>
-                  <p class="text-xs sm:text-sm text-[#4A7C59] hidden sm:block">Complete the form to add a journal to the library</p>
+                  <h3 class="text-lg sm:text-xl font-bold text-[#0D5C29] truncate">Add New Magazine</h3>
+                  <p class="text-xs sm:text-sm text-[#4A7C59] hidden sm:block">Complete the form to add a magazine to the library</p>
                 </div>
               </div>
               <button
@@ -234,7 +409,7 @@
                     <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
                   </svg>
                   <div class="flex-1">
-                    <h4 class="text-sm font-semibold text-red-800">Error Adding Journal</h4>
+                    <h4 class="text-sm font-semibold text-red-800">Error Adding Magazine</h4>
                     <p class="text-sm text-red-700 mt-1">{errors.submit}</p>
                   </div>
                 </div>
@@ -269,13 +444,13 @@
 
                     <div class="flex flex-col gap-1.5 w-32 sm:w-40">
                       <label
-                        for="journal-cover-file"
+                        for="magazine-cover-file"
                         class="cursor-pointer text-center px-3 py-1.5 rounded-lg border border-[#4A7C59]/40 bg-white text-xs font-medium text-[#0D5C29] hover:bg-[#0D5C29]/5 transition-colors duration-200"
                       >
                         {coverImagePreview ? 'Change photo' : 'Upload photo'}
                       </label>
                       <input
-                        id="journal-cover-file" type="file" accept="image/*" class="sr-only"
+                        id="magazine-cover-file" type="file" accept="image/*" class="sr-only"
                         on:change={handleCoverImageChange}
                         disabled={uploadingCoverImage || isSubmitting}
                       />
@@ -299,16 +474,41 @@
                   <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
 
                     <!-- Title (full width) -->
-                    <div class="sm:col-span-2">
-                      <span class="block text-xs font-medium text-gray-500 mb-1">Journal Title <span class="text-red-400">*</span></span>
+                    <div class="sm:col-span-2 relative">
+                      <div class="flex items-center justify-between gap-2 mb-1">
+                        <span class="block text-xs font-medium text-gray-500">Magazine Title <span class="text-red-400">*</span></span>
+                        <button
+                          type="button"
+                          on:click={lookupMagazineMetadata}
+                          disabled={isSubmitting || uploadingCoverImage || lookingUpMetadata}
+                          class="text-xs font-semibold text-[#0D5C29] hover:text-[#4A7C59] disabled:opacity-50"
+                        >{lookingUpMetadata ? 'Looking up…' : 'Lookup'}</button>
+                      </div>
                       <input
                         type="text" bind:value={formData.title}
-                        on:input={() => handleInputChange('title', formData.title)}
-                        disabled={isSubmitting || uploadingCoverImage}
+                        on:input={() => { handleInputChange('title', formData.title); scheduleMagazineSuggestions(); }}
+                        on:blur={hideMagazineSuggestions}
+                        disabled={isSubmitting || uploadingCoverImage || lookingUpMetadata}
                         maxlength="200"
-                        placeholder="e.g., Journal of Applied Sciences"
+                        placeholder="e.g., National Geographic"
                         class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.title ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
                       />
+                      {#if magazineSuggestions.length > 0}
+                        <div class="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+                          {#each magazineSuggestions as suggestion}
+                            <button
+                              type="button"
+                              class="block w-full px-3 py-2 text-left text-sm hover:bg-[#f8faf9]"
+                              on:click={() => selectMagazineSuggestion(suggestion)}
+                            >
+                              <span class="block font-medium text-gray-800">{suggestion.title}</span>
+                              {#if suggestion.publisher}<span class="block text-xs text-gray-500">{suggestion.publisher}</span>{/if}
+                            </button>
+                          {/each}
+                        </div>
+                      {:else if loadingSuggestions}
+                        <p class="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 shadow-lg">Searching…</p>
+                      {/if}
                       {#if errors.title}<p class="text-red-600 text-xs mt-1">{errors.title}</p>{/if}
                     </div>
 
@@ -348,12 +548,16 @@
                     <div>
                       <span class="block text-xs font-medium text-gray-500 mb-1">ISSN</span>
                       <input
-                        type="text" bind:value={formData.issn} disabled={isSubmitting || uploadingCoverImage}
+                        type="text" bind:value={formData.issn} disabled={isSubmitting || uploadingCoverImage || lookingUpMetadata}
                         maxlength="20"
                         placeholder="e.g., 2049-3630"
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
                       />
                     </div>
+
+                    {#if lookupMessage}
+                      <p class="sm:col-span-2 text-xs {lookupMessageType === 'error' ? 'text-red-600' : 'text-[#4A7C59]'}">{lookupMessage}</p>
+                    {/if}
 
                     <!-- Language -->
                     <div>
@@ -428,11 +632,11 @@
 
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
-                  <!-- Journal ID -->
+                  <!-- Magazine ID -->
                   <div>
-                    <span class="block text-xs font-medium text-gray-500 mb-1">Journal ID</span>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Magazine ID</span>
                     <input
-                      type="text" bind:value={formData.journalId} disabled={isSubmitting || uploadingCoverImage}
+                      type="text" bind:value={formData.magazineId} disabled={isSubmitting || uploadingCoverImage}
                       maxlength="30"
                       placeholder="Auto-generated if blank"
                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
@@ -454,12 +658,11 @@
                   <!-- Shelf Location -->
                   <div>
                     <span class="block text-xs font-medium text-gray-500 mb-1">Shelf Location</span>
-                    <input
-                      type="text" bind:value={formData.location} disabled={isSubmitting || uploadingCoverImage}
-                      maxlength="100"
-                      placeholder="e.g., Periodicals Rack A"
-                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
-                    />
+                    <div class="flex gap-2">
+                      <input type="text" bind:value={formData.location} disabled={isSubmitting || uploadingCoverImage || generatingCallNumber} maxlength="100" placeholder="e.g., Periodicals Rack A" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" />
+                      <button type="button" on:click={generateCallNumber} disabled={isSubmitting || uploadingCoverImage || generatingCallNumber} class="shrink-0 rounded-lg border border-[#4A7C59]/30 px-3 text-xs font-medium text-[#0D5C29] disabled:opacity-50">{generatingCallNumber ? 'Generating...' : 'Generate'}</button>
+                    </div>
+                    {#if errors.location}<p class="mt-1 text-xs text-red-600">{errors.location}</p>{/if}
                   </div>
 
                 </div>
@@ -476,7 +679,7 @@
                 <textarea
                   bind:value={formData.description} rows="4"
                   disabled={isSubmitting || uploadingCoverImage} maxlength="500"
-                  placeholder="Brief description of the journal's scope, subject areas, target audience…"
+                  placeholder="Brief description of the magazine's scope, subject areas, target audience…"
                   class="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white resize-none leading-relaxed"
                 ></textarea>
                 <p class="text-xs text-gray-400 mt-1 text-right">{formData.description.length}/500 characters</p>
@@ -497,7 +700,7 @@
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
                 </svg>
-                Adding Journal…
+                Adding Magazine…
               {:else if uploadingCoverImage}
                 <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -508,7 +711,7 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
-                Add Journal
+                Add Magazine
               {/if}
             </button>
             <button

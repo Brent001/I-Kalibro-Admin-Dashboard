@@ -56,28 +56,40 @@ export const GET: RequestHandler = async ({ request }) => {
     return new Response('Unauthorized', { status: 401 });
   }
 
+  let pingInterval: ReturnType<typeof setInterval> | undefined;
+  let closed = false;
+
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    if (pingInterval) clearInterval(pingInterval);
+    request.signal.removeEventListener('abort', cleanup);
+  };
+
   const stream = new ReadableStream<string>({
     start(controller) {
+      if (request.signal.aborted) return;
+
       // Send initial connection message
       controller.enqueue(': connected\n\n');
 
       // Set up keep-alive ping every 15 seconds
-      const pingInterval = setInterval(() => {
+      request.signal.addEventListener('abort', cleanup, { once: true });
+      pingInterval = setInterval(() => {
+        if (closed || request.signal.aborted) {
+          cleanup();
+          return;
+        }
+
         try {
           controller.enqueue(': ping\n\n');
-        } catch (e) {
-          console.debug('Ping failed:', e);
-          clearInterval(pingInterval);
+        } catch {
+          cleanup();
         }
       }, 15000);
-
-      // Store cleanup function
-      const cleanup = () => {
-        clearInterval(pingInterval);
-      };
-
-      // Handle client disconnect
-      request.signal.addEventListener('abort', cleanup);
+    },
+    cancel() {
+      cleanup();
     }
   });
 

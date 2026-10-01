@@ -16,6 +16,14 @@ export function ensureProxiedUrl(url: string | null): string | null {
         return url;
     }
 
+    if (url.startsWith('/api/covers/')) {
+        return `/api/images/cover/${encodeURIComponent(url.slice('/api/covers/'.length))}`;
+    }
+
+    if (/^(covers|books|magazines|journals)\//.test(url)) {
+        return `/api/images/cover/${encodeURIComponent(url)}`;
+    }
+
     // Direct B2 URL - convert to proxy format
     if (url.includes('backblazeb2.com')) {
         try {

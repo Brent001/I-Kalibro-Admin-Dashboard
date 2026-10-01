@@ -223,7 +223,7 @@ export const POST: RequestHandler = async ({ request }) => {
         }
 
         const staffPermissions = permissions || {
-            canManageBooks: false,
+            canManageBooks: true,
             canManageUsers: false,
             canManageBorrowing: true,
             canManageReservations: true,

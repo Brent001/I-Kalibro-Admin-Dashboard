@@ -2,6 +2,7 @@ import type { PageServerLoad } from './$types.js';
 import { redirect } from '@sveltejs/kit';
 import jwt from 'jsonwebtoken';
 import { isSessionRevoked } from '$lib/server/db/auth.js';
+import { getBulkAddAccess } from '$lib/server/utils/bulkAddAccess.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -37,6 +38,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
             role: decoded.role,
             isActive: true
         };
+        const bulkAddAccess = await getBulkAddAccess(token);
 
         return {
             user: {
@@ -44,7 +46,8 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
                 username: user.username,
                 email: user.email,
                 role: user.role
-            }
+            },
+            bulkAddEnabled: bulkAddAccess.authorized
         };
 
     } catch (error) {

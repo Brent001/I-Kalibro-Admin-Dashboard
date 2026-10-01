@@ -247,7 +247,7 @@ export const POST: RequestHandler = async ({ request }) => {
       .insert(tbl_category)
       .values({
         name,
-        itemType: 'book',
+        itemType,
         description: description || null
       })
       .returning({

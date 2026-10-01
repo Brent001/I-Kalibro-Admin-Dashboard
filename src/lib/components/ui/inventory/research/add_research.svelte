@@ -1,14 +1,15 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
+  import { getLeadResearchAuthor, handleResearchAuthorKeydown, normalizeResearchAuthors } from '$lib/utils/researchAuthors.js';
 
   export let isOpen = false;
 
   const dispatch = createEventDispatcher();
-  const languages = ['English', 'Filipino', 'Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Other'];
-
   let categories: { id: number; name: string }[] = [];
   let categoriesLoading = false;
   let isSubmitting = false;
+  let generatingCallNumber = false;
   let errors: { [key: string]: string } = {};
 
   let formData = {
@@ -18,7 +19,6 @@
     advisor: '',
     department: '',
     publicationYear: '',
-    language: 'English',
     categoryId: '',
     location: '',
     totalCopies: 1,
@@ -32,13 +32,37 @@
   async function fetchCategories() {
     categoriesLoading = true;
     try {
-      const response = await fetch('/api/inventory/books/categories?itemType=thesis', { credentials: 'include' });
+      const response = await fetch('/api/inventory/research/categories', { credentials: 'include' });
       const result = await response.json();
       categories = response.ok && result.success ? result.data.categories : [];
     } catch (err) {
       categories = [];
     } finally {
       categoriesLoading = false;
+    }
+  }
+
+  async function generateCallNumber() {
+    const categoryName = categories.find((category) => String(category.id) === String(formData.categoryId))?.name;
+    if (!formData.title.trim() || !formData.author.trim() || !categoryName) {
+      errors.location = 'Enter a title and author, then select a category.';
+      return;
+    }
+    generatingCallNumber = true;
+    try {
+      const response = await fetch('/api/inventory/research/generate-call-number', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: formData.title.trim(), authorLastName: getLeadResearchAuthor(formData.author), category: categoryName, year: Number(formData.publicationYear) || undefined })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || result.error || 'Could not generate a call number.');
+      formData.location = result.data.callNumber;
+      errors.location = '';
+    } catch (cause) {
+      errors.location = cause instanceof Error ? cause.message : 'Could not generate a call number.';
+      toast.error(errors.location);
+    } finally {
+      generatingCallNumber = false;
     }
   }
 
@@ -75,22 +99,23 @@
 
   async function handleSubmit(event: Event) {
     event.preventDefault();
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      toast.warning('Review the required research fields before submitting.');
+      return;
+    }
     isSubmitting = true;
     try {
       const submitData = {
         thesisId: formData.thesisId.trim() || undefined,
         title: formData.title.trim(),
-        author: formData.author.trim(),
+        author: normalizeResearchAuthors(formData.author),
         advisor: formData.advisor.trim() || undefined,
         department: formData.department.trim() || undefined,
         publicationYear: parseInt(formData.publicationYear),
-        language: formData.language,
         categoryId: Number(formData.categoryId),
         location: formData.location.trim() || undefined,
         totalCopies: Number(formData.totalCopies),
         abstract: formData.abstract.trim() || undefined,
-        itemType: 'thesis',
       };
 
       const response = await fetch('/api/inventory/research', {
@@ -107,6 +132,7 @@
         resetForm();
       } else {
         errors.submit = result.message || 'Failed to add research record';
+        toast.error(errors.submit);
       }
     } catch (error) {
       errors.submit = 'Network error. Please try again.';
@@ -119,7 +145,7 @@
   function resetForm() {
     formData = {
       thesisId: '', title: '', author: '', advisor: '', department: '', publicationYear: '',
-      language: 'English', categoryId: '', location: '', totalCopies: 1, abstract: '',
+      categoryId: '', location: '', totalCopies: 1, abstract: '',
     };
     errors = {};
   }
@@ -218,13 +244,14 @@
 
                   <!-- Author -->
                   <div>
-                    <span class="block text-xs font-medium text-gray-500 mb-1">Author <span class="text-red-400">*</span></span>
+                    <span class="block text-xs font-medium text-gray-500 mb-1">Authors <span class="text-red-400">*</span></span>
                     <input
                       type="text" bind:value={formData.author}
                       on:input={() => handleInputChange('author', formData.author)}
+                      on:keydown={handleResearchAuthorKeydown}
                       disabled={isSubmitting}
                       maxlength="200"
-                      placeholder="Researcher name"
+                      placeholder="Name, group, or names separated by semicolons"
                       class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white {errors.author ? 'border-red-300 bg-red-50' : 'border-gray-300'}"
                     />
                     {#if errors.author}<p class="text-red-600 text-xs mt-1">{errors.author}</p>{/if}
@@ -291,19 +318,6 @@
                     />
                   </div>
 
-                  <!-- Language -->
-                  <div>
-                    <span class="block text-xs font-medium text-gray-500 mb-1">Language</span>
-                    <select
-                      bind:value={formData.language} disabled={isSubmitting}
-                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
-                    >
-                      {#each languages as lang}
-                        <option value={lang}>{lang}</option>
-                      {/each}
-                    </select>
-                  </div>
-
                 </div>
               </div>
 
@@ -353,12 +367,11 @@
                   <!-- Shelf Location -->
                   <div class="sm:col-span-2">
                     <span class="block text-xs font-medium text-gray-500 mb-1">Shelf Location</span>
-                    <input
-                      type="text" bind:value={formData.location} disabled={isSubmitting}
-                      maxlength="100"
-                      placeholder="e.g., Thesis Archive Shelf 4"
-                      class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white"
-                    />
+                    <div class="flex gap-2">
+                      <input type="text" bind:value={formData.location} disabled={isSubmitting || generatingCallNumber} maxlength="100" placeholder="e.g., Thesis Archive Shelf 4" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-[#E8B923] focus:border-[#E8B923] transition-all duration-200 disabled:opacity-50 bg-white" />
+                      <button type="button" on:click={generateCallNumber} disabled={isSubmitting || generatingCallNumber} class="shrink-0 rounded-lg border border-[#4A7C59]/30 px-3 text-xs font-medium text-[#0D5C29] disabled:opacity-50">{generatingCallNumber ? 'Generating...' : 'Generate'}</button>
+                    </div>
+                    {#if errors.location}<p class="mt-1 text-xs text-red-600">{errors.location}</p>{/if}
                   </div>
 
                 </div>

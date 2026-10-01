@@ -4,6 +4,7 @@
   import EditMemberModal from "$lib/components/ui/member/edit_member_modal.svelte";
   import ViewMember from "$lib/components/ui/member/view_member.svelte";
   import { onMount } from 'svelte';
+  import { toast } from '$lib/stores/toastStore.js';
 
   // Get user from SSR data
   export let data: { user: { role: string } };
@@ -196,11 +197,14 @@
         showAddModal = false;
         successMsg = "Member added successfully!";
         setTimeout(() => successMsg = "", 3000);
+        toast.success('Member added successfully.');
       } else {
         errorMsg = data.message || "Failed to add member.";
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = "Network error. Please try again.";
+      toast.error(errorMsg);
     }
   }
 
@@ -276,11 +280,14 @@
         showEditModal = false;
         await loadMembers();
         setTimeout(() => successMsg = "", 3000);
+        toast.success(data.message || (isEdit ? 'Member updated successfully.' : 'Member added successfully.'));
       } else {
         errorMsg = data.message || "Operation failed.";
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = "Network error. Please try again.";
+      toast.error(errorMsg);
     }
   }
 
@@ -315,11 +322,14 @@
         selectedMember = null;
         await loadMembers();
         setTimeout(() => successMsg = "", 3000);
+        toast.success(data.message || 'Member updated successfully.');
       } else {
         errorMsg = data.message || "Delete operation failed.";
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = "Network error. Please try again.";
+      toast.error(errorMsg);
     } finally {
       loading = false;
     }
@@ -840,11 +850,14 @@
               showEditModal = false;
               await loadMembers();
               setTimeout(() => successMsg = "", 3000);
+              toast.success(data.message || 'Member updated successfully.');
             } else {
               errorMsg = data.message || "Operation failed.";
+              toast.error(errorMsg);
             }
           } catch (err) {
             errorMsg = "Network error. Please try again.";
+            toast.error(errorMsg);
           } finally {
             loading = false;
           }

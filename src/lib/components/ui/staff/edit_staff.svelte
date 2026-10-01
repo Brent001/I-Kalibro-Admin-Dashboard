@@ -31,9 +31,40 @@
 
     selectedPermissions = {};
     if (staff.permissions && typeof staff.permissions === 'object') {
-      Object.entries(staff.permissions).forEach(([perm, val]) => {
-        if (val) selectedPermissions[perm] = true;
+      permissionsList.forEach((permission) => {
+        selectedPermissions[permission.key] = Boolean(staff.permissions[permission.key]);
       });
+    } else {
+      loadDefaultPermissions();
+    }
+  }
+
+  async function loadDefaultPermissions() {
+    const fallbackDefaults: Record<string, boolean> = {
+      canManageBooks: true,
+      canManageUsers: false,
+      canManageBorrowing: true,
+      canManageReservations: true,
+      canViewReports: false,
+      canManageFines: true
+    };
+
+    try {
+      const response = await fetch('/api/settings', { credentials: 'include' });
+      const result = await response.json();
+      const saved = result?.defaultStaffPermissions;
+      const source = saved && typeof saved === 'object'
+        ? { ...fallbackDefaults, ...saved }
+        : fallbackDefaults;
+      selectedPermissions = permissionsList.reduce((permissions, permission) => {
+        permissions[permission.key] = Boolean(source[permission.key]);
+        return permissions;
+      }, {} as Record<string, boolean>);
+    } catch {
+      selectedPermissions = permissionsList.reduce((permissions, permission) => {
+        permissions[permission.key] = Boolean(fallbackDefaults[permission.key]);
+        return permissions;
+      }, {} as Record<string, boolean>);
     }
   }
 

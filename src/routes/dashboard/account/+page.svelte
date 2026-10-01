@@ -3,6 +3,7 @@
   import EyeOff from 'lucide-svelte/icons/eye-off';
   import LockKeyhole from 'lucide-svelte/icons/lock-keyhole';
   import ShieldCheck from 'lucide-svelte/icons/shield-check';
+  import { toast } from '$lib/stores/toastStore.js';
 
   let { data } = $props();
 
@@ -39,17 +40,20 @@
       if (!response.ok) {
         messageType = 'error';
         message = result.message || 'Password could not be changed.';
+        toast.error(message);
         return;
       }
 
       messageType = 'success';
       message = result.message || 'Password changed successfully. You can stay signed in.';
+      toast.success(message);
       currentPassword = '';
       newPassword = '';
       confirmPassword = '';
     } catch {
       messageType = 'error';
       message = 'Network error. Please try again.';
+      toast.error(message);
     } finally {
       isSubmitting = false;
     }

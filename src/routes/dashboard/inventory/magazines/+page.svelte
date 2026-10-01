@@ -4,9 +4,12 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { fetchAuthSession } from '$lib/utils/authSessionClient.js';
+  import { toast } from '$lib/stores/toastStore.js';
   import AddMagazine from "$lib/components/ui/inventory/magazines/add_magazines.svelte";
   import AddCategory from "$lib/components/ui/inventory/books/add_category.svelte";
   import ViewMagazine from "$lib/components/ui/inventory/magazines/view_magazine.svelte";
+
+  export let data: { bulkAddEnabled?: boolean } = {};
 
   let searchTerm = "";
   let committedSearchTerm = ""; // For active filters display - only set on Enter
@@ -208,13 +211,51 @@
     await goto(`/dashboard/inventory/magazines${queryString ? '?' + queryString : ''}`);
   }
 
-  // Load initial data on component mount
-  onMount(async () => {
-    await Promise.all([
+  // Load initial data and refresh the magazine list after server-side mutations.
+  onMount(() => {
+    void Promise.all([
       fetchCategories(),
       fetchLanguages(),
       fetchStats()
     ]);
+
+    let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryMs = 1000;
+    const refreshMagazines = () => {
+      void Promise.all([
+        fetchMagazines(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
+        fetchStats()
+      ]);
+    };
+    const connect = () => {
+      if (source) source.close();
+      source = new EventSource('/api/inventory/magazines/updates');
+      source.onopen = () => { retryMs = 1000; };
+      source.onmessage = refreshMagazines;
+      for (const eventName of ['magazine-created', 'magazine-updated', 'magazine-deactivated']) {
+        source.addEventListener(eventName, refreshMagazines);
+      }
+      source.onerror = () => {
+        source?.close();
+        source = null;
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = undefined;
+            retryMs = Math.min(30000, retryMs * 2);
+            if (navigator.onLine) connect();
+          }, retryMs);
+        }
+      };
+    };
+    const handleOnline = () => { if (!source) connect(); };
+    window.addEventListener('online', handleOnline);
+    connect();
+    return () => {
+      source?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      window.removeEventListener('online', handleOnline);
+    };
   });
 
   // Close dropdowns when clicking outside
@@ -267,9 +308,13 @@
   async function fetchLanguages() {
     if (!browser) return;
     try {
-      languages = ['English', 'Filipino', 'Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Other'];
+      const response = await fetch('/api/inventory/magazines/languages', { credentials: 'include' });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Failed to load magazine languages.');
+      languages = result.data?.languages || [];
     } catch (err) {
       console.error('Error fetching languages:', err);
+      languages = [];
     }
   }
 
@@ -278,7 +323,7 @@
     if (!browser) return;
     
     try {
-      const response = await fetch('/api/inventory/magazines?summary=true', {
+      const response = await fetch('/api/inventory/magazines/stats', {
         credentials: 'include'
       });
 
@@ -310,6 +355,7 @@
       const data = await response.json();
       
       if (response.ok && data.success) {
+        toast.success('Magazine deleted.');
         // Refresh data with current pagination and filters
         await Promise.all([
           fetchMagazines(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
@@ -321,11 +367,13 @@
     } catch (err) {
       console.error('Error deleting magazine:', err);
       error = err instanceof Error ? err.message : 'An error occurred while deleting the magazine';
+      toast.error(error);
     }
   }
 
   // Event handlers for the modal
   async function handleAddMagazineSuccess() {
+    toast.success('Magazine added successfully.');
     pagination.currentPage = 1;
     await Promise.all([
       fetchMagazines(1, committedSearchTerm, selectedCategory, selectedLanguage),
@@ -337,6 +385,7 @@
   function handleAddMagazineError(event: CustomEvent) {
     console.error('Error adding magazine:', event.detail);
     error = event.detail.message;
+    toast.error(error || 'Could not add the magazine.');
   }
 
   function handleModalClose() {
@@ -369,15 +418,18 @@
       });
       const data = await response.json();
       if (response.ok && data.success) {
+        toast.success('Magazine category added.');
         showAddCategoryModal = false;
         newCategoryName = "";
         newCategoryDescription = "";
         await fetchCategories();
       } else {
         categoryError = data.message || "Failed to add category.";
+        toast.error(categoryError);
       }
     } catch (err) {
       categoryError = "Network error. Please try again.";
+      toast.error(categoryError);
     } finally {
       categoryLoading = false;
     }
@@ -537,6 +589,18 @@
           </svg>
           Add Category
         </button>
+        {#if data.bulkAddEnabled}
+        <button
+          on:click={() => goto('/dashboard/inventory/magazines/bulk_add')}
+          class="inline-flex items-center justify-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-lg text-slate-900 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
+          title="Bulk Add Magazines"
+        >
+          <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          Bulk Add
+        </button>
+        {/if}
       </div>
     </div>
 

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
+  import { toast } from '$lib/stores/toastStore.js';
 
   // Interface aligned with tbl_book schema
   interface BookRow {
@@ -92,14 +93,16 @@
       // Validate file type
       const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
       if (!validTypes.includes(file.type)) {
-        alert('Please select a valid image file (JPG, PNG, GIF, or WebP)');
+        toast.error('Choose a JPG, PNG, GIF, or WebP image.');
+        input.value = '';
         return;
       }
 
       // Validate file size (max 5MB)
       const maxSize = 5 * 1024 * 1024;
       if (file.size > maxSize) {
-        alert('File size must be less than 5MB');
+        toast.error('Cover images must be smaller than 5 MB.');
+        input.value = '';
         return;
       }
 
@@ -118,8 +121,9 @@
         if (uploadedUrl) {
           row.coverImage = uploadedUrl;
           rows = rows;
+          toast.success('Cover photo uploaded.');
         } else {
-          alert('Failed to upload image. Please try again.');
+          toast.error('Cover photo upload failed. Please try again.');
           input.value = ''; // Reset input
         }
       }
@@ -221,6 +225,7 @@
       console.error('Error fetching categories:', err);
       categoriesError = 'Book categories could not be loaded. Check your connection and try again.';
       categories = [];
+      toast.error(categoriesError);
     } finally {
       categoriesLoading = false;
     }
@@ -323,11 +328,13 @@
       errorMessage = rows.some(row => row.status === 'success')
         ? 'All completed books have already been added. Add another row to continue.'
         : 'Start by entering a book title, then complete the required fields.';
+      toast.warning(errorMessage);
       return;
     }
 
     if (categories.length === 0) {
       errorMessage = categoriesError || 'A book category is required before you can add books.';
+      toast.error(errorMessage);
       return;
     }
 
@@ -343,6 +350,7 @@
     if (hasErrors) {
       rows = rows;
       errorMessage = 'Some books need attention. Look for the red marks in each row, correct them, then submit again.';
+      toast.error(errorMessage);
       return;
     }
 
@@ -404,8 +412,14 @@
 
     if (failureCount === 0) {
       successMessage = `Added ${successCount} book${successCount === 1 ? '' : 's'}. You can add more below.`;
+      toast.success(`Added ${successCount} book${successCount === 1 ? '' : 's'} successfully.`);
     } else {
       errorMessage = `Added ${successCount}; ${failureCount} need attention. Correct the failed rows and submit again. Added books will not be duplicated.`;
+      if (successCount > 0) {
+        toast.warning(`Added ${successCount} book${successCount === 1 ? '' : 's'}; ${failureCount} failed.`);
+      } else {
+        toast.error(`Could not add ${failureCount} book${failureCount === 1 ? '' : 's'}. Check the row statuses and try again.`);
+      }
     }
   }
 
@@ -465,6 +479,7 @@
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
+    toast.success('Book entry template downloaded.');
   }
 
   function handleCellClick(rowId: string, field: string) {
@@ -522,7 +537,7 @@
   </div>
 
   <section class="help-panel" aria-label="How to add books">
-    <h1>Quick Add Books</h1>
+    <h1>Bulk Add Books</h1>
     <p>Enter one book on each row. Fields marked <strong>*</strong> are required. Leave Book ID blank and one will be created for you.</p>
     <p>To add many books, download the template, fill it in, then copy the rows and paste them into the first row below. Category names can be pasted as written.</p>
     {#if categoriesLoading}
@@ -758,7 +773,8 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
-    width: 100%;
+    width: calc(100% + 48px);
+    margin: -24px;
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   }
@@ -1463,6 +1479,13 @@
     .quick-btn {
       padding: 10px 14px;
       font-size: 13px;
+    }
+  }
+
+  @media (max-width: 639px) {
+    .spreadsheet-wrapper {
+      width: calc(100% + 20px);
+      margin: -10px;
     }
   }
 </style>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { toast } from '$lib/stores/toastStore.js';
   export let data: { maskedEmail?: string; rememberMe?: boolean };
 
   let otp = '';
@@ -22,6 +23,7 @@
 
     if (!otp) {
       errorMsg = 'Please enter the OTP code.';
+      toast.warning(errorMsg);
       return;
     }
 
@@ -36,12 +38,15 @@
 
       if (result.success) {
         await clearPending2FA();
+        toast.success('Verification successful.');
         await goto('/dashboard');
       } else {
         errorMsg = result.message || 'Invalid OTP. Please try again.';
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = 'Network error. Please try again.';
+      toast.error(errorMsg);
     } finally {
       isSubmitting = false;
     }
@@ -62,11 +67,14 @@
 
       if (result.success) {
         infoMsg = result.message || 'OTP resent. Check your email.';
+        toast.success(infoMsg);
       } else {
         errorMsg = result.message || 'Failed to resend OTP.';
+        toast.error(errorMsg);
       }
     } catch (err) {
       errorMsg = 'Unable to resend OTP. Please try again.';
+      toast.error(errorMsg);
     } finally {
       isResending = false;
     }

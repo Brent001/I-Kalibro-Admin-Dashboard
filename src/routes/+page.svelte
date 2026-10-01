@@ -68,6 +68,8 @@
       } finally {
         isSubmitting = false;
       }
+    } else {
+      errorMsg = 'Enter your username and password.';
     }
   }
 </script>

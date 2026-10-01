@@ -4,9 +4,12 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { fetchAuthSession } from '$lib/utils/authSessionClient.js';
+  import { toast } from '$lib/stores/toastStore.js';
   import AddJournal from "$lib/components/ui/inventory/journals/add_journals.svelte";
   import AddCategory from "$lib/components/ui/inventory/journals/add_category.svelte";
   import JournalDetails from "$lib/components/ui/inventory/journals/journal_details.svelte";
+
+  export let data: { bulkAddEnabled?: boolean } = {};
 
   let searchTerm = "";
   let committedSearchTerm = "";
@@ -366,6 +369,7 @@
       });
       const data = await response.json();
       if (response.ok && data.success) {
+        toast.success('Journal deleted.');
         await Promise.all([
           fetchJournals(pagination.currentPage, committedSearchTerm, selectedCategory, selectedLanguage),
           fetchStats()
@@ -376,10 +380,12 @@
     } catch (err) {
       console.error('Error deleting journal:', err);
       error = err instanceof Error ? err.message : 'An error occurred while deleting the journal';
+      toast.error(error);
     }
   }
 
   async function handleAddJournalSuccess() {
+    toast.success('Journal added successfully.');
     showAddModal = false;
     pagination.currentPage = 1;
     await fetchJournals(1, committedSearchTerm, selectedCategory, selectedLanguage);
@@ -389,6 +395,7 @@
 
   function handleAddJournalError(event: CustomEvent) {
     error = event.detail.message;
+    toast.error(error || 'Could not add the journal.');
   }
 
   function handleModalClose() { showAddModal = false; }
@@ -411,15 +418,18 @@
       });
       const data = await response.json();
       if (response.ok && data.success) {
+        toast.success('Journal category added.');
         showAddCategoryModal = false;
         newCategoryName = "";
         newCategoryDescription = "";
         await fetchCategories();
       } else {
         categoryError = data.message || "Failed to add category.";
+        toast.error(categoryError);
       }
     } catch (err) {
       categoryError = "Network error. Please try again.";
+      toast.error(categoryError);
     } finally {
       categoryLoading = false;
     }
@@ -522,16 +532,18 @@
           </svg>
           Add Category
         </button>
+        {#if data.bulkAddEnabled}
         <button
-          on:click={() => showAddModal = true}
+          on:click={() => goto('/dashboard/inventory/journals/bulk_add')}
           class="inline-flex items-center justify-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-lg text-slate-900 bg-white hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors duration-200"
-          title="Quick Add Journals"
+          title="Bulk Add Journals"
         >
           <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
           </svg>
-          Quick Add
+          Bulk Add
         </button>
+        {/if}
       </div>
     </div>
 
