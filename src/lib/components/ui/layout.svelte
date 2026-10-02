@@ -121,6 +121,8 @@
           title: r.title,
           message: r.message,
           type: r.type || 'info',
+          relatedItemType: r.relatedItemType || null,
+          relatedItemId: r.relatedItemId || null,
           isRead: Boolean(r.isRead),
           timestamp: r.sentAt ? new Date(r.sentAt) : (r.createdAt ? new Date(r.createdAt) : undefined),
           actionUrl: r.actionUrl || null,
@@ -427,11 +429,38 @@
     return `${days}d ago`;
   }
 
-  function handleNotificationAction(notification: any) {
-    if (notification.actionUrl) {
-      showNotificationPanel = false;
-      window.location.href = notification.actionUrl;
+  async function handleNotificationAction(notification: any) {
+    const type = String(notification.type || '').toLowerCase();
+    const transactionTab = type.includes('request') || type.includes('reservation')
+      ? (type === 'reservation_ready' ? 'fulfilled' : 'reserve')
+      : type.includes('overdue')
+        ? 'overdue'
+        : type.includes('return')
+          ? 'return'
+          : type.includes('due') || type.includes('borrow')
+            ? 'borrow'
+            : 'all';
+    const target = notification.actionUrl
+      ? new URL(notification.actionUrl, window.location.origin)
+      : new URL('/dashboard/transactions', window.location.origin);
+
+    if (!notification.actionUrl || target.pathname.startsWith('/dashboard/transactions')) {
+      target.searchParams.set('tab', transactionTab);
+      if (notification.relatedItemId != null) {
+        target.searchParams.set('focusItemId', String(notification.relatedItemId));
+      }
+      if (notification.relatedItemType) {
+        target.searchParams.set('focusItemType', String(notification.relatedItemType).toLowerCase());
+      }
     }
+
+    if (!notification.isRead) {
+      await markNotifications([Number(notification.id)], true);
+      serverNotifications = serverNotifications.map(item => item.id === notification.id ? { ...item, isRead: true } : item);
+      unreadCount = Math.max(0, unreadCount - 1);
+    }
+    showNotificationPanel = false;
+    await goto(`${target.pathname}${target.search}${target.hash}`);
   }
 
   onMount(() => {
@@ -775,8 +804,8 @@
                   {:else}
                     <div class="divide-y divide-gray-100">
                       {#each serverNotifications as notification (notification.id)}
-                        <div class="p-3 sm:p-4 hover:bg-gray-50 transition-colors cursor-pointer group">
-                          <div class="flex items-start space-x-2 sm:space-x-3">
+                        <div class="flex items-start gap-2 p-3 transition-colors hover:bg-gray-50 group sm:p-4">
+                          <button type="button" class="flex min-w-0 flex-1 items-start space-x-2 text-left sm:space-x-3" on:click={() => handleNotificationAction(notification)}>
                             <div class="flex-shrink-0 mt-0.5">
                               <div class="w-7 h-7 sm:w-8 sm:h-8 {getNotificationIconColor(notification.type)} bg-white bg-opacity-50 rounded-full flex items-center justify-center shadow-sm">
                                 {@html getNotificationIcon(notification.type)}
@@ -794,15 +823,13 @@
                                   <span></span>
                                 {/if}
                                 {#if notification.actionText && notification.actionUrl}
-                                  <button
-                                    on:click={() => handleNotificationAction(notification)}
-                                    class="text-xs font-medium text-[#0D5C29] hover:underline focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#0D5C29] rounded px-2 py-1"
-                                  >
+                                  <span class="text-xs font-medium text-[#0D5C29]">
                                     {notification.actionText}
-                                  </button>
+                                  </span>
                                 {/if}
                               </div>
                             </div>
+                          </button>
                             <button
                               on:click={() => dismissNotification(notification.id)}
                               class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 transition-opacity"
@@ -812,7 +839,6 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                               </svg>
                             </button>
-                          </div>
                         </div>
                       {/each}
                     </div>

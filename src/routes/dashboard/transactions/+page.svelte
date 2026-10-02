@@ -89,6 +89,8 @@
 
   let activeTab = "all";
   let selectedPeriod = "all";
+  let focusItemId: number | null = null;
+  let focusItemType = '';
   let showFilters = false;
   let dropdownOpen = false;
   let itemTypeDropdownOpen = false;
@@ -294,6 +296,8 @@
       if (selectedPeriod && selectedPeriod !== 'all') params.set('period', selectedPeriod);
       if (customDays) params.set('days', customDays);
       if (searchTerm) params.set('q', searchTerm);
+      if (focusItemId !== null) params.set('focusItemId', String(focusItemId));
+      if (focusItemType) params.set('focusItemType', focusItemType);
       const newUrl = `${location.pathname}${params.toString() ? '?' + params.toString() : ''}${location.hash || ''}`;
       replaceState(newUrl, {});
     } catch (err) {
@@ -569,6 +573,9 @@
       selectedPeriod = p.get('period') || selectedPeriod;
       customDays = p.get('days') || customDays;
       searchTerm = p.get('q') || searchTerm;
+      const itemId = Number(p.get('focusItemId'));
+      focusItemId = Number.isInteger(itemId) && itemId > 0 ? itemId : null;
+      focusItemType = (p.get('focusItemType') || '').toLowerCase();
     } catch (err) {
       // ignore
     }
@@ -584,6 +591,12 @@
     transactions = initial.transactions || [];
     totalCount = initial.total || 0;
     fineSettings = initial.fineSettings || fineSettings;
+    if (focusItemId !== null) {
+      requestAnimationFrame(() => {
+        document.querySelector(`[data-item-id="${focusItemId}"]${focusItemType ? `[data-item-type="${focusItemType}"]` : ''}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
 
     // Mark initialized so reactive updates will push changes to the URL
     initializedFromUrl = true;
@@ -998,7 +1011,11 @@
               {@const hoursOverdue = Number((transaction as any).hoursOverdue || 0) || Math.ceil(Number((transaction as any).fine || 0) / 5)}
               {@const isOverdue = daysOverdue > 0 || hoursOverdue > 0 || (daysLeft !== null && daysLeft < 0)}
 
-              <tr class="group hover:bg-slate-50/70 transition-colors duration-150 {isOverdue ? 'bg-red-50/30' : ''}">
+              <tr
+                data-item-id={transaction.itemId}
+                data-item-type={transaction.itemType?.toLowerCase()}
+                class="group hover:bg-slate-50/70 transition-colors duration-150 {focusItemId === transaction.itemId && (!focusItemType || focusItemType === transaction.itemType?.toLowerCase()) ? 'bg-amber-100 ring-2 ring-inset ring-amber-400' : isOverdue ? 'bg-red-50/30' : ''}"
+              >
 
                 <!-- ID + Type -->
                 <td class="pl-6 pr-3 py-4 whitespace-nowrap">
