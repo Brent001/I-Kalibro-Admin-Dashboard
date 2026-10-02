@@ -12,8 +12,9 @@ export const GET: RequestHandler = async ({ cookies }) => {
   const results = await db.select({ language: tbl_magazine.language })
     .from(tbl_magazine)
     .where(isNotNull(tbl_magazine.language));
-  const languages = [...new Set(results.map(({ language }) => language?.trim()).filter((language): language is string => Boolean(language)))].sort();
+  const dbLanguages = [...new Set(results.map(({ language }) => language?.trim()).filter((language): language is string => Boolean(language)))].sort((a, b) => a.localeCompare(b));
   const defaults = ['English', 'Filipino', 'Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Other'];
+  const languages = [...new Set([...defaults, ...dbLanguages])].sort((a, b) => a.localeCompare(b));
 
-  return json({ success: true, data: { languages: languages.length ? languages : defaults } });
+  return json({ success: true, data: { languages } });
 };

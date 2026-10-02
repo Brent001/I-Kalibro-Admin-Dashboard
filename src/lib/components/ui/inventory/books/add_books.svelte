@@ -39,9 +39,11 @@
 
   let categories: { id: number, name: string, ddc?: string }[] = [];
   let categoriesLoading = false;
+  let languages: string[] = ['English', 'Filipino', 'Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Other'];
 
   $: if (isOpen) {
     fetchCategories();
+    fetchLanguages();
   }
 
   async function fetchCategories() {
@@ -63,16 +65,35 @@
     }
   }
 
+  async function fetchLanguages() {
+    try {
+      const response = await fetch('/api/inventory/books/languages', { credentials: 'include' });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not load book languages.');
+      const nextLanguages = Array.isArray(result.data?.languages) ? result.data.languages : ['English'];
+      languages = nextLanguages.length ? nextLanguages : ['English'];
+      if (formData.language && !languages.includes(formData.language)) {
+        languages = [...languages, formData.language];
+      }
+    } catch (cause) {
+      console.error('Error fetching book languages:', cause);
+    }
+  }
+
+  function ensureLanguageOption(language: string | null | undefined) {
+    if (!language || !language.trim()) return;
+    const normalizedLanguage = language.trim();
+    if (!languages.includes(normalizedLanguage)) {
+      languages = [...languages, normalizedLanguage];
+    }
+  }
+
   onMount(() => {
     document.addEventListener('keydown', handleKeydown);
     return () => {
       document.removeEventListener('keydown', handleKeydown);
     };
   });
-
-  const languages = [
-    'English','Filipino','Spanish','French','German','Japanese','Chinese','Other'
-  ];
 
   function handleInputChange(field: string, value: string | number | boolean) {
     formData = { ...formData, [field]: value };
@@ -173,6 +194,9 @@
       fill('author', data.author);
       fill('publisher', data.publisher);
       fill('publishedYear', data.publishedYear);
+      if (data.language) {
+        ensureLanguageOption(data.language);
+      }
       fill('language', data.language);
       fill('pages', data.pages);
       fill('description', data.description);
