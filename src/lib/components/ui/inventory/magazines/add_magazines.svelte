@@ -63,10 +63,22 @@
       const response = await fetch('/api/inventory/magazines/languages', { credentials: 'include' });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.message || 'Could not load magazine languages.');
-      languages = result.data?.languages || ['English'];
+      const nextLanguages = Array.isArray(result.data?.languages) ? result.data.languages : ['English'];
+      languages = nextLanguages.length ? nextLanguages : ['English'];
+      if (formData.language && !languages.includes(formData.language)) {
+        languages = [...languages, formData.language];
+      }
     } catch (cause) {
       errors.language = cause instanceof Error ? cause.message : 'Could not load magazine languages.';
       toast.error(errors.language);
+    }
+  }
+
+  function ensureLanguageOption(language: string | null | undefined) {
+    if (!language || !language.trim()) return;
+    const normalizedLanguage = language.trim();
+    if (!languages.includes(normalizedLanguage)) {
+      languages = [...languages, normalizedLanguage];
     }
   }
 
@@ -112,6 +124,9 @@
       fill('title', data.title);
       fill('publisher', data.publisher);
       fill('issn', data.issn);
+      if (data.language) {
+        ensureLanguageOption(data.language);
+      }
       fill('language', data.language);
       fill('description', data.description);
 

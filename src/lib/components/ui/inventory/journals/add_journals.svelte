@@ -44,9 +44,11 @@
   // Fetch categories from API
   let categories: { id: number, name: string, ddc?: string }[] = [];
   let categoriesLoading = false;
+  let languages: string[] = ['English', 'Filipino', 'Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Other'];
 
   $: if (isOpen) {
     fetchCategories();
+    fetchLanguages();
   }
 
   async function fetchCategories() {
@@ -108,6 +110,9 @@
       fill('title', data.title);
       fill('publisher', data.publisher);
       fill('isbn', data.issn);
+      if (data.language) {
+        ensureLanguageOption(data.language);
+      }
       fill('language', data.language);
       fill('volume', data.volume);
       fill('issue', data.issueNumber);
@@ -131,16 +136,35 @@
     }
   }
 
+  async function fetchLanguages() {
+    try {
+      const response = await fetch('/api/inventory/journals/languages', { credentials: 'include' });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not load journal languages.');
+      const nextLanguages = Array.isArray(result.data?.languages) ? result.data.languages : ['English'];
+      languages = nextLanguages.length ? nextLanguages : ['English'];
+      if (formData.language && !languages.includes(formData.language)) {
+        languages = [...languages, formData.language];
+      }
+    } catch (cause) {
+      console.error('Error fetching journal languages:', cause);
+    }
+  }
+
+  function ensureLanguageOption(language: string | null | undefined) {
+    if (!language || !language.trim()) return;
+    const normalizedLanguage = language.trim();
+    if (!languages.includes(normalizedLanguage)) {
+      languages = [...languages, normalizedLanguage];
+    }
+  }
+
   onMount(() => {
     document.addEventListener('keydown', handleKeydown);
     return () => {
       document.removeEventListener('keydown', handleKeydown);
     };
   });
-
-  const languages = [
-    'English','Filipino','Spanish','French','German','Japanese','Chinese','Other'
-  ];
 
   function handleInputChange(field: string, value: string | number | boolean) {
     formData = { ...formData, [field]: value };
