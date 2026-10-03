@@ -7,13 +7,17 @@ import { updateAllOverdueFines } from '$lib/server/utils/fineCalculation.js';
 import { createDueDateNotifications } from '$lib/server/services/notifications.js';
 
 // Secret token to prevent unauthorized access
-const CRON_SECRET = process.env.CRON_SECRET || 'your-secret-token-here';
+const CRON_SECRET = process.env.CRON_SECRET;
 
 export const GET: RequestHandler = async ({ request }) => {
   try {
+    if (!CRON_SECRET || CRON_SECRET.length < 32 || /^<[^>]+>$/.test(CRON_SECRET)) {
+      throw error(503, { message: 'Scheduled job authentication is not configured' });
+    }
+
     // Verify authorization token
     const authHeader = request.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
     if (token !== CRON_SECRET) {
       throw error(401, { message: 'Unauthorized' });

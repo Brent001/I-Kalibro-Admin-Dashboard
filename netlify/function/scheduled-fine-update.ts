@@ -1,13 +1,22 @@
 // netlify/functions/scheduled-fine-update.ts
 // This function will run automatically on a schedule
+/// <reference types="node" />
 
 import { schedule } from '@netlify/functions';
 
-const CRON_SECRET = process.env.CRON_SECRET || 'your-secret-token-here';
+const CRON_SECRET = process.env.CRON_SECRET;
 const SITE_URL = process.env.URL || 'http://localhost:5173';
 
 const handler = schedule('0 * * * *', async () => {
   // Runs every hour (0 minutes past the hour)
+
+  if (!CRON_SECRET || CRON_SECRET.length < 32 || /^<[^>]+>$/.test(CRON_SECRET)) {
+    console.error('Scheduled fine update is missing a valid CRON_SECRET.');
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ success: false, error: 'Scheduled job authentication is not configured' })
+    };
+  }
   
   try {
     console.log('Running scheduled fine update...');
