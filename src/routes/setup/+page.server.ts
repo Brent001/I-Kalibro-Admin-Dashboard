@@ -1,9 +1,9 @@
 import type { PageServerLoad, Actions } from './$types.js';
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { db, ensureDatabaseSchema } from '$lib/server/db/index.js';
+import { createInitialSuperAdmin } from '$lib/server/services/initialSetup.js';
 import { tbl_super_admin } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
-import bcrypt from 'bcrypt';
 import { z } from 'zod';
 
 // add these types
@@ -120,48 +120,9 @@ async function checkDuplicates(email: string, username: string) {
     }
 }
 
-async function hashPassword(password: string): Promise<string> {
-    try {
-        const saltRounds = 12;
-        return await bcrypt.hash(password, saltRounds);
-    } catch (error) {
-        console.error('[Setup] Error hashing password:', error);
-        throw new Error('Failed to hash password');
-    }
-}
-
-async function createAdminAccount(
-    name: string,
-    email: string,
-    username: string,
-    hashedPassword: string
-) {
-    try {
-        const [admin] = await db
-            .insert(tbl_super_admin)
-            .values({
-                name,
-                email,
-                username,
-                password: hashedPassword,
-                isActive: true
-            })
-            .returning({
-                id: tbl_super_admin.id,
-                name: tbl_super_admin.name,
-                email: tbl_super_admin.email,
-                username: tbl_super_admin.username
-            });
-
-        return admin;
-    } catch (error) {
-        console.error('[Setup] Error creating admin account:', error);
-        throw new Error('Failed to create admin account');
-    }
-}
-
 // Page load
 export const load: PageServerLoad = async () => {
+    await ensureDatabaseSchema();
     const setupCompleted = await isSetupCompleted();
     
     if (setupCompleted) {
@@ -248,11 +209,15 @@ export const actions = {
                 });
             }
 
-            // Hash password
-            const hashedPassword = await hashPassword(password);
-
-            // Create admin account
-            const admin = await createAdminAccount(name, email, username, hashedPassword);
+            const admin = await createInitialSuperAdmin({ name, email, username, password });
+            if (!admin) {
+                return fail(403, {
+                    errorMsg: 'System setup has already been completed. Please log in instead.',
+                    name: formFields.name,
+                    email: formFields.email,
+                    username: formFields.username
+                });
+            }
 
             console.log(`[Setup] Super admin account created successfully: ${admin.email} (ID: ${admin.id})`);
 

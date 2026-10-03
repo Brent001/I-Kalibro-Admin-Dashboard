@@ -1,8 +1,8 @@
 import type { RequestHandler } from '@sveltejs/kit';
-import { db } from '$lib/server/db/index.js';
+import { db, ensureDatabaseSchema } from '$lib/server/db/index.js';
+import { createInitialSuperAdmin } from '$lib/server/services/initialSetup.js';
 import { tbl_super_admin } from '$lib/server/db/schema/schema.js';
 import { eq, count } from 'drizzle-orm';
-import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import type { ZodIssue } from 'zod';
 
@@ -30,6 +30,7 @@ const setupSchema = z.object({
 
 export const POST: RequestHandler = async ({ request }) => {
     try {
+    await ensureDatabaseSchema();
         // Parse form data instead of JSON
         const formData = await request.formData();
         const body = {
@@ -107,28 +108,13 @@ export const POST: RequestHandler = async ({ request }) => {
             );
         }
 
-        // Hash the password
-        const saltRounds = 12;
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-        // Create super admin account
-        const [admin] = await db
-            .insert(tbl_super_admin)
-            .values({
-                name,
-                email,
-                username,
-                password: hashedPassword,
-                isActive: true
-            })
-            .returning({
-                id: tbl_super_admin.id,
-                uniqueId: tbl_super_admin.uniqueId,
-                name: tbl_super_admin.name,
-                email: tbl_super_admin.email,
-                username: tbl_super_admin.username,
-                isActive: tbl_super_admin.isActive
-            });
+        const admin = await createInitialSuperAdmin({ name, email, username, password });
+        if (!admin) {
+            return new Response(
+                JSON.stringify({ success: false, message: 'System setup has already been completed.' }),
+                { status: 403, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
 
         // Log successful setup (consider using a proper logging library)
         console.log(`Super admin account created successfully: ${admin.email}`);
@@ -160,6 +146,7 @@ export const POST: RequestHandler = async ({ request }) => {
 // Optional: GET endpoint to check setup status
 export const GET: RequestHandler = async () => {
     try {
+    await ensureDatabaseSchema();
         const [{ count: accountCount }] = await db
             .select({ count: count() })
             .from(tbl_super_admin);
