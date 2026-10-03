@@ -364,19 +364,19 @@ function summaryBlock(ws: Worksheet, title: string, head: string[], rows: (strin
   t.getCell(1).alignment = { vertical: 'middle', indent: 1 };
 
   const h = ws.addRow(head);
-  h.eachCell((c) => {
+  h.eachCell((c, columnNumber) => {
     c.font = { name: FONT, size: 10, bold: true, color: { argb: X.brand } };
     c.fill = solid(X.soft);
     c.border = hair;
-    c.alignment = { horizontal: c.col === 1 ? 'left' : 'right', indent: c.col === 1 ? 1 : 0 };
+    c.alignment = { horizontal: columnNumber === 1 ? 'left' : 'right', indent: columnNumber === 1 ? 1 : 0 };
   });
   rows.forEach((r, i) => {
     const row = ws.addRow(r);
-    row.eachCell((c) => {
-      c.font = { name: FONT, size: 10, bold: c.col === 1, color: { argb: X.ink } };
+    row.eachCell((c, columnNumber) => {
+      c.font = { name: FONT, size: 10, bold: columnNumber === 1, color: { argb: X.ink } };
       c.border = hair;
-      c.alignment = { horizontal: c.col === 1 ? 'left' : 'right', indent: c.col === 1 ? 1 : 0 };
-      if (typeof c.value === 'number' && c.col === 3) c.numFmt = '0.0%';
+      c.alignment = { horizontal: columnNumber === 1 ? 'left' : 'right', indent: columnNumber === 1 ? 1 : 0 };
+      if (typeof c.value === 'number' && columnNumber === 3) c.numFmt = '0.0%';
       if (i % 2 === 1) c.fill = solid(X.stripe);
     });
   });

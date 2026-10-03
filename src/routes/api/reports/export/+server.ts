@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import { createRequire } from 'node:module';
 import type ExcelJSTypes from 'exceljs';
+import type { Borders, Cell, Fill, Workbook, Worksheet } from 'exceljs';
 import * as fs from 'fs';
 import * as nodePath from 'path';
 import type { RequestHandler } from './$types.js';
@@ -724,8 +725,8 @@ const FMT = {
   date: 'mmm d, yyyy', dt: 'mmm d, yyyy h:mm AM/PM',
 };
 const FONT = 'Calibri';
-const thinBottom: Partial<ExcelJS.Borders> = { bottom: { style: 'thin', color: { argb: X.line } } };
-const solid = (argb: string): ExcelJS.Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+const thinBottom: Partial<Borders> = { bottom: { style: 'thin', color: { argb: X.line } } };
+const solid = (argb: string): Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
 
 /** ExcelJS stores dates as UTC serials; shift so Excel shows Manila wall-clock time. */
 const xlDate = (s: unknown): Date | null => {
@@ -737,7 +738,7 @@ type XType = 'text' | 'int' | 'money' | 'date' | 'datetime' | 'status' | 'center
 type XCol = { header: string; key: string; width: number; type?: XType };
 type Block = { title: string; head: string[]; rows: any[][] };
 
-function statusStyle(cell: ExcelJS.Cell, raw: unknown) {
+function statusStyle(cell: Cell, raw: unknown) {
   const txt = String(raw ?? '');
   const st = STATUS[txt.toLowerCase()];
   cell.value = txt.toUpperCase();
@@ -747,7 +748,7 @@ function statusStyle(cell: ExcelJS.Cell, raw: unknown) {
 }
 
 /** Cell setter that understands {money}, {pct}, {int} wrappers and plain values. */
-function setAny(cell: ExcelJS.Cell, v: any) {
+function setAny(cell: Cell, v: any) {
   if (v && typeof v === 'object' && !(v instanceof Date)) {
     if ('money' in v) { cell.value = num(v.money); cell.numFmt = FMT.money; }
     else if ('pct' in v) { cell.value = num(v.pct); cell.numFmt = FMT.pct; }
@@ -759,7 +760,7 @@ function setAny(cell: ExcelJS.Cell, v: any) {
   }
 }
 
-function banner(ws: ExcelJS.Worksheet, n: number, title: string, subtitle: string) {
+function banner(ws: Worksheet, n: number, title: string, subtitle: string) {
   ws.mergeCells(1, 1, 1, n);
   const t = ws.getCell(1, 1);
   t.value = title;
@@ -779,7 +780,7 @@ function banner(ws: ExcelJS.Worksheet, n: number, title: string, subtitle: strin
   for (let c = 2; c <= n; c++) ws.getCell(2, c).fill = solid(X.soft);
 }
 
-function writeBlock(ws: ExcelJS.Worksheet, span: number, b: Block) {
+function writeBlock(ws: Worksheet, span: number, b: Block) {
   ws.addRow([]);
   const w = Math.max(span, b.head.length);
   const t = ws.addRow([b.title]);
@@ -790,11 +791,12 @@ function writeBlock(ws: ExcelJS.Worksheet, span: number, b: Block) {
   t.getCell(1).alignment = { vertical: 'middle', indent: 1 };
 
   const h = ws.addRow(b.head);
-  h.eachCell(c => {
+  h.eachCell((c, columnNumber) => {
+    const column = Number(columnNumber);
     c.font = { name: FONT, size: 10, bold: true, color: { argb: X.brand } };
     c.fill = solid(X.soft);
     c.border = thinBottom;
-    c.alignment = { horizontal: c.col === 1 ? 'left' : 'right', vertical: 'middle', indent: c.col === 1 ? 1 : 0 };
+    c.alignment = { horizontal: column === 1 ? 'left' : 'right', vertical: 'middle', indent: column === 1 ? 1 : 0 };
   });
   b.rows.forEach((r, i) => {
     const row = ws.addRow([]);
@@ -810,7 +812,7 @@ function writeBlock(ws: ExcelJS.Worksheet, span: number, b: Block) {
 }
 
 function addDataSheet(
-  wb: ExcelJS.Workbook,
+  wb: Workbook,
   o: {
     name: string; title: string; subtitle: string; tab: string; cols: XCol[];
     rows: Record<string, any>[]; emptyMsg: string;
